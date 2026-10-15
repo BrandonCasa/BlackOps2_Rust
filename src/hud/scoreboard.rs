@@ -363,7 +363,6 @@ fn setup(
                         native::image(&game, &server, "zm_hud_icon_evil_crusade"),
                         rect(31., 180., 128., 128.),
                     ));
-
                 });
         });
 }

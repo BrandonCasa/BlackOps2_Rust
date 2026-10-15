@@ -119,13 +119,14 @@ pub(crate) fn image(
     server: &AssetServer,
     name: &str,
 ) -> ImageNode {
-    game.content
+    let id = format!("ui.{name}");
+    let asset = game
+        .content
         .ui_assets
         .iter()
-        .find(|asset| asset.id.0 == format!("ui.{name}"))
-        .map_or_else(ImageNode::default, |asset| {
-            ImageNode::new(server.load(asset.path.clone()))
-        })
+        .find(|asset| asset.id.0 == id)
+        .unwrap_or_else(|| panic!("required HUD image {id} is missing from the UI catalog"));
+    ImageNode::new(server.load(asset.path.clone()))
 }
 
 fn resize(
@@ -169,6 +170,12 @@ fn render(
     glyphs: Query<(), With<Glyph>>,
 ) {
     let Some(game) = game else { return };
+    if !labels
+        .iter()
+        .any(|(_, label, _, rendered, _)| rendered.is_none_or(|r| r.0 != *label))
+    {
+        return;
+    }
     let fonts: BTreeMap<_, _> = game
         .content
         .ui_assets
@@ -184,9 +191,10 @@ fn render(
         if rendered.is_some_and(|r| r.0 == *label) {
             continue;
         }
-        let Some((asset, font)) = fonts.get(format!("ui.font.{}", label.style).as_str()) else {
-            continue;
-        };
+        let font_id = format!("ui.font.{}", label.style);
+        let (asset, font) = fonts.get(font_id.as_str()).unwrap_or_else(|| {
+            panic!("required HUD font {font_id} is missing from the UI catalog")
+        });
         if let Some(children) = children {
             for child in children.iter().filter(|child| glyphs.contains(*child)) {
                 commands.entity(child).despawn();
@@ -256,32 +264,22 @@ fn render(
                         let left = x + glyph.offset[0] * factor;
                         let top =
                             (font.height + glyph.offset[1]) * factor + line as f32 * label.size;
-                        for (offset, color) in [
-                            (1., Color::srgba(0., 0., 0., label.color.alpha() * 0.8)),
-                            (0., label.color),
-                        ] {
-                            parent.spawn((
-                                Glyph,
-                                Pickable::IGNORE,
-                                rect(
-                                    left + offset,
-                                    top + offset,
-                                    glyph.size[0] * factor,
-                                    glyph.size[1] * factor,
-                                ),
-                                ImageNode {
-                                    image: texture.clone(),
-                                    color,
-                                    rect: Some(Rect::new(
-                                        glyph.rect[0],
-                                        glyph.rect[1],
-                                        glyph.rect[2],
-                                        glyph.rect[3],
-                                    )),
-                                    ..default()
-                                },
-                            ));
-                        }
+                        parent.spawn((
+                            Glyph,
+                            Pickable::IGNORE,
+                            rect(left, top, glyph.size[0] * factor, glyph.size[1] * factor),
+                            ImageNode {
+                                image: texture.clone(),
+                                color: label.color,
+                                rect: Some(Rect::new(
+                                    glyph.rect[0],
+                                    glyph.rect[1],
+                                    glyph.rect[2],
+                                    glyph.rect[3],
+                                )),
+                                ..default()
+                            },
+                        ));
                     }
                     x += glyph.advance * factor;
                 }

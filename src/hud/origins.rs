@@ -190,12 +190,12 @@ fn setup(
                 rect(1152., 577., 128., 128.),
             ));
             parent.spawn((
-                native::image(&game, &server, "hud_zm_tomb_dpad_bar"),
+                native::image(&game, &server, "hud_tomb_dpad_bar"),
                 SafeAnchor::right(960.),
                 rect(960., 673., 256., 16.),
             ));
             parent.spawn((
-                native::image(&game, &server, "hud_zm_tomb_dpad"),
+                native::image(&game, &server, "hud_tomb_dpad"),
                 SafeAnchor::right(1152.),
                 rect(1152., 577., 128., 128.),
             ));
@@ -212,7 +212,7 @@ fn setup(
                 },
             ));
             for (index, name) in [
-                "specialty_doublepoints_zombies",
+                "specialty_2x_zombies",
                 "specialty_instakill_zombies",
                 "specialty_zomblood_zombies",
                 "specialty_firesale_zombies",
@@ -672,10 +672,10 @@ fn icons(
                         small = false;
                     }
                     let (name, width) = match c {
-                        '/' => ("hud_zm_num_tomb_slash".into(), 24.),
-                        '|' => ("hud_zm_num_tomb_line".into(), 32.),
+                        '/' => ("hud_tomb_zom_num_slash".into(), 24.),
+                        '|' => ("hud_tomb_zom_num_line".into(), 32.),
                         _ => (
-                            format!("hud_zm_num_tomb_{c}"),
+                            format!("hud_tomb_zom_num_{c}"),
                             if stock { 24. } else { 32. },
                         ),
                     };

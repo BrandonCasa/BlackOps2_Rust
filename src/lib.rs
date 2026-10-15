@@ -98,6 +98,7 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
 
 pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
     let configuration = assets::AssetDirectory::discover(&options.asset_root);
+    let (cinematics, playback) = cinematics::Cinematics::begin(&options.asset_root);
     // Reserve stack space for the debug glTF asset-loading task frames.
     bevy::tasks::IoTaskPool::get_or_init(|| {
         bevy::tasks::TaskPoolBuilder::new()
@@ -107,6 +108,9 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
             .build()
     });
     let mut app = App::new();
+    app.insert_resource(cinematics)
+        .insert_resource(playback)
+        .insert_resource(bevy::winit::WinitSettings::continuous());
     let asset_root = options.asset_root.to_string_lossy().into_owned();
     app.insert_resource(options);
     let default_plugins = DefaultPlugins.build();
@@ -154,7 +158,6 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
                 session::SessionPlugin,
                 frontend::FrontendPlugin,
                 combat_effects::CombatEffectsPlugin,
-                life::LifeStatePlugin,
             ),
             (
                 solo_revive::SoloRevivePlugin,

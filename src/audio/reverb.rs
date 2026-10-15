@@ -235,24 +235,6 @@ impl Network {
         output
     }
 }
-#[derive(Clone)]
-pub(super) enum Input {
-    Cached(super::decoded::DecodedClip),
-    Stream(AudioSource),
-}
-impl Input {
-    fn source(&self, looping: bool) -> Box<dyn Source<Item = Sample> + Send> {
-        let source: Box<dyn Source<Item = Sample> + Send> = match self {
-            Self::Cached(clip) => Box::new(clip.decoder()),
-            Self::Stream(source) => Box::new(source.decoder()),
-        };
-        if looping {
-            Box::new(source.repeat_infinite())
-        } else {
-            source
-        }
-    }
-}
 pub(super) struct VoiceControl {
     pub(super) gain: Arc<AtomicU32>,
     pub(super) filter: Arc<AtomicU32>,
@@ -303,8 +285,15 @@ struct Reader {
     control: Arc<VoiceControl>,
 }
 impl Reader {
-    fn new(input: &Input, looping: bool, control: Arc<VoiceControl>) -> Self {
-        let source = input.source(looping);
+    fn new(input: &AudioSource, looping: bool, control: Arc<VoiceControl>) -> Self {
+        let source: Box<dyn Source<Item = Sample> + Send> = if looping {
+            Box::new(
+                rodio::Decoder::new_looped(std::io::Cursor::new(input.bytes.clone()))
+                    .expect("native looping audio must contain a supported encoded source"),
+            )
+        } else {
+            Box::new(input.decoder())
+        };
         let channels = source.channels().get() as usize;
         let rate = source.sample_rate().get();
         let mut reader = Self {
@@ -424,7 +413,7 @@ impl WetMixer {
     }
 }
 impl ListenerRoom {
-    pub(super) fn enqueue(&self, input: &Input, looping: bool, control: Arc<VoiceControl>) {
+    pub(super) fn enqueue(&self, input: &AudioSource, looping: bool, control: Arc<VoiceControl>) {
         self.mixer
             .lock()
             .unwrap_or_else(|error| error.into_inner())

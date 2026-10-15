@@ -1,4 +1,4 @@
-use crate::{GameState, assets::{GameDefinition, LaunchOptions}, audio::AudioSettings};
+use crate::{GameState, assets::LaunchOptions, audio::{AudioSettings, Channel}};
 use bevy::prelude::*;
 use std::{fs::{File, OpenOptions}, io::Write, process::{Child, Command, Stdio}};
 #[cfg(windows)]
@@ -9,6 +9,34 @@ pub(crate) struct LoadingPlayback {
     pub done: bool,
     pub skippable: bool,
     video: Option<Video>,
+}
+#[derive(Resource, serde::Deserialize)]
+pub(crate) struct Cinematics {
+    intro: Sequence,
+    ending: Sequence,
+}
+#[derive(serde::Deserialize)]
+struct Sequence {
+    video: String,
+    /// Original stereo bed followed by the center narration stem.
+    stems: [Stem; 2],
+}
+#[derive(serde::Deserialize)]
+struct Stem {
+    path: String,
+    volume: f32,
+    channel: Channel,
+}
+impl Cinematics {
+    pub(crate) fn begin(root: &std::path::Path) -> (Self, LoadingPlayback) {
+        let path = root.join("cinematics.json");
+        let sequences: Self = serde_json::from_slice(&std::fs::read(&path)
+            .unwrap_or_else(|error| panic!("Read {}: {error}", path.display())))
+            .unwrap_or_else(|error| panic!("Decode {}: {error}", path.display()));
+        let (settings, _) = crate::input::settings::SettingsStore::load(crate::input::settings::local_path());
+        let video = sequences.intro.play(root, &settings.audio);
+        (sequences, LoadingPlayback { video: Some(video), ..default() })
+    }
 }
 struct Video {
     player: Child,
@@ -38,25 +66,22 @@ fn start(
     mut commands: Commands,
     state: Res<State<GameState>>,
     options: Res<LaunchOptions>,
-    game: Option<Res<GameDefinition>>,
+    sequences: Res<Cinematics>,
     audio: Res<AudioSettings>,
     mut playback: ResMut<LoadingPlayback>,
     mut cameras: Query<&mut Camera, With<crate::rendering::GameCamera>>,
 ) {
     if playback.video.is_some() || playback.done { return; }
-    let Some(game) = game else { return; };
     let ending = **state == GameState::Ending;
-    let sequence = game.content.cinematics.iter().find(|sequence| {
-        if ending { sequence.id.0.contains("ending") || sequence.id.0.contains("outro") }
-        else { sequence.id.0.contains("loading") || sequence.id.0.contains("intro") }
-    }).expect("source cinematic");
-    let root = &options.asset_root;
-    let tracks = sequence.audio.each_ref().map(|id| {
-        let alias = &game.audio.aliases[&id.0];
-        let sound = game.content.sounds.iter().find(|sound| sound.id == alias.sounds[0])
-            .expect("cinematic audio source");
-        (root.join(&sound.path), alias.native[0].volume_max * audio.gain(alias.channel))
-    });
+    let sequence = if ending { &sequences.ending } else { &sequences.intro };
+    playback.skippable = ending;
+    playback.video = Some(sequence.play(&options.asset_root, &audio));
+    for mut camera in &mut cameras { camera.is_active = false; }
+    commands.insert_resource(bevy::winit::WinitSettings::continuous());
+}
+impl Sequence {
+fn play(&self, root: &std::path::Path, audio: &AudioSettings) -> Video {
+    let tracks = self.stems.each_ref().map(|stem| (root.join(&stem.path), stem.volume * audio.gain(stem.channel)));
     let filter = format!("[aid1]volume={}[stereo];[aid2]volume={}[center];[stereo][center]join=inputs=2:channel_layout=3.0:map=0.0-FL|0.1-FR|1.0-FC[ao]", tracks[0].1, tracks[1].1);
     let pipe = format!(r"\\.\pipe\origins-cinematic-{}", std::process::id());
     let mut command = Command::new(root.parent().unwrap().join("tools/mpv/mpv.exe"));
@@ -68,15 +93,14 @@ fn start(
         .arg(format!("--audio-file={}", tracks[0].0.display()))
         .arg(format!("--audio-file={}", tracks[1].0.display()))
         .arg(format!("--lavfi-complex={filter}"))
-        .arg(root.join(&sequence.video)).stdin(Stdio::null());
+        .arg(root.join(&self.video)).stdin(Stdio::null());
     #[cfg(windows)]
     command.creation_flags(0x08000000);
     let player = command.spawn().expect("start mpv cinematic player");
-    playback.skippable = ending;
-    playback.video = Some(Video { player, pipe, connection: None, skip_enabled: false });
-    for mut camera in &mut cameras { camera.is_active = false; }
-    commands.insert_resource(bevy::winit::WinitSettings::continuous());
+    Video { player, pipe, connection: None, skip_enabled: false }
 }
+}
+
 fn advance(
     state: Res<State<GameState>>,
     mut playback: ResMut<LoadingPlayback>,

@@ -6,7 +6,7 @@ use crate::{
 };
 use bevy::{
     prelude::*,
-    world_serialization::{WorldAssetRoot, WorldInstance, WorldInstanceSpawner},
+    world_serialization::{WorldAssetRoot, WorldInstance},
 };
 use std::hash::BuildHasher;
 
@@ -42,14 +42,6 @@ impl Plugin for SessionPlugin {
 }
 
 fn initialize(world: &mut World) {
-    if world
-        .query_filtered::<Entity, With<Player>>()
-        .iter(world)
-        .next()
-        .is_some()
-    {
-        return;
-    }
     teardown(world);
     let next = world
         .resource::<SessionId>()
@@ -89,41 +81,11 @@ pub(crate) fn teardown(world: &mut World) {
         .query_filtered::<Entity, With<SessionEntity>>()
         .iter(world)
         .collect();
-    let owners: std::collections::HashSet<_> = entities.iter().copied().collect();
-    let instances: Vec<_> = world
-        .query::<(Entity, &WorldInstance)>()
-        .iter(world)
-        .filter_map(|(entity, instance)| {
-            let mut ancestor = Some(entity);
-            while let Some(current) = ancestor {
-                if owners.contains(&current) {
-                    return Some((entity, **instance));
-                }
-                ancestor = world.get::<ChildOf>(current).map(ChildOf::parent);
-            }
-            None
-        })
-        .collect();
-    for (entity, instance) in instances {
-        world
-            .entity_mut(entity)
-            .remove::<WorldAssetRoot>();
-        world
-            .resource_mut::<WorldInstanceSpawner>()
-            .unregister_instance(instance);
-    }
     for entity in entities {
         if let Ok(entity) = world.get_entity_mut(entity) {
             entity.despawn();
         }
     }
-    world
-        .resource_mut::<crate::life::LifeCommandQueue>()
-        .clear();
-    world
-        .resource_mut::<crate::life::LifeCommandResults>()
-        .drain()
-        .for_each(drop);
     crate::solo_revive::reset(world);
     crate::enemies::reset(world);
     crate::generators::reset(world);

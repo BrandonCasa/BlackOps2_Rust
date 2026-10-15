@@ -3,7 +3,6 @@ use bevy::prelude::*;
 
 pub(crate) mod native;
 mod origins;
-mod performance;
 mod scoreboard;
 mod widgets;
 
@@ -17,12 +16,9 @@ struct DamageEdge;
 pub struct HudPlugin;
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins((
-            performance::PerformanceOverlayPlugin,
-            origins::OriginsHudPlugin,
-        ))
-        .add_systems(OnEnter(GameState::StartingSession), setup)
-        .add_systems(Update, damage_feedback);
+        app.add_plugins(origins::OriginsHudPlugin)
+            .add_systems(OnEnter(GameState::StartingSession), setup)
+            .add_systems(Update, damage_feedback);
     }
 }
 
@@ -100,6 +96,3 @@ fn damage_feedback(
         image.color = Color::srgba(1., 1., 1., alpha);
     }
 }
-
-
-

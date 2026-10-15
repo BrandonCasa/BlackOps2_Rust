@@ -12,13 +12,11 @@ use std::{
         atomic::{AtomicBool, AtomicU32, Ordering},
     },
 };
-mod decoded;
 mod gameplay;
 mod master;
 mod narrative;
 mod obstruction;
 mod reverb;
-pub(crate) use decoded::AudioDecodeStats;
 pub(crate) use gameplay::voice;
 pub(crate) use narrative::{NarrativeProgress, RobotPurgeReady};
 
@@ -103,7 +101,6 @@ pub struct NativeLimit {
 pub struct SoundCurve(pub [[f32; 2]; 8]);
 
 impl SoundCurve {
-
     fn sample(&self, value: f32) -> f32 {
         let value = if value.is_nan() { 0. } else { value };
         if value <= self.0[0][0] {
@@ -193,7 +190,6 @@ impl NativeSound {
             / (self.priority_threshold[1] - self.priority_threshold[0]);
         self.priority[0] as f32 * (1. - fraction) + self.priority[1] as f32 * fraction
     }
-
 }
 #[derive(Clone, Deserialize)]
 pub struct SoundNote {
@@ -212,7 +208,6 @@ pub struct WaterDefinition {
     pub triangles: Vec<[[f32; 3]; 3]>,
 }
 impl WaterDefinition {
-
     fn touches(&self, position: Vec3) -> bool {
         let start = position + Vec3::Y * 200. * 0.0254;
         let movement = Vec3::NEG_Y * 400. * 0.0254;
@@ -304,7 +299,6 @@ impl AudioDefinition {
             })
             .map(String::as_str)
     }
-
 }
 #[derive(Resource, Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -593,9 +587,7 @@ pub struct DynamicsDefinition {
     pub release: f32,
 }
 
-impl MasterDefinition {
-
-}
+impl MasterDefinition {}
 
 #[derive(Clone, Deserialize)]
 pub struct RoomDefinition {
@@ -614,7 +606,6 @@ pub struct DuckProfile {
     pub update_while_paused: bool,
 }
 impl DuckProfile {
-
     fn amount(&self, age: f32, stopped: Option<f32>, distance: f32) -> Option<f32> {
         let start = age - self.delay;
         let fade = if let Some(stopped) = stopped.filter(|stopped| age > *stopped) {
@@ -789,10 +780,7 @@ impl Drop for SemanticPlayback {
     }
 }
 #[derive(Component)]
-enum PendingRoom {
-    Cached(Handle<decoded::DecodedClip>),
-    Stream(Handle<AudioSource>),
-}
+struct PendingRoom(Handle<AudioSource>);
 pub(crate) fn emit_owned(
     commands: &mut Commands,
     alias: impl Into<String>,
@@ -939,23 +927,11 @@ impl Plugin for GameAudioPlugin {
             .init_resource::<NativeDucks>()
             .init_resource::<reverb::ListenerRoom>()
             .add_message::<PlaybackEvent>()
-            .init_resource::<decoded::ClipCache>()
-            .init_resource::<AudioDecodeStats>()
-            .add_audio_source::<decoded::DecodedClip>()
             .add_audio_source::<reverb::RoomClip>()
             .add_audio_source::<reverb::RoomBus>()
-            .init_asset_loader::<decoded::DecodedClipLoader>()
             .add_systems(
                 Update,
-                (
-                    settings,
-                    reverb::update,
-                    decoded::maintain,
-                    play,
-                    route,
-                    lifecycle,
-                    subtitles,
-                )
+                (settings, reverb::update, play, route, lifecycle, subtitles)
                     .chain()
                     .after(crate::input::pause_and_restart)
                     .in_set(AudioPlayback),
@@ -975,7 +951,6 @@ impl Plugin for GameAudioPlugin {
         app.add_systems(OnEnter(GameState::Ending), stop);
         gameplay::install(app);
         narrative::install(app);
-
     }
 }
 fn settings(
@@ -1027,7 +1002,6 @@ fn play(
     mut mixer: ResMut<Mixer>,
     mut evidence: ResMut<AudioEvidence>,
     mut subtitle: ResMut<Subtitle>,
-    (mut clips, mut decode_stats): (ResMut<decoded::ClipCache>, ResMut<AudioDecodeStats>),
     (reservation, music, generators, weather, mut events, mut lifetimes): (
         Res<StoryReservation>,
         Res<MusicOverride>,
@@ -1547,14 +1521,9 @@ fn play(
             semantic.wet_min = alias.wet_distance_min;
             semantic.wet_max = alias.wet_distance_max;
             semantic.wet_curves = native.map(|native| native.reverb_curves.clone());
-            let pending = if let Some(clip) =
-                clips.clip(&server, &sound.path, alias.seconds, &mut decode_stats)
-            {
-                PendingRoom::Cached(clip)
-            } else {
-                PendingRoom::Stream(server.load(sound.path.clone()))
-            };
-            commands.entity(entity).insert(pending);
+            commands
+                .entity(entity)
+                .insert(PendingRoom(server.load(sound.path.clone())));
             if looping {
                 commands.entity(entity).insert(PlaybackSettings {
                     mode: PlaybackMode::Once,
@@ -1568,12 +1537,6 @@ fn play(
                     ..default()
                 });
             }
-        } else if let Some(clip) =
-            clips.clip(&server, &sound.path, alias.seconds, &mut decode_stats)
-        {
-            commands
-                .entity(entity)
-                .insert(AudioPlayer::<decoded::DecodedClip>(clip));
         } else {
             commands
                 .entity(entity)
@@ -1684,18 +1647,7 @@ fn maintain(
             .p1()
             .iter()
             .filter_map(
-                |(
-                    entity,
-                    sound,
-                    semantic,
-                    pose,
-                    regular,
-                    spatial,
-                    playback,
-                    _,
-                    _,
-                    _,
-                )| {
+                |(entity, sound, semantic, pose, regular, spatial, playback, _, _, _)| {
                     let native = game
                         .audio
                         .aliases
@@ -2096,7 +2048,6 @@ fn subtitles(state: Res<State<GameState>>, time: Res<Time>, mut subtitle: ResMut
 fn route(
     mut commands: Commands,
     server: Res<AssetServer>,
-    decoded: Res<Assets<decoded::DecodedClip>>,
     streams: Res<Assets<AudioSource>>,
     mut assets: ResMut<Assets<reverb::RoomClip>>,
     mut room: ResMut<reverb::ListenerRoom>,
@@ -2112,39 +2063,18 @@ fn route(
     game: Option<Res<GameDefinition>>,
 ) {
     for (entity, pending, mut semantic, sound, mut playback) in &mut pending {
-        let input = match pending {
-            PendingRoom::Cached(handle) => {
-                if let Some(clip) = decoded.get(handle) {
-                    Some(reverb::Input::Cached(clip.clone()))
-                } else {
-                    if matches!(
-                        server.get_load_state(handle.id()),
-                        Some(bevy::asset::LoadState::Failed(_))
-                    ) && let Some(path) = server.get_path(handle.id())
-                    {
-                        commands
-                            .entity(entity)
-                            .insert(PendingRoom::Stream(server.load(path.to_string())));
-                    }
-                    None
-                }
-            }
-            PendingRoom::Stream(handle) => {
-                if matches!(
-                    server.get_load_state(handle.id()),
-                    Some(bevy::asset::LoadState::Failed(_))
-                ) {
-                    commands.entity(entity).try_despawn();
-                    events.write(PlaybackEvent {
-                        entity,
-                        status: PlaybackStatus::Cancelled,
-                    });
-                }
-                streams
-                    .get(handle)
-                    .map(|source| reverb::Input::Stream(source.clone()))
-            }
-        };
+        if matches!(
+            server.get_load_state(pending.0.id()),
+            Some(bevy::asset::LoadState::Failed(_))
+        ) {
+            commands.entity(entity).try_despawn();
+            events.write(PlaybackEvent {
+                entity,
+                status: PlaybackStatus::Cancelled,
+            });
+            continue;
+        }
+        let input = streams.get(&pending.0);
         if let Some(input) = input {
             let voice = Arc::new(reverb::VoiceControl::new(
                 semantic.wet.as_ref().unwrap().clone(),
@@ -2163,7 +2093,7 @@ fn route(
                 semantic.dry_done.as_ref().unwrap().clone(),
                 playback.spatial,
             ));
-            room.enqueue(&input, sound.looping, voice.clone());
+            room.enqueue(input, sound.looping, voice.clone());
             if !room.started {
                 let bus = buses.add(room.bus());
                 commands.spawn((

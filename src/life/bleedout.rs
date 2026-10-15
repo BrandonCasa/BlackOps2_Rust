@@ -3,8 +3,7 @@ use std::time::Duration;
 use bevy::prelude::*;
 
 use super::{
-    DamageRoute, DownedExpiry, ExpiryOutcome, LifeCommand, LifeCommandOutcome, LifeCommandQueue,
-    LifeCommandRequest, LifeCommandResult, LifeStateError, PlayerLethalPolicy, Vitality,
+    DamageRoute, DownedExpiry, ExpiryOutcome, LifeStateError, PlayerLethalPolicy, Vitality,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -13,10 +12,6 @@ pub enum BleedoutClockError {
     UnsupportedFractionalCountdown,
     ZeroPollInterval,
     Lifecycle(LifeStateError),
-    NotDue,
-    InFlight,
-    Retired,
-    UnexpectedAcknowledgement,
 }
 
 impl std::fmt::Display for BleedoutClockError {
@@ -58,7 +53,6 @@ pub struct BleedoutClock {
     expiry: DownedExpiry,
     timer: Timer,
     poll: Duration,
-    in_flight: Option<u64>,
     retired: bool,
 }
 
@@ -76,7 +70,6 @@ impl BleedoutClock {
             expiry,
             timer: Timer::new(timing.countdown, TimerMode::Once),
             poll: timing.poll,
-            in_flight: None,
             retired: false,
         })
     }
@@ -102,13 +95,8 @@ impl BleedoutClock {
     pub fn is_retired(&self) -> bool {
         self.retired
     }
-    pub fn in_flight(&self) -> Option<u64> {
-        self.in_flight
-    }
-
     pub fn retire(&mut self) {
         self.retired = true;
-        self.in_flight = None;
     }
 
     pub fn tick(
@@ -135,58 +123,18 @@ impl BleedoutClock {
             self.retire();
             return Err(error);
         }
-        if self.in_flight.is_some() {
-            return Ok(None);
-        }
         self.timer.tick(delta.min(self.timer.remaining()));
         Ok(self.timer.is_finished().then_some(self.expiry))
     }
 
-    pub fn enqueue(
-        &mut self,
-        queue: &mut LifeCommandQueue,
-        id: u64,
-    ) -> Result<(), BleedoutClockError> {
-        if self.retired {
-            return Err(BleedoutClockError::Retired);
+    pub fn expire(&mut self, target: Entity, vitality: &mut Vitality) -> ExpiryOutcome {
+        let outcome = vitality
+            .expire_downed(target, self.expiry)
+            .expect("Bleedout belongs to the current downed episode");
+        match outcome {
+            ExpiryOutcome::Deferred(_) => self.timer = Timer::new(self.poll, TimerMode::Once),
+            ExpiryOutcome::Terminated { .. } | ExpiryOutcome::Ignored => self.retire(),
         }
-        if self.in_flight.is_some() {
-            return Err(BleedoutClockError::InFlight);
-        }
-        if !self.timer.is_finished() {
-            return Err(BleedoutClockError::NotDue);
-        }
-        queue
-            .submit(LifeCommandRequest {
-                id,
-                target: self.expiry.target(),
-                command: LifeCommand::ExpireDowned(self.expiry),
-            })
-            .map_err(BleedoutClockError::Lifecycle)?;
-        self.in_flight = Some(id);
-        Ok(())
-    }
-
-    pub fn acknowledge(&mut self, receipt: LifeCommandResult) -> Result<(), BleedoutClockError> {
-        if self.retired {
-            return Err(BleedoutClockError::Retired);
-        }
-        if self.in_flight != Some(receipt.id) || receipt.target != self.expiry.target() {
-            return Err(BleedoutClockError::UnexpectedAcknowledgement);
-        }
-        match receipt.result {
-            Ok(LifeCommandOutcome::Expiry(ExpiryOutcome::Deferred(expiry)))
-                if expiry == self.expiry =>
-            {
-                self.in_flight = None;
-                self.timer = Timer::new(self.poll, TimerMode::Once);
-            }
-            Ok(LifeCommandOutcome::Expiry(
-                ExpiryOutcome::Terminated { .. } | ExpiryOutcome::Ignored,
-            ))
-            | Err(_) => self.retire(),
-            _ => return Err(BleedoutClockError::UnexpectedAcknowledgement),
-        }
-        Ok(())
+        outcome
     }
 }

@@ -1,16 +1,13 @@
 use crate::{
     GameState,
-    access::{DoorBlocker, ZoneAccess},
+    access::ZoneAccess,
     assets::GameDefinition,
     gameplay::{GameStep, Session},
     origins::{ContentId, NativeNegotiation, NativePathNode, Traversal, ZoneId},
-    player::{Player, capsule},
+    player::Player,
 };
 use avian3d::prelude::*;
-use bevy::{
-    prelude::*,
-    tasks::{ComputeTaskPool, ParallelSlice},
-};
+use bevy::prelude::*;
 use std::{
     cmp::Ordering,
     collections::{BinaryHeap, HashMap, HashSet, VecDeque},
@@ -19,7 +16,6 @@ use std::{
 struct Node {
     point: Vec3,
     zone: ZoneId,
-    ready: bool,
     native: Option<NativePathNode>,
 }
 impl Node {
@@ -39,9 +35,8 @@ struct Edge {
     traversal: Traversal,
     animation: Option<String>,
     blockers: Vec<ContentId>,
-    ready: bool,
     cost: f32,
-    native: Option<(ContentId, NativeNegotiation)>,
+    native: Option<NativeNegotiation>,
 }
 pub struct TraversalStep {
     pub start: Vec3,
@@ -71,16 +66,8 @@ pub struct Navigation {
     order: VecDeque<(usize, usize)>,
     pub revision: u32,
     epoch: u32,
-    player_node: Option<usize>,
-    warmup: u8,
     chamber_blocked: std::collections::HashSet<(usize, usize)>,
     perk_blocked: HashMap<Entity, HashSet<(usize, usize)>>,
-    pub requests: u64,
-    pub cache_hits: u64,
-    pub fallbacks: u64,
-    pub graph_changes: u32,
-    pub rejected_nodes: usize,
-    pub rejected_links: usize,
 }
 #[derive(Clone, Copy)]
 struct Work {
@@ -110,9 +97,7 @@ impl Navigation {
     fn invalidate(&mut self) {
         self.cache.clear();
         self.order.clear();
-        self.player_node = None;
         self.revision = self.revision.wrapping_add(1);
-        self.graph_changes += 1;
     }
 
     fn replace_perk_paths(&mut self, owner: Entity, blocked: HashSet<(usize, usize)>) {
@@ -213,146 +198,14 @@ impl Navigation {
         }
         self.cache.clear();
         self.order.clear();
-        self.player_node = None;
         self.revision = self.revision.wrapping_add(1);
-        self.graph_changes += 1;
     }
 
-    pub fn negotiation_observation(
-        &self,
-        game: &GameDefinition,
-        access: &ZoneAccess,
-    ) -> serde_json::Value {
-        let native: HashMap<_, _> = self
-            .edges
-            .iter()
-            .enumerate()
-            .flat_map(|(from, edges)| {
-                edges.iter().filter_map(move |edge| {
-                    edge.native
-                        .as_ref()
-                        .map(|(id, data)| (id, (from, edge, data)))
-                })
-            })
-            .collect();
-        let mut rows = Vec::new();
-        for source in &game.content.navigation_links {
-            let Some(expected) = &source.negotiation else {
-                continue;
-            };
-            let observed = native.get(&source.id);
-            let passed = observed.is_some_and(|(from, edge, data)| {
-                *data == expected
-                    && edge.cost == expected.cost
-                    && edge.traversal == source.traversal
-                    && edge.animation == source.source_animation
-                    && game
-                        .content
-                        .navigation_nodes
-                        .get(*from)
-                        .is_some_and(|n| n.id == source.from)
-                    && game
-                        .content
-                        .navigation_nodes
-                        .get(edge.to)
-                        .is_some_and(|n| n.id == source.to)
-            });
-            rows.push(serde_json::json!({"id":source.id,"passed":passed,"animation":source.source_animation,
-                "cost":observed.map(|(_,e,_)|e.cost),"yaw":observed.map(|(_,_,n)|n.start.yaw),
-                "flags":expected.flags,"disconnected":expected.disconnect_count,
-                "geometry_admitted":observed.is_some_and(|(_,e,_)|e.ready),
-                "accessible":observed.is_some_and(|(from,e,_)|self.allowed(*from,e,access))}));
-        }
-        serde_json::json!({"passed": rows.len() == native.len() && rows.iter().all(|r|r["passed"] == true),
-            "expected":rows.len(),"retained":native.len(),
-            "geometry_admitted":rows.iter().filter(|r|r["geometry_admitted"] == true).count(),
-            "accessible":rows.iter().filter(|r|r["accessible"] == true).count(),"links":rows})
-    }
-    pub fn inspect_gate(&self, id: &ContentId, access: &ZoneAccess) -> Option<(Vec3, Vec3, bool)> {
-        self.edges.iter().enumerate().find_map(|(from, edges)| {
-            edges
-                .iter()
-                .find(|e| {
-                    e.ready && matches!(e.traversal, Traversal::Walk) && e.blockers.contains(id)
-                })
-                .map(|e| {
-                    (
-                        self.nodes[from].point,
-                        self.nodes[e.to].point,
-                        self.allowed(from, e, access),
-                    )
-                })
-        })
-    }
-    pub fn inspect_gate_nodes(&self, id: &ContentId) -> serde_json::Value {
-        let rows: Vec<_> = self.edges.iter().enumerate().flat_map(|(from, edges)| {
-            edges.iter().filter(|e| e.blockers.contains(id)).map(move |e| serde_json::json!({
-                "from":from,"to":e.to,"from_ready":self.nodes[from].ready,"to_ready":self.nodes[e.to].ready,
-                "edge_ready":e.ready,"a":self.nodes[from].point.to_array(),"b":self.nodes[e.to].point.to_array(),"traversal":format!("{:?}",e.traversal)
-            }))
-        }).collect();
-        serde_json::json!(rows)
-    }
-    pub fn inspect_traversal(&mut self, access: &ZoneAccess) -> Option<(Vec3, Vec3, String)> {
-        let mut pairs = Vec::new();
-        for (from, edges) in self.edges.iter().enumerate() {
-            for e in edges {
-                if self.allowed(from, e, access)
-                    && matches!(e.traversal, Traversal::Climb | Traversal::Jump)
-                    && self.nodes[e.to].point.y - self.nodes[from].point.y > 0.7
-                {
-                    let start = self.nodes[from].point;
-                    let end = self.nodes[e.to].point;
-                    let delta = end - start;
-                    let heading_change = e.native.as_ref().map_or(0., |(_, native)| {
-                        ((native.start.yaw - (-delta.z).atan2(delta.x) + std::f32::consts::PI)
-                            .rem_euclid(std::f32::consts::TAU)
-                            - std::f32::consts::PI)
-                            .abs()
-                    });
-                    pairs.push((start, end, heading_change));
-                }
-            }
-        }
-        pairs.sort_by(|a, b| b.2.total_cmp(&a.2));
-        pairs.into_iter().find_map(|(from, to, _)| {
-            let destination = self.destination(from, to, access);
-            self.traversal(from, destination, access)
-                .filter(|step| step.end.distance_squared(to) < 0.25)
-                .map(|step| (step.start, step.end, step.alias))
-        })
-    }
-    pub fn inspect_cache(&mut self, access: &ZoneAccess) -> bool {
-        let mut pairs = Vec::new();
-        'scan: for (from, edges) in self.edges.iter().enumerate() {
-            for e in edges {
-                if self.allowed(from, e, access) {
-                    pairs.push((self.nodes[from].point, self.nodes[e.to].point));
-                    if pairs.len() >= 1000 {
-                        break 'scan;
-                    }
-                }
-            }
-        }
-        for (from, to) in pairs {
-            self.destination(from, to, access);
-        }
-        self.cache.len() <= 512 && self.cache.len() > 0
-    }
-    pub fn node_count(&self) -> usize {
-        self.nodes.len()
-    }
-    pub fn link_count(&self) -> usize {
-        self.edges.iter().map(Vec::len).sum()
-    }
-    pub fn cache_len(&self) -> usize {
-        self.cache.len()
-    }
     fn nearest(&self, p: Vec3, access: &ZoneAccess, active: bool) -> Option<usize> {
         self.nodes
             .iter()
             .enumerate()
-            .filter(|(_, n)| n.ready && (!active || access.reachable.contains(&n.zone)))
+            .filter(|(_, n)| !active || access.reachable.contains(&n.zone))
             .min_by(|(_, a), (_, b)| {
                 a.point
                     .distance_squared(p)
@@ -366,23 +219,11 @@ impl Navigation {
                 .perk_blocked
                 .values()
                 .any(|paths| paths.contains(&(from, e.to)))
-            && e.ready
-            && e.native
-                .as_ref()
-                .is_none_or(|(_, n)| n.disconnect_count == 0)
+            && e.native.as_ref().is_none_or(|n| n.disconnect_count == 0)
             && (matches!(e.traversal, Traversal::Walk) || e.animation.is_some())
-            && self.nodes[from].ready
-            && self.nodes[e.to].ready
             && access.reachable.contains(&self.nodes[from].zone)
             && access.reachable.contains(&self.nodes[e.to].zone)
             && e.blockers.iter().all(|id| access.opened(id))
-    }
-    pub fn active_links(&self, access: &ZoneAccess) -> usize {
-        self.edges
-            .iter()
-            .enumerate()
-            .map(|(from, es)| es.iter().filter(|e| self.allowed(from, e, access)).count())
-            .sum()
     }
     pub fn direct_allowed(&self, a: Vec3, b: Vec3, access: &ZoneAccess) -> bool {
         self.nearest(a, access, false)
@@ -398,12 +239,10 @@ impl Navigation {
         (p.distance_squared(source) <= 100.).then_some(p)
     }
     pub fn destination(&mut self, position: Vec3, target: Vec3, access: &ZoneAccess) -> Vec3 {
-        self.requests += 1;
         let Some((start, goal)) = self
             .nearest(position, access, true)
             .zip(self.nearest(target, access, false))
         else {
-            self.fallbacks += 1;
             return position;
         };
         self.route(start, goal, target, access).0
@@ -414,12 +253,10 @@ impl Navigation {
         entrance: &crate::access::SpawnEntranceDefinition,
         access: &ZoneAccess,
     ) -> Vec3 {
-        self.requests += 1;
         let Some((start, goal)) = self
             .nearest(position, access, true)
             .zip(self.entrance_nodes.get(&entrance.node).copied())
         else {
-            self.fallbacks += 1;
             return position;
         };
         let (point, fallback) = self.route(start, goal, self.nodes[goal].point, access);
@@ -445,7 +282,7 @@ impl Navigation {
                 start: self.nodes[from].point,
                 end: self.nodes[edge.to].point,
                 alias: edge.animation.clone()?,
-                yaw: edge.native.as_ref()?.1.start.yaw,
+                yaw: edge.native.as_ref()?.start.yaw,
             })
         })
     }
@@ -464,8 +301,6 @@ impl Navigation {
             };
         }
         if let Some((point, fallback)) = self.cache.get(&(start, goal)).copied() {
-            self.cache_hits += 1;
-            self.fallbacks += u64::from(fallback);
             return (point, fallback);
         }
         let mut costs = vec![f32::INFINITY; self.nodes.len()];
@@ -506,7 +341,6 @@ impl Navigation {
             }
         }
         let fallback = best != goal;
-        self.fallbacks += u64::from(fallback);
         let mut node = best;
         while previous[node] != start && previous[node] != usize::MAX {
             node = previous[node];
@@ -547,7 +381,7 @@ impl Navigation {
                             yaw: edge
                                 .native
                                 .as_ref()
-                                .map_or_else(|| (-delta.z).atan2(delta.x), |(_, n)| n.start.yaw),
+                                .map_or_else(|| (-delta.z).atan2(delta.x), |n| n.start.yaw),
                         }
                     })
                 })
@@ -629,7 +463,11 @@ impl Plugin for NavigationPlugin {
             );
     }
 }
-fn reset(mut nav: ResMut<Navigation>, players: Query<(), With<Player>>) {
+fn reset(
+    mut nav: ResMut<Navigation>,
+    definition: Res<GameDefinition>,
+    players: Query<(), With<Player>>,
+) {
     if !players.is_empty() {
         return;
     }
@@ -637,209 +475,106 @@ fn reset(mut nav: ResMut<Navigation>, players: Query<(), With<Player>>) {
     nav.order.clear();
     nav.admissions.clear();
     nav.epoch = u32::MAX;
-    nav.player_node = None;
     nav.revision = 0;
-    nav.requests = 0;
-    nav.cache_hits = 0;
-    nav.fallbacks = 0;
-    nav.graph_changes = 0;
     nav.chamber_blocked.clear();
     nav.perk_blocked.clear();
-}
-fn refresh(
-    mut nav: ResMut<Navigation>,
-    definition: Res<GameDefinition>,
-    access: Res<ZoneAccess>,
-    query: SpatialQuery,
-    player: Single<(Entity, &Transform, &Player)>,
-    blockers: Query<Entity, Or<(With<DoorBlocker>, With<crate::barriers::BarrierBlocker>)>>,
-    actors: Query<Entity, With<crate::enemies::Zombie>>,
-    zone: Res<crate::access::CurrentZone>,
-    slide: MoveAndSlide,
-) {
-    let (owner, pose, player) = player.into_inner();
-    if nav.nodes.is_empty() {
-        nav.warmup += 1;
-        if nav.warmup < 3 {
-            return;
-        }
-        let started = std::time::Instant::now();
-        let _geometry = bevy::log::info_span!("navigation_geometry_admission").entered();
-        let excluded: Vec<_> = std::iter::once(owner)
-            .chain(blockers.iter())
-            .chain(actors.iter())
-            .collect();
-        let filter = crate::environment::solids(excluded);
-        let shape = capsule(0.3, 1.7);
-        let pool = ComputeTaskPool::get();
-        let admitted = {
-            let _stage = bevy::log::info_span!("navigation_node_admission").entered();
-            definition
-                .content
-                .navigation_nodes
-                .par_chunk_map(pool, 64, |_, sources| {
-                    let _chunk =
-                        bevy::log::info_span!("navigation_node_batch", nodes = sources.len())
-                            .entered();
-                    sources
-                        .iter()
-                        .map(|source| {
-                            let point = Vec3::from_array(source.position);
-                            let floor = query.cast_ray(
-                                point + Vec3::Y * 0.5,
-                                Dir3::NEG_Y,
-                                2.,
-                                false,
-                                &filter,
-                            );
-                            let feet = floor.filter(|f| f.normal.y > 0.65).and_then(|f| {
-                                let floor = point + Vec3::Y * (0.5 - f.distance + 0.03);
-                                (0..=6)
-                                    .map(|i| floor + Vec3::Y * (i as f32 * 0.05))
-                                    .find(|feet| {
-                                        clear_shape(&query, &shape, *feet + Vec3::Y * 0.85, &filter)
-                                    })
-                            });
-                            Node {
-                                point: feet.unwrap_or(point),
-                                zone: source.zone.clone(),
-                                ready: feet.is_some(),
-                                native: source.native,
-                            }
-                        })
-                        .collect::<Vec<_>>()
-                })
-        };
-        nav.nodes = admitted.into_iter().flatten().collect();
-        let rejected = nav.nodes.iter().filter(|node| !node.ready).count();
-        nav.rejected_nodes += rejected;
-        let ids: HashMap<_, _> = definition
-            .content
-            .navigation_nodes
-            .iter()
-            .enumerate()
-            .map(|(index, source)| (source.id.clone(), index))
-            .collect();
-        let count = nav.nodes.len();
-        nav.edges = vec![Vec::new(); count];
-        let nodes = &nav.nodes;
-        let admitted = {
-            let _stage = bevy::log::info_span!("navigation_link_admission").entered();
-            definition
-                .content
-                .navigation_links
-                .par_chunk_map(pool, 64, |_, sources| {
-                    let _chunk =
-                        bevy::log::info_span!("navigation_link_batch", links = sources.len())
-                            .entered();
-                    sources
-                        .iter()
-                        .filter_map(|source| {
-                            let (&from, &to) = ids.get(&source.from).zip(ids.get(&source.to))?;
-                            let delta = nodes[to].point - nodes[from].point;
-                            let ready = nodes[from].ready
-                                && nodes[to].ready
-                                && (!matches!(source.traversal, Traversal::Walk)
-                                    || walking_edge(
-                                        &query,
-                                        &slide,
-                                        &shape,
-                                        nodes[from].point,
-                                        nodes[to].point,
-                                        definition.tuning.step_height,
-                                        &filter,
-                                    ));
-                            let mut requirements = source.blockers.clone();
-                            requirements.extend(source.connection.iter().cloned());
-                            Some((
-                                from,
-                                Edge {
-                                    to,
-                                    traversal: source.traversal,
-                                    animation: source.source_animation.clone(),
-                                    blockers: requirements,
-                                    ready,
-                                    cost: source.cost.unwrap_or_else(|| {
-                                        source
-                                            .negotiation
-                                            .as_ref()
-                                            .map_or_else(|| delta.length().max(0.01), |n| n.cost)
-                                    }),
-                                    native: source
-                                        .negotiation
-                                        .clone()
-                                        .map(|n| (source.id.clone(), n)),
-                                },
-                            ))
-                        })
-                        .collect::<Vec<_>>()
-                })
-        };
-        for (from, edge) in admitted.into_iter().flatten() {
-            let ready = edge.ready;
-            nav.edges[from].push(edge);
-            nav.rejected_links += usize::from(!ready);
-        }
-        for spawn in &definition.access.spawns {
-            nav.spawns.push(Admission {
-                position: Vec3::from_array(spawn.position),
-                zone: spawn.zone.clone(),
-                source: spawn.id.clone(),
-                rising: spawn.rising,
-                yaw: spawn.yaw,
-                desired_origin: spawn.desired_origin.map(Vec3::from_array),
-                activation: spawn.zone.clone(),
+    if !nav.nodes.is_empty() {
+        return;
+    }
+    nav.nodes = definition
+        .content
+        .navigation_nodes
+        .iter()
+        .map(|source| Node {
+            point: Vec3::from_array(source.position),
+            zone: source.zone.clone(),
+            native: source.native,
+        })
+        .collect();
+    let ids: HashMap<_, _> = definition
+        .content
+        .navigation_nodes
+        .iter()
+        .enumerate()
+        .map(|(index, source)| (&source.id, index))
+        .collect();
+    nav.edges = vec![Vec::new(); nav.nodes.len()];
+    for source in &definition.content.navigation_links {
+        let &from = ids.get(&source.from).unwrap_or_else(|| {
+            panic!(
+                "Navigation link {:?} has missing start {:?}",
+                source.id, source.from
+            )
+        });
+        let &to = ids.get(&source.to).unwrap_or_else(|| {
+            panic!(
+                "Navigation link {:?} has missing end {:?}",
+                source.id, source.to
+            )
+        });
+        let mut blockers = source.blockers.clone();
+        blockers.extend(source.connection.iter().cloned());
+        let cost = source.cost.unwrap_or_else(|| {
+            source.negotiation.as_ref().map_or_else(
+                || {
+                    nav.nodes[from]
+                        .point
+                        .distance(nav.nodes[to].point)
+                        .max(0.01)
+                },
+                |native| native.cost,
+            )
+        });
+        nav.edges[from].push(Edge {
+            to,
+            traversal: source.traversal,
+            animation: source.source_animation.clone(),
+            blockers,
+            cost,
+            native: source.negotiation.clone(),
+        });
+    }
+    nav.spawns = definition
+        .access
+        .spawns
+        .iter()
+        .map(|spawn| Admission {
+            position: Vec3::from_array(spawn.position),
+            zone: spawn.zone.clone(),
+            source: spawn.id.clone(),
+            rising: spawn.rising,
+            yaw: spawn.yaw,
+            desired_origin: spawn.desired_origin.map(Vec3::from_array),
+            activation: spawn.zone.clone(),
+        })
+        .collect();
+    nav.entrances = definition.access.entrances.clone();
+    nav.entrance_nodes = nav
+        .entrances
+        .iter()
+        .map(|entrance| {
+            let &index = ids.get(&entrance.node).unwrap_or_else(|| {
+                panic!(
+                    "Navigation entrance references missing node {:?}",
+                    entrance.node
+                )
             });
-        }
-        nav.entrances = definition.access.entrances.clone();
-        nav.entrance_nodes = nav
-            .entrances
-            .iter()
-            .filter_map(|entrance| {
-                ids.get(&entrance.node)
-                    .map(|&index| (entrance.node.clone(), index))
-            })
-            .collect();
-        info!(
-            "Native navigation: {} nodes, {} links, {} spawn projections; {} rejected nodes, {} rejected links; geometry admission in {:.3}s",
-            nav.node_count(),
-            nav.link_count(),
-            nav.spawns.len(),
-            nav.rejected_nodes,
-            nav.rejected_links,
-            started.elapsed().as_secs_f64(),
-        );
-    }
-    let feet = pose.translation - Vec3::Y * (player.height * 0.5);
-    let node = if let Some(zone) = &zone.0 {
-        nav.nodes
-            .iter()
-            .enumerate()
-            .filter(|(_, n)| n.ready && n.zone == *zone && access.reachable.contains(zone))
-            .min_by(|(_, a), (_, b)| {
-                a.point
-                    .distance_squared(feet)
-                    .total_cmp(&b.point.distance_squared(feet))
-            })
-            .map(|(i, _)| i)
-    } else {
-        nav.nearest(feet, &access, true)
-    };
-    if nav.epoch != access.purchases || access.is_changed() {
-        nav.cache.clear();
-        nav.order.clear();
-        nav.epoch = access.purchases;
-        nav.revision = nav.revision.wrapping_add(1);
-        nav.graph_changes += 1;
-    } else if nav.player_node == node {
+            (entrance.node.clone(), index)
+        })
+        .collect();
+    info!(
+        "Native navigation: {} authored nodes, {} directed links, {} spawns",
+        nav.nodes.len(),
+        nav.edges.iter().map(Vec::len).sum::<usize>(),
+        nav.spawns.len()
+    );
+}
+fn refresh(mut nav: ResMut<Navigation>, access: Res<ZoneAccess>) {
+    if nav.epoch == access.purchases && !access.is_changed() {
         return;
     }
-    nav.player_node = node;
-    if node.is_none() {
-        nav.admissions.clear();
-        return;
-    }
-    let _admissions = bevy::log::info_span!("navigation_spawn_admission").entered();
+    nav.invalidate();
+    nav.epoch = access.purchases;
     nav.admissions = nav
         .spawns
         .iter()
@@ -850,76 +585,6 @@ fn refresh(
         .cloned()
         .collect();
 }
-fn clear_shape(
-    query: &SpatialQuery,
-    shape: &Collider,
-    center: Vec3,
-    filter: &SpatialQueryFilter,
-) -> bool {
-    let mut clear = true;
-    query.shape_intersections_callback(shape, center, Quat::IDENTITY, filter, |_| {
-        clear = false;
-        false
-    });
-    clear
-}
-fn walking_edge(
-    query: &SpatialQuery,
-    slide: &MoveAndSlide,
-    shape: &Collider,
-    a: Vec3,
-    b: Vec3,
-    step: f32,
-    filter: &SpatialQueryFilter,
-) -> bool {
-    let delta = b - a;
-    if delta.length_squared() < 0.0001 {
-        return true;
-    }
-    let Ok(dir) = Dir3::new(delta) else {
-        return false;
-    };
-    if query
-        .cast_shape(
-            shape,
-            a + Vec3::Y * 0.85,
-            Quat::IDENTITY,
-            dir,
-            &ShapeCastConfig {
-                ignore_origin_penetration: true,
-                ..ShapeCastConfig::from_max_distance(delta.length())
-            },
-            filter,
-        )
-        .is_none()
-    {
-        return true;
-    }
-    let count = (delta.length() / 0.6).ceil().clamp(1., 64.) as u32;
-    let mut center = a + Vec3::Y * 0.85;
-    for i in 1..=count {
-        let goal = a + delta * (i as f32 / count as f32);
-        let direction = goal.xz() - center.xz();
-        let velocity = Vec3::new(direction.x / 0.1, -3., direction.y / 0.1);
-        let result = crate::player::slide_character(
-            slide,
-            query,
-            crate::player::MotionShape {
-                collider: shape,
-                radius: 0.3,
-                step_height: step,
-                grounded: true,
-            },
-            center,
-            velocity,
-            std::time::Duration::from_secs_f32(0.1),
-            filter,
-        );
-        center = result.position;
-    }
-    center.distance_squared(b + Vec3::Y * 0.85) < 0.1225
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -928,7 +593,6 @@ mod tests {
         Node {
             point,
             zone: ZoneId("zone.start".into()),
-            ready: true,
             native: Some(NativePathNode {
                 r#type: kind,
                 spawn_flags: flags,
@@ -965,7 +629,6 @@ mod tests {
                 traversal: Traversal::Walk,
                 animation: None,
                 blockers: Vec::new(),
-                ready: true,
                 cost: 2.,
                 native: None,
             }],
@@ -975,9 +638,9 @@ mod tests {
             navigation.destination(Vec3::ZERO, Vec3::X, &access),
             Vec3::X
         );
-        assert_eq!(navigation.cache_len(), 1);
+        assert_eq!(navigation.cache.len(), 1);
         navigation.replace_perk_paths(first, HashSet::from([(0, 1)]));
-        assert_eq!(navigation.cache_len(), 0);
+        assert_eq!(navigation.cache.len(), 0);
         assert_eq!(
             navigation.destination(Vec3::ZERO, Vec3::X, &access),
             Vec3::ZERO
@@ -1014,7 +677,6 @@ mod tests {
                 traversal: Traversal::Walk,
                 animation: None,
                 blockers: Vec::new(),
-                ready: true,
                 cost: 2.,
                 native: None,
             }],

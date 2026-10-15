@@ -134,7 +134,7 @@ impl Plugin for PerkPlugin {
                 FixedUpdate,
                 cancel
                     .in_set(GameStep::PlayerLife)
-                    .before(crate::life::ApplyLifeCommands)
+                    .before(crate::solo_revive::finish)
                     .run_if(in_state(GameState::Playing)),
             );
     }

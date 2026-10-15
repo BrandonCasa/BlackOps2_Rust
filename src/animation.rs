@@ -145,18 +145,20 @@ fn native_playback(
     gltfs: Res<Assets<Gltf>>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
     mut cache: ResMut<AnimationGraphs>,
-
 ) {
     for (root, animation) in &roots {
         let Some(bindings) = cache.scene(&animation.source, &gltfs, &mut graphs) else {
             continue;
         };
         let Some(node) = bindings.named.get(&animation.clip) else {
-            panic!("{}", format!(
-                "Required named animation {} missing from {:?}",
-                animation.clip,
-                animation.source.path()
-            ));
+            panic!(
+                "{}",
+                format!(
+                    "Required named animation {} missing from {:?}",
+                    animation.clip,
+                    animation.source.path()
+                )
+            );
         };
         for player in std::iter::once(root)
             .chain(children.iter_descendants(root))
@@ -207,63 +209,23 @@ struct RestPose(Transform);
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct AnimationPoseModifiers;
 
-#[derive(Resource, Default)]
-struct AnimationPoseChanges(HashMap<Entity, (Transform, bevy::ecs::change_detection::Tick)>);
-
-fn remember_poses(
-    mut previous: ResMut<AnimationPoseChanges>,
-    targets: Query<(Entity, Ref<Transform>), With<RestPose>>,
-) {
-    previous.0.clear();
-    previous.0.extend(
-        targets
-            .iter()
-            .map(|(entity, pose)| (entity, (*pose, pose.last_changed()))),
-    );
-}
-
-fn retain_unchanged_poses(
-    previous: Res<AnimationPoseChanges>,
-    mut targets: Query<(Entity, &mut Transform), With<RestPose>>,
-) {
-    for (entity, mut pose) in &mut targets {
-        if let Some((before, tick)) = previous.0.get(&entity)
-            && *pose == *before
-        {
-            pose.set_last_changed(*tick);
-        }
-    }
-}
-
 pub(crate) struct GameAnimationPlugin;
 
 impl Plugin for GameAnimationPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<AnimationGraphs>()
-            .init_resource::<AnimationPoseChanges>()
             .add_observer(capture_rest_pose)
             .configure_sets(
                 PostUpdate,
                 AnimationPoseModifiers
                     .after(bevy::app::AnimationSystems)
-                    .before(retain_unchanged_poses),
+                    .before(bevy::transform::TransformSystems::Propagate),
             )
             .add_systems(
                 PostUpdate,
-                (
-                    native_playback,
-                    apply_playback,
-                    remember_poses,
-                    restore_rest_pose,
-                )
+                (native_playback, apply_playback, restore_rest_pose)
                     .chain()
                     .before(bevy::app::AnimationSystems),
-            )
-            .add_systems(
-                PostUpdate,
-                retain_unchanged_poses
-                    .after(bevy::app::AnimationSystems)
-                    .before(bevy::transform::TransformSystems::Propagate),
             );
     }
 }
@@ -282,7 +244,7 @@ fn capture_rest_pose(
 }
 
 fn restore_rest_pose(
-    players: Query<(), With<AnimationPlayback>>,
+    players: Query<(), With<AnimationGraphHandle>>,
     mut targets: Query<(&AnimatedBy, &RestPose, &mut Transform)>,
 ) {
     for (owner, rest, mut pose) in &mut targets {
@@ -417,4 +379,3 @@ fn apply_playback(
         }
     }
 }
-

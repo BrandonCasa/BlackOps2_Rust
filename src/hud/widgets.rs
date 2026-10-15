@@ -1,31 +1,24 @@
 use super::native::{self, Canvas, Opacity, SafeAnchor, rect};
 use crate::{GameState, assets::GameDefinition, generators::GeneratorState, player::Player};
 use bevy::{
-    asset::RenderAssetUsages,
+    asset::{load_internal_asset, uuid_handle},
     prelude::*,
-    render::render_resource::{Extent3d, TextureDimension, TextureFormat},
+    render::render_resource::AsBindGroup,
+    shader::ShaderRef,
 };
 
-#[derive(Resource)]
-struct CaptureMask(Vec<(f32, u8)>);
-impl Default for CaptureMask {
-    fn default() -> Self {
-        Self(
-            (0..128 * 128)
-                .map(|index| {
-                    let delta = Vec2::new((index % 128) as f32 + 0.5, (index / 128) as f32 + 0.5)
-                        / 128.
-                        - Vec2::splat(0.5);
-                    let radius = delta.length() * 2.;
-                    let outer = ((radius - (1. - 1. / 12.)) * 12.).clamp(0., 1.);
-                    let inner = ((1. - 1. / 12. - 0.06 - radius) * 12.).clamp(0., 1.);
-                    (
-                        delta.x.atan2(delta.y),
-                        ((1. - outer.max(inner)) * 255.).round() as u8,
-                    )
-                })
-                .collect(),
-        )
+const CAPTURE_SHADER: Handle<Shader> = uuid_handle!("d686bc04-13c4-4d83-b545-b1685a9689a8");
+
+#[derive(Asset, TypePath, AsBindGroup, Clone)]
+struct CaptureProgress {
+    #[uniform(0)]
+    color: Vec4,
+    #[uniform(1)]
+    value: f32,
+}
+impl UiMaterial for CaptureProgress {
+    fn fragment_shader() -> ShaderRef {
+        CAPTURE_SHADER.into()
     }
 }
 #[derive(Component)]
@@ -51,10 +44,7 @@ struct MarkerLayer {
     layer: u8,
 }
 #[derive(Component)]
-struct Progress {
-    number: u8,
-    value: f32,
-}
+struct Progress(u8);
 #[derive(Component)]
 struct RaiderMarker(usize);
 #[derive(Resource, Default)]
@@ -66,7 +56,8 @@ struct WidgetState {
     wheel: f32,
 }
 pub(super) fn install(app: &mut App) {
-    app.init_resource::<CaptureMask>()
+    load_internal_asset!(app, CAPTURE_SHADER, "capture.wgsl", Shader::from_wgsl);
+    app.add_plugins(UiMaterialPlugin::<CaptureProgress>::default())
         .init_resource::<WidgetState>()
         .add_systems(Update, (setup, update).chain());
 }
@@ -85,7 +76,7 @@ fn setup(
     server: Res<AssetServer>,
     cameras: Query<Entity, With<crate::rendering::GameCamera>>,
     roots: Query<(), With<WidgetRoot>>,
-    mut images: ResMut<Assets<Image>>,
+    mut materials: ResMut<Assets<CaptureProgress>>,
 ) {
     let (Some(game), Ok(camera)) = (game, cameras.single()) else {
         return;
@@ -163,17 +154,6 @@ fn setup(
                 {
                     continue;
                 }
-                let image = images.add(Image::new_fill(
-                    Extent3d {
-                        width: 128,
-                        height: 128,
-                        depth_or_array_layers: 1,
-                    },
-                    TextureDimension::D2,
-                    &[255, 255, 255, 0],
-                    TextureFormat::Rgba8UnormSrgb,
-                    RenderAssetUsages::default(),
-                ));
                 parent
                     .spawn((
                         Marker {
@@ -186,8 +166,8 @@ fn setup(
                     ))
                     .with_children(|p| {
                         for (layer, name) in [
-                            (0, "hud_zm_tomb_capture_spin".into()),
-                            (1, "hud_zm_tomb_capture_spin_glow".into()),
+                            (0, "tomb_capture_spin".into()),
+                            (1, "tomb_capture_spin_glow".into()),
                             (2, format!("tomb_spinner_{number}_shadow")),
                             (3, format!("tomb_spinner_{number}_glow")),
                             (4, "waypoint_arrow_tomb".into()),
@@ -206,8 +186,12 @@ fn setup(
                             ));
                         }
                         p.spawn((
-                            Progress { number, value: 0. },
-                            ImageNode::new(image),
+                            Progress(number),
+                            MaterialNode(materials.add(CaptureProgress {
+                                color: Vec4::ONE,
+                                value: 0.,
+                            })),
+                            ZIndex(100),
                             rect(-6., -6., 68., 68.),
                         ));
                     });
@@ -286,7 +270,7 @@ fn update(
         ),
     >,
     mut progress: Query<
-        (&mut Progress, &mut ImageNode, &mut Node),
+        (&Progress, &MaterialNode<CaptureProgress>, &mut Node),
         (
             Without<Marker>,
             Without<MarkerLayer>,
@@ -295,7 +279,7 @@ fn update(
             Without<WheelImage>,
         ),
     >,
-    (mask, mut images): (Res<CaptureMask>, ResMut<Assets<Image>>),
+    mut materials: ResMut<Assets<CaptureProgress>>,
     mut raiders: Query<
         (&RaiderMarker, &mut Node, &mut Visibility),
         (
@@ -393,7 +377,7 @@ fn update(
         });
     }
     let pulse = 0.35 + 0.65 * (time.elapsed_secs() % 1.4 - 0.7).abs() / 0.7;
-    let mut data = [(false, 56., 0., false); 6];
+    let mut data = [(false, 56., 0., false, false); 6];
     for (mut marker, mut node, mut visible) in &mut markers {
         let Some(definition) = game
             .content
@@ -443,24 +427,34 @@ fn update(
             marker.size,
             marker.size,
         );
-        data[marker.number as usize - 1] =
-            (large, marker.size, site.progress, capturing && occupied);
+        data[marker.number as usize - 1] = (
+            large,
+            marker.size,
+            site.progress,
+            capturing && occupied,
+            capturing,
+        );
     }
     for (layer, mut node, mut image, mut transform) in &mut layers {
-        let (large, size, _, occupied) = data[layer.number as usize - 1];
+        let (large, size, _, occupied, capturing) = data[layer.number as usize - 1];
         let rgb = if occupied {
             [0.68, 0.86, 1.]
         } else {
-            [1., 0., 0.]
+            [1., 0.19, 0.19]
         };
         match layer.layer {
-            1 => image.color = Color::srgba(rgb[0], rgb[1], rgb[2], pulse),
+            1 => {
+                image.color =
+                    Color::srgba(rgb[0], rgb[1], rgb[2], if capturing { pulse } else { 0. })
+            }
             2 | 3 => {
                 let inset = if large { 42. } else { 20. };
                 *node = rect(inset, inset, size - inset * 2., size - inset * 2.);
-                image
-                    .color
-                    .set_alpha(if layer.layer == 3 { pulse } else { 1. });
+                image.color.set_alpha(if layer.layer == 3 && !capturing {
+                    0.
+                } else {
+                    pulse
+                });
             }
             4 => {
                 *node = rect(size * 0.5 - 16., size - 10., 32., 32.);
@@ -470,24 +464,23 @@ fn update(
             _ => {}
         }
     }
-    for (mut progress, mut image, mut node) in &mut progress {
-        let (large, size, value, occupied) = data[progress.number as usize - 1];
+    for (progress, handle, mut node) in &mut progress {
+        let (large, size, value, occupied, _) = data[progress.0 as usize - 1];
         let width = if large && value > 0. { 68. } else { 28. };
         *node = rect((size - width) * 0.5, (size - width) * 0.5, width, width);
-        image.color = if occupied {
-            Color::linear_rgb(0.42, 0.71, 1.)
+        let color = if occupied {
+            Color::srgb(0.68, 0.86, 1.)
         } else {
-            Color::linear_rgb(1., 0., 0.)
-        };
-        if progress.value != value
-            && let Some(mut texture) = images.get_mut(&image.image)
-            && let Some(pixels) = texture.data.as_mut()
+            Color::srgb(1., 0.19, 0.19)
+        }
+        .to_linear()
+        .to_vec4();
+        if let Some(material) = materials.get(&handle.0)
+            && (material.value != value || material.color != color)
         {
-            let threshold = std::f32::consts::PI - value * std::f32::consts::TAU;
-            for (pixel, &(angle, alpha)) in pixels.chunks_exact_mut(4).zip(&mask.0) {
-                pixel[3] = if angle > threshold { alpha } else { 0 };
-            }
-            progress.value = value;
+            let mut material = materials.get_mut(&handle.0).unwrap();
+            material.value = value;
+            material.color = color;
         }
     }
     let targets: Vec<_> = attackers

@@ -19,7 +19,7 @@ resolver = "3"
 
 [features]
 default = ["game"]
-game = ["dep:bevy", "dep:avian3d", "dep:bevy_input"]
+game = ["dep:bevy", "dep:avian3d", "dep:bevy_input", "dep:rodio"]
 dev-tools = ["bevy/bevy_remote"]
 profile-tracy = ["bevy/trace_tracy", "bevy/debug", "dep:tracy-client"]
 profile-tracy-memory = ["profile-tracy", "bevy/trace_tracy_memory"]
@@ -29,6 +29,7 @@ profile-chrome = ["bevy/trace_chrome", "bevy/debug"]
 bevy = { optional = true, version = "=0.20.0", default-features = false, features = ["std", "debug", "async_executor", "multi_threaded", "bevy_asset", "bevy_scene", "bevy_gltf", "bevy_animation", "bevy_curve", "gltf_animation", "bevy_audio", "vorbis", "flac", "mp3", "wav", "png", "dds", "tga", "ktx2", "bevy_pbr", "pbr_specular_textures", "bevy_anti_alias", "bevy_winit", "bevy_state", "bevy_ui", "bevy_ui_render", "bevy_ui_widgets", "ui_picking", "bevy_text", "default_font", "keyboard", "mouse", "tonemapping_luts", "bevy_log", "bevy_mikktspace", "reflect_auto_register", "zstd_rust"] }
 avian3d = { optional = true, git = "https://github.com/andriyDev/avian.git", rev = "34c9b008d2f40638a953d9218db48d54f661365d", default-features = false, features = ["3d", "parry-f32", "collider-from-mesh", "parallel", "enhanced-determinism", "xpbd_joints"] }
 bevy_input = { optional = true, version = "=0.20.0", features = ["serialize"] }
+rodio = { optional = true, version = "=0.22.2", default-features = false }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
 log = { version = "=0.4.34", features = ["max_level_debug", "release_max_level_off"] }

@@ -1,0 +1,32 @@
+{
+  "intro": {
+    "video": "cinematics/zm_tomb_load.webm",
+    "stems": [
+      {
+        "path": "sound/bik/load/zm_tomb_load_lr.SN65.pc.snd.flac",
+        "volume": 0.5623407339589532,
+        "channel": "effects"
+      },
+      {
+        "path": "english/sound/bik/load/zm_tomb_load_c.SN65.pc.snd.flac",
+        "volume": 0.5623407339589532,
+        "channel": "effects"
+      }
+    ]
+  },
+  "ending": {
+    "video": "cinematics/zm_tomb_ee.webm",
+    "stems": [
+      {
+        "path": "english/sound/bik/load/zm_tomb_outro_lr.SN65.pc.snd.flac",
+        "volume": 0.5623407339589532,
+        "channel": "effects"
+      },
+      {
+        "path": "english/sound/bik/load/zm_tomb_outro_c.SN65.pc.snd.flac",
+        "volume": 0.5623407339589532,
+        "channel": "effects"
+      }
+    ]
+  }
+}

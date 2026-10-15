@@ -32,10 +32,17 @@ pub struct LaunchOptions {
 
 impl LaunchOptions {
     pub fn parse(mut args: impl Iterator<Item = OsString>) -> Self {
-        let asset_root = args.find(|argument| argument == "--asset-root")
-            .and_then(|_| args.next())
-            .expect("Launch Origins with --asset-root <absolute directory>");
-        Self { asset_root: PathBuf::from(asset_root) }
+        let asset_root = if args.any(|argument| argument == "--asset-root") {
+            PathBuf::from(args.next().expect("--asset-root requires a directory"))
+        } else {
+            // Cargo profiles live below target; ordinary assets live at target/assets.
+            let executable = std::env::current_exe().expect("Origins executable path");
+            executable.ancestors().skip(1)
+                .map(|parent| parent.join("assets"))
+                .find(|path| path.join("game.json").is_file())
+                .expect("Place the assets directory beside the executable or its profile directory")
+        };
+        Self { asset_root }
     }
 }
 
@@ -257,7 +264,7 @@ fn native_surface_type(surface: usize) -> Result<u32, String> {
 }
 
 fn world_surface_colliders(mesh: &Mesh) -> Result<Vec<(usize, Collider)>, String> {
-    use bevy::mesh::{Indices, PrimitiveTopology, VertexAttributeValues};
+    use bevy::mesh::{PrimitiveTopology, VertexAttributeValues};
     if mesh.primitive_topology() != PrimitiveTopology::TriangleList {
         return Err("Required collision mesh is not a triangle list".into());
     }
@@ -292,20 +299,22 @@ fn world_surface_colliders(mesh: &Mesh) -> Result<Vec<(usize, Collider)>, String
         }
         groups.entry(ids[0] as usize).or_default().extend_from_slice(triangle);
     }
-    groups
-        .into_iter()
-        .map(|(surface, indices)| {
-            let group = mesh.clone().with_inserted_indices(Indices::U32(indices));
-            world_mesh_collider(&group)
-                .map(|collider| (surface, collider))
-                .ok_or_else(|| {
-                    format!(
-                        "Cannot construct collision surface {}",
-                        ENGINE_SURFACES[surface]
-                    )
+    groups.into_iter().map(|(surface, indices)| {
+        let mut remap = std::collections::HashMap::new();
+        let mut vertices = Vec::new();
+        let triangles = indices.chunks_exact(3).map(|triangle| {
+            std::array::from_fn(|corner| {
+                let original = triangle[corner];
+                *remap.entry(original).or_insert_with(|| {
+                    let index = vertices.len() as u32;
+                    vertices.push(Vec3::from_array(positions[original as usize]));
+                    index
                 })
-        })
-        .collect()
+            })
+        }).collect();
+        Ok((surface, Collider::trimesh(vertices, triangles)))
+    }).collect()
+
 }
 
 #[cfg(test)]

@@ -1,6 +1,5 @@
 use crate::{
     GameState,
-    animation::{AnimationGraphs, AnimationLayer, AnimationPlayback},
     assets::GameDefinition,
     gameplay::SessionEntity,
     hud::PlayerOverlay,
@@ -21,7 +20,6 @@ pub(crate) mod cues;
 pub(crate) mod locomotion;
 pub(crate) mod offhand;
 mod source_units;
-pub use offhand::EquipmentPresentationEvidence;
 pub struct PresentationPlugin;
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct PresentationAnimation;
@@ -36,7 +34,10 @@ struct AimingJoint {
     rotation: Quat,
 }
 #[derive(Component)]
-struct SocketAttachment(Entity);
+struct SocketAttachment {
+    chain: Vec<Entity>,
+    bind_rotation: Quat,
+}
 #[derive(Component)]
 struct WeaponAttachment {
     rig: Entity,
@@ -54,16 +55,17 @@ pub(crate) struct ViewModelGroup {
     owner: Entity,
 }
 #[derive(Component, Clone)]
+#[require(AnimationPlayer)]
 pub(crate) struct Rig {
     pub(crate) owner: Entity,
     pub(crate) weapon: WeaponId,
     phase: Option<WeaponAnimation>,
-    tracked: Vec<(Entity, Option<(Vec3, Quat)>)>,
-    sampled_phase: Option<WeaponAnimation>,
     source: Handle<Gltf>,
     graph: Option<Handle<AnimationGraph>>,
     nodes: BTreeMap<String, AnimationNodeIndex>,
-    pub(crate) players: Vec<Entity>,
+    sockets: [Option<Entity>; 3],
+    camera_chain: Vec<Entity>,
+    bind_rotation: Quat,
     sequence: Option<u64>,
     pub(crate) arms: bool,
     pub(crate) attached: bool,
@@ -73,9 +75,12 @@ pub(crate) struct Rig {
     pub(crate) left: bool,
     dual: bool,
     playback: Option<WeaponAnimation>,
+    main_node: Option<AnimationNodeIndex>,
     sprinting: bool,
     sprint_phase: Option<(WeaponAnimation, f32)>,
-    playback_revision: u64,
+    ads_from: [f32; 2],
+    ads_elapsed: f32,
+    ads_requested: Option<bool>,
 }
 impl Plugin for PresentationPlugin {
     fn build(&self, app: &mut App) {
@@ -84,62 +89,54 @@ impl Plugin for PresentationPlugin {
         cues::install(app);
         source_units::install(app);
         locomotion::install(app);
-        app.init_resource::<EquipmentPresentationEvidence>()
-            .add_systems(
-                Update,
-                (
-                    spawn_viewmodels,
-                    build_graphs,
-                    attach_weapons,
-                    attachment_visuals.run_if(resource_exists::<GameDefinition>),
-                    offhand::select_visible,
-                    animate,
-                )
-                    .chain()
-                    .in_set(PresentationAnimation),
+        app.add_systems(
+            Update,
+            (
+                spawn_viewmodels,
+                build_graphs,
+                attach_weapons,
+                attachment_visuals.run_if(resource_exists::<GameDefinition>),
+                offhand::select_visible,
+                animate,
             )
-            .add_systems(
-                PostUpdate,
-                clear_aim_pose.before(bevy::app::AnimationSystems),
-            )
-            .add_systems(
-                PostUpdate,
-                aim_pose
-                    .in_set(crate::animation::AnimationPoseModifiers)
-                    .after(bevy::app::AnimationSystems)
-                    .before(bevy::camera::CameraUpdateSystems)
-                    .before(bevy::transform::TransformSystems::Propagate),
-            )
-            .add_systems(
-                PostUpdate,
-                hide_attachment_joints
-                    .in_set(crate::animation::AnimationPoseModifiers)
-                    .after(bevy::app::AnimationSystems)
-                    .before(bevy::transform::TransformSystems::Propagate),
-            )
-            .add_systems(
-                PostUpdate,
-                camera_pose
-                    .in_set(crate::animation::AnimationPoseModifiers)
-                    
-                    .in_set(CameraPose)
-                    .after(aim_pose)
-                    .before(bevy::transform::TransformSystems::Propagate),
-            )
-            .add_systems(
-                PostUpdate,
-                offhand::record_motion
-                    .after(camera_pose)
-                    .before(bevy::transform::TransformSystems::Propagate),
-            )
-            .add_systems(
-                PostUpdate,
-                follow_sockets
-                    .in_set(crate::animation::AnimationPoseModifiers)
-                    .after(camera_pose)
-                    .before(bevy::transform::TransformSystems::Propagate),
-            )
-            .add_observer(rig_ready);
+                .chain()
+                .in_set(PresentationAnimation),
+        )
+        .add_systems(
+            PostUpdate,
+            clear_aim_pose.before(bevy::app::AnimationSystems),
+        )
+        .add_systems(
+            PostUpdate,
+            aim_pose
+                .in_set(crate::animation::AnimationPoseModifiers)
+                .after(bevy::app::AnimationSystems)
+                .before(bevy::camera::CameraUpdateSystems)
+                .before(bevy::transform::TransformSystems::Propagate),
+        )
+        .add_systems(
+            PostUpdate,
+            hide_attachment_joints
+                .in_set(crate::animation::AnimationPoseModifiers)
+                .after(bevy::app::AnimationSystems)
+                .before(bevy::transform::TransformSystems::Propagate),
+        )
+        .add_systems(
+            PostUpdate,
+            camera_pose
+                .in_set(crate::animation::AnimationPoseModifiers)
+                .in_set(CameraPose)
+                .after(aim_pose)
+                .before(bevy::transform::TransformSystems::Propagate),
+        )
+        .add_systems(
+            PostUpdate,
+            follow_sockets
+                .in_set(crate::animation::AnimationPoseModifiers)
+                .after(camera_pose)
+                .before(bevy::transform::TransformSystems::Propagate),
+        )
+        .add_observer(rig_ready);
         app.add_observer(attachment_ready);
     }
 }
@@ -290,12 +287,12 @@ fn spawn_viewmodels(
                             owner,
                             weapon: weapon.id.clone(),
                             phase: None,
-                            tracked: Vec::new(),
-                            sampled_phase: None,
                             source,
                             graph: None,
                             nodes: BTreeMap::new(),
-                            players: Vec::new(),
+                            sockets: [None; 3],
+                            camera_chain: Vec::new(),
+                            bind_rotation: Quat::IDENTITY,
                             sequence: None,
                             arms: is_arms,
                             attached: is_arms,
@@ -305,9 +302,12 @@ fn spawn_viewmodels(
                             left: is_left,
                             dual: weapon.dual_weapon.is_some(),
                             playback: None,
+                            main_node: None,
                             sprinting: false,
                             sprint_phase: None,
-                            playback_revision: 0,
+                            ads_from: [0.; 2],
+                            ads_elapsed: 0.,
+                            ads_requested: None,
                         },
                         Transform::default(),
                         if is_arms {
@@ -325,65 +325,53 @@ fn spawn_viewmodels(
 fn attach_weapons(
     mut commands: Commands,
     mut rigs: Query<(Entity, &mut Rig)>,
-    children: Query<&Children>,
-    names: Query<&Name>,
-    bindings: Query<&SocketAttachment>,
+    parents: Query<&ChildOf>,
 ) {
     let sockets: Vec<_> = rigs
         .iter()
         .filter(|(_, rig)| rig.arms && !rig.left && rig.ready)
-        .filter_map(|(entity, rig)| {
-            let find = |tag: &str| {
-                children
-                    .iter_descendants(entity)
-                    .find(|&child| names.get(child).is_ok_and(|name| name.as_str() == tag))
-            };
-            find("tag_weapon")
-                .zip(find("tag_knife_attach"))
-                .map(|(weapon, knife)| {
-                    (
-                        rig.owner,
-                        rig.weapon.clone(),
-                        weapon,
-                        knife,
-                        find("tag_weapon1"),
-                    )
-                })
-        })
+        .map(|(_, rig)| (rig.owner, rig.weapon.clone(), rig.sockets))
         .collect();
     for (entity, mut rig) in &mut rigs {
-        if rig.arms || !rig.ready {
+        if rig.arms || !rig.ready || rig.attached {
             continue;
         }
-        if let Some((_, _, weapon, knife, left)) = sockets
+        let Some((_, _, sockets)) = sockets
             .iter()
-            .find(|(owner, id, _, _, _)| *owner == rig.owner && *id == rig.weapon)
-        {
-            let socket = if rig.knife {
-                knife
-            } else if rig.left {
-                let Some(left) = left else { continue };
-                left
-            } else {
-                weapon
-            };
-            if bindings
-                .get(entity)
-                .is_ok_and(|binding| binding.0 == *socket)
-            {
-                continue;
+            .find(|(owner, id, _)| *owner == rig.owner && *id == rig.weapon)
+        else {
+            continue;
+        };
+        let Some(socket) = sockets[if rig.knife {
+            1
+        } else if rig.left {
+            2
+        } else {
+            0
+        }] else {
+            continue;
+        };
+        let root = parents.get(entity).expect("Viewmodel parent").parent();
+        let mut chain = vec![socket];
+        for ancestor in parents.iter_ancestors(socket) {
+            if ancestor == root {
+                break;
             }
-            commands.entity(entity).insert((
-                SocketAttachment(*socket),
-                Transform::default(),
-                if rig.knife {
-                    Visibility::Hidden
-                } else {
-                    Visibility::Inherited
-                },
-            ));
-            rig.attached = true;
+            chain.push(ancestor);
         }
+        commands.entity(entity).insert((
+            SocketAttachment {
+                chain,
+                bind_rotation: rig.bind_rotation,
+            },
+            Transform::default(),
+            if rig.knife {
+                Visibility::Hidden
+            } else {
+                Visibility::Inherited
+            },
+        ));
+        rig.attached = true;
     }
 }
 fn attachment_visuals(
@@ -515,36 +503,23 @@ fn hide_attachment_joints(mut joints: Query<&mut Transform, With<AttachmentHidde
     }
 }
 fn follow_sockets(
-    mut poses: ParamSet<(
-        Query<(&Transform, Option<&ChildOf>)>,
-        Query<(&SocketAttachment, &ChildOf, &mut Transform)>,
-    )>,
+    joints: Query<&Transform, Without<SocketAttachment>>,
+    mut attachments: Query<(&SocketAttachment, &mut Transform)>,
 ) {
-    let attachments: Vec<_> = poses
-        .p1()
-        .iter()
-        .map(|(socket, parent, _)| (socket.0, parent.parent()))
-        .collect();
-    let transforms = poses.p0();
-    let followed: Vec<_> = attachments
-        .into_iter()
-        .map(|(socket, parent)| {
-            let mut cursor = socket;
-            let mut local = Mat4::IDENTITY;
-            while cursor != parent {
-                let Ok((pose, Some(ancestor))) = transforms.get(cursor) else {
-                    return None;
-                };
-                local = pose.to_matrix() * local;
-                cursor = ancestor.parent();
-            }
-            Some(Transform::from_matrix(local).with_scale(Vec3::ONE))
-        })
-        .collect();
-    for ((_, _, mut pose), followed) in poses.p1().iter_mut().zip(followed) {
-        if let Some(followed) = followed {
-            pose.set_if_neq(followed);
+    // A socket already includes the hands' exported source-axis conversion.
+    // Remove the weapon's copy at this boundary, retaining socket translation.
+    for (socket, mut transform) in &mut attachments {
+        let mut local = Mat4::IDENTITY;
+        for &joint in &socket.chain {
+            local = joints
+                .get(joint)
+                .expect("Bound weapon socket joint")
+                .to_matrix()
+                * local;
         }
+        let mut pose = Transform::from_matrix(local).with_scale(Vec3::ONE);
+        pose.rotation *= socket.bind_rotation.inverse();
+        transform.set_if_neq(pose);
     }
 }
 fn rig_ready(
@@ -552,18 +527,32 @@ fn rig_ready(
     mut commands: Commands,
     mut rigs: Query<&mut Rig>,
     children: Query<&Children>,
+    parents: Query<&ChildOf>,
     players: Query<(), With<AnimationPlayer>>,
+    targets: Query<(), With<bevy::animation::AnimationTargetId>>,
     meshes: Query<(), With<Mesh3d>>,
     names: Query<&Name>,
+    gltfs: Res<Assets<Gltf>>,
+    skins: Res<Assets<bevy::gltf::GltfSkin>>,
+    nodes: Res<Assets<bevy::gltf::GltfNode>>,
 ) {
     let Ok(mut rig) = rigs.get_mut(event.entity) else {
         return;
     };
     rig.ready = true;
-    rig.tracked.clear();
-    rig.players.clear();
     rig.sequence = None;
-    rig.sampled_phase = None;
+    let source = gltfs.get(&rig.source).expect("Ready viewmodel glTF");
+    let skin = source
+        .skins
+        .first()
+        .and_then(|skin| skins.get(skin))
+        .expect("Viewmodel skin");
+    let root = skin
+        .joints
+        .first()
+        .and_then(|joint| nodes.get(joint))
+        .expect("Viewmodel bind root");
+    rig.bind_rotation = root.transform.rotation;
     commands
         .entity(event.entity)
         .insert(avian3d::prelude::CollisionLayers::new(
@@ -589,11 +578,30 @@ fn rig_ready(
                 rotation: Quat::IDENTITY,
             });
         }
-        if names.contains(child) {
-            rig.tracked.push((child, None));
+        if let Ok(name) = names.get(child) {
+            match name.as_str() {
+                "tag_weapon" => rig.sockets[0] = Some(child),
+                "tag_knife_attach" => rig.sockets[1] = Some(child),
+                "tag_weapon1" => rig.sockets[2] = Some(child),
+                "tag_camera" => {
+                    rig.camera_chain = std::iter::once(child)
+                        .chain(
+                            parents
+                                .iter_ancestors(child)
+                                .take_while(|ancestor| *ancestor != event.entity),
+                        )
+                        .collect();
+                }
+                _ => {}
+            }
         }
         if players.contains(child) {
-            rig.players.push(child);
+            commands.entity(child).remove::<AnimationPlayer>();
+        }
+        if targets.contains(child) {
+            commands
+                .entity(child)
+                .insert(bevy::animation::AnimatedBy(event.entity));
         }
         if meshes.contains(child) {
             commands
@@ -603,11 +611,11 @@ fn rig_ready(
         }
     }
     if rig.arms && rig.dual && !rig.left {
-        let left_player = commands.spawn(AnimationPlayer::default()).id();
+        let left_player = commands.spawn_empty().id();
         let mut left_rig = rig.clone();
         left_rig.left = true;
-        left_rig.players = vec![left_player];
-        left_rig.tracked.clear();
+        left_rig.graph = None;
+        left_rig.nodes.clear();
         commands.entity(left_player).insert((
             left_rig,
             Transform::default(),
@@ -630,10 +638,6 @@ fn rig_ready(
             }
         }
     }
-    info!(
-        "First-person scene ready: {} animation players",
-        rig.players.len()
-    );
 }
 fn clear_aim_pose(mut joints: Query<&mut AimingJoint>) {
     for mut joint in &mut joints {
@@ -708,12 +712,9 @@ fn camera_tag_pose(local: Mat4) -> Transform {
 }
 fn camera_pose(
     state: Res<State<GameState>>,
-    rigs: Query<(Entity, &Rig)>,
-    names: Query<(Entity, &Name)>,
+    rigs: Query<&Rig>,
     inventories: offhand::Inventories,
     definition: Option<Res<GameDefinition>>,
-    gltfs: Res<Assets<Gltf>>,
-    nodes: Res<Assets<bevy::gltf::GltfNode>>,
     mut poses: ParamSet<(
         Query<(&Transform, Option<&ChildOf>)>,
         Query<(&mut Transform, Option<&ViewModelGroup>, Option<&GameCamera>)>,
@@ -729,8 +730,8 @@ fn camera_pose(
         return;
     };
     let mut eyes = Vec::new();
-    for (root, rig) in &rigs {
-        if !rig.arms || rig.knife || !rig.ready {
+    for rig in &rigs {
+        if !rig.arms || rig.left || rig.knife || !rig.ready || rig.camera_chain.is_empty() {
             continue;
         }
         let Ok((inventory, lethal, tactical, mines, drinking, buildables)) =
@@ -749,32 +750,14 @@ fn camera_pose(
         if visible != Some(&rig.weapon) {
             continue;
         }
-        for (entity, name) in &names {
-            if name.as_str() != "tag_camera" {
-                continue;
-            }
-            let mut cursor = entity;
-            let mut local = Mat4::IDENTITY;
+        {
             let transforms = poses.p0();
-            while cursor != root {
-                if rigs.contains(cursor) {
-                    break;
-                }
-                let Ok((pose, Some(parent))) = transforms.get(cursor) else {
-                    break;
-                };
+            let mut local = Mat4::IDENTITY;
+            for &joint in &rig.camera_chain {
+                let (pose, _) = transforms.get(joint).expect("Bound viewmodel camera joint");
                 local = pose.to_matrix() * local;
-                cursor = parent.parent();
             }
-            if cursor != root {
-                continue;
-            }
-            // The ordinary glTF's static tag_view rotation already converts
-            // source axes. Apply only animation relative to that rest frame.
-            let source = gltfs.get(&rig.source).expect("Viewhands glTF source");
-            let rest = nodes.get(source.named_nodes.get("tag_view").expect("Viewhands tag_view"))
-                .expect("Viewhands tag_view source node").transform.rotation;
-            let eye = camera_tag_pose(local * Mat4::from_quat(rest.inverse()));
+            let eye = camera_tag_pose(local * Mat4::from_quat(rig.bind_rotation.inverse()));
             eyes.push((
                 rig.owner,
                 eye,
@@ -820,20 +803,38 @@ fn camera_pose(
     }
 }
 fn build_graphs(
-    mut rigs: Query<&mut Rig>,
+    mut commands: Commands,
+    mut rigs: Query<(Entity, &mut Rig)>,
     assets: Res<Assets<Gltf>>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
-    mut cache: ResMut<AnimationGraphs>,
+    definition: Option<Res<GameDefinition>>,
 ) {
-    for mut rig in &mut rigs {
+    let Some(definition) = definition else { return };
+    for (entity, mut rig) in &mut rigs {
         if rig.graph.is_some() {
             continue;
         }
-        let Some(bindings) = cache.scene(&rig.source, &assets, &mut graphs) else {
+        let Some(source) = assets.get(&rig.source) else {
             continue;
         };
-        rig.nodes = bindings.named.clone();
-        rig.graph = Some(bindings.graph.clone());
+        let mut graph = AnimationGraph::new();
+        for (name, clip) in &source.named_animations {
+            let node = graph.add_clip(clip.clone(), 1., graph.root);
+            rig.nodes.insert(name.to_string(), node);
+        }
+        let graph = graphs.add(graph);
+        rig.graph = Some(graph.clone());
+        commands.entity(entity).insert(AnimationGraphHandle(graph));
+        let layered = rig.arms
+            && definition
+                .content
+                .weapons
+                .iter()
+                .find(|weapon| weapon.id == rig.weapon)
+                .is_some_and(|weapon| weapon.mechanics.native_ads_pitch.is_some());
+        if !layered {
+            commands.entity(entity).insert(AnimationTransitions::new());
+        }
     }
 }
 
@@ -930,23 +931,25 @@ pub(crate) fn hand_action(
     (action, None)
 }
 fn animate(
-    mut commands: Commands,
     time: Res<Time>,
     state: Res<State<GameState>>,
     definition: Option<Res<GameDefinition>>,
     inventories: offhand::Inventories,
     sprints: Query<&crate::movement::SprintState>,
     locomotions: Query<&locomotion::WeaponLocomotion>,
-    mut evidence: ResMut<EquipmentPresentationEvidence>,
-    mut rigs: Query<(&mut Rig, &mut Visibility)>,
+    mut rigs: Query<(
+        &mut Rig,
+        &mut Visibility,
+        &mut AnimationPlayer,
+        Option<&mut AnimationTransitions>,
+    )>,
     clips: Res<Assets<AnimationClip>>,
     gltfs: Res<Assets<Gltf>>,
-    players: Query<Option<&AnimationPlayback>, With<AnimationPlayer>>,
 ) {
     let Some(definition) = definition else {
         return;
     };
-    for (mut rig, mut visibility) in &mut rigs {
+    for (mut rig, mut visibility, mut player, mut transitions) in &mut rigs {
         let Ok((inventory, lethal, tactical, mines, drinking, buildables)) =
             inventories.get(rig.owner)
         else {
@@ -961,17 +964,10 @@ fn animate(
             .map(|s| &s.weapon)
             .or_else(|| inventory.active().map(|w| &w.definition));
         if visible != Some(&rig.weapon) {
-            for entity in &rig.players {
-                if let Ok(Some(playback)) = players.get(*entity) {
-                    let mut playback = playback.clone();
-                    playback.enabled = false;
-                    commands.entity(*entity).insert(playback);
-                }
-            }
+            player.pause_all();
             rig.sequence = None;
             rig.phase = None;
             rig.playback = None;
-            rig.sampled_phase = None;
             rig.sprinting = false;
             rig.sprint_phase = None;
             continue;
@@ -1003,9 +999,9 @@ fn animate(
             };
             continue;
         }
-        let Some(graph) = rig.graph.clone() else {
+        if !rig.ready || rig.graph.is_none() {
             continue;
-        };
+        }
         let (mut action, mut shot_seek) = selected.as_ref().map_or_else(
             || hand_action(inventory, weapon, &definition, rig.left),
             |s| (s.action, None),
@@ -1139,9 +1135,6 @@ fn animate(
             }
             continue;
         };
-        if rig.players.is_empty() {
-            continue;
-        }
         let native_clip = name
             .and_then(|name| gltfs.get(&rig.source)?.named_animations.get(name))
             .and_then(|handle| clips.get(handle));
@@ -1156,16 +1149,6 @@ fn animate(
         let changed = (rig.sequence != Some(sequence) && !finishing_shot)
             || rig.playback != Some(action)
             || rig.phase != selected.as_ref().map(|s| s.action);
-        if changed {
-            rig.playback_revision = rig.playback_revision.wrapping_add(1);
-            if selected.is_some() {
-                evidence.phases.insert(format!(
-                    "{}:{action:?}:{}",
-                    weapon.id.0,
-                    if rig.arms { "arms" } else { "model" }
-                ));
-            }
-        }
         let timing = holding_throwable
             .then_some((1., 0.))
             .or_else(|| selected.as_ref().and_then(|s| s.timing))
@@ -1209,47 +1192,81 @@ fn animate(
                     .find(|source| source.id == *id)
             })
             .is_some_and(|source| source.looping);
-        let mut playback =
-            AnimationPlayback::new(graph, vec![AnimationLayer::new(node, seek, looping)]);
+        if changed {
+            if let Some(previous) = rig.main_node {
+                // Main action clips have no source crossfade; ADS layers retain their weights.
+                player.stop(previous);
+            }
+            if let Some(transitions) = transitions.as_mut() {
+                transitions.play(&mut player, node, std::time::Duration::ZERO);
+            } else {
+                player.start(node);
+            }
+            rig.main_node = Some(node);
+        }
+        let active = player.play(node);
+        active.set_weight(1.).set_repeat(if looping {
+            bevy::animation::RepeatAnimation::Forever
+        } else {
+            bevy::animation::RepeatAnimation::Never
+        });
+        if let Some(seconds) = seek {
+            active.set_seek_time(seconds).pause();
+        } else if **state == GameState::Playing {
+            active.resume();
+        } else {
+            active.pause();
+        }
         if rig.arms && selected.is_none() && weapon.mechanics.native_ads_pitch.is_some() {
             let requested = inventory.native_ads_requested();
-            for (action, fraction, selected) in [
-                (WeaponAnimation::AdsEnter, inventory.ads, requested),
-                (WeaponAnimation::AdsLeave, 1. - inventory.ads, !requested),
-            ] {
-                if let Some(name) = weapon
-                    .animation_actions
-                    .get(&action)
-                    .and_then(|id| id.0.rsplit('.').next())
-                    && let Some(node) = rig.nodes.get(name)
-                    && let Some(clip) = gltfs
-                        .get(&rig.source)
-                        .and_then(|gltf| gltf.named_animations.get(name))
-                        .and_then(|handle| clips.get(handle))
-                {
-                    let mut layer =
-                        AnimationLayer::new(*node, Some(fraction * clip.duration()), false)
-                            .weighted(if selected { 1. } else { 0. });
-                    layer.blend_seconds = Some(0.1);
-                    layer.preserve_on_restart = true;
-                    playback.layers.push(layer);
+            let actions = [WeaponAnimation::AdsEnter, WeaponAnimation::AdsLeave];
+            if rig.ads_requested != Some(requested) {
+                for (index, action) in actions.iter().enumerate() {
+                    rig.ads_from[index] = weapon
+                        .animation_actions
+                        .get(action)
+                        .and_then(|id| id.0.rsplit('.').next())
+                        .and_then(|name| rig.nodes.get(name))
+                        .and_then(|node| player.animation(*node))
+                        .map_or(0., |active| active.weight());
                 }
+                rig.ads_requested = Some(requested);
+                rig.ads_elapsed = 0.;
             }
-        }
-        playback.restart = rig.playback_revision;
-        for &entity in &rig.players {
-            commands.entity(entity).insert(playback.clone());
-        }
-        if let Some(seek) = seek {
-            let key = format!(
-                "{}:{action:?}:{}",
-                rig.weapon.0,
-                if rig.arms { "arms" } else { "model" }
-            );
-            let clock = evidence.clocks.entry(key).or_default();
-            clock[0] = native_clip.map_or(0., |clip| clip.duration());
-            clock[1] = clock[1].max(seek);
-            clock[2] += rig.players.len() as f32;
+            if **state == GameState::Playing {
+                rig.ads_elapsed += time.delta_secs();
+            }
+            let blend = (rig.ads_elapsed / 0.1).min(1.);
+            for (index, action) in actions.iter().enumerate() {
+                let Some(name) = weapon
+                    .animation_actions
+                    .get(action)
+                    .and_then(|id| id.0.rsplit('.').next())
+                else {
+                    continue;
+                };
+                let Some(&node) = rig.nodes.get(name) else {
+                    continue;
+                };
+                let Some(clip) = gltfs
+                    .get(&rig.source)
+                    .and_then(|gltf| gltf.named_animations.get(name))
+                    .and_then(|handle| clips.get(handle))
+                else {
+                    continue;
+                };
+                let fraction = if index == 0 {
+                    inventory.ads
+                } else {
+                    1. - inventory.ads
+                };
+                let weight = if requested == (index == 0) { 1. } else { 0. };
+                player
+                    .play(node)
+                    .set_weight(rig.ads_from[index].lerp(weight, blend))
+                    .set_seek_time(fraction * clip.duration())
+                    .pause();
+            }
         }
         rig.sequence = Some(sequence);
         rig.phase = selected.as_ref().map(|s| s.action);
@@ -1306,7 +1323,10 @@ mod tests {
             .world_mut()
             .spawn((
                 ChildOf(root),
-                SocketAttachment(socket),
+                SocketAttachment {
+                    chain: vec![socket, ancestor],
+                    bind_rotation: Quat::IDENTITY,
+                },
                 Transform::default(),
             ))
             .id();

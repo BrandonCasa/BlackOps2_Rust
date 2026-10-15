@@ -28,16 +28,6 @@ pub(super) type Inventories<'w, 's> = Query<
         Option<&'static crate::crafting::BuildableInventory>,
     ),
 >;
-#[derive(Resource, Default)]
-pub struct EquipmentPresentationEvidence {
-    pub phases: std::collections::BTreeSet<String>,
-    pub motion: BTreeMap<String, f32>,
-    pub frames: u32,
-    pub phase_frames: BTreeMap<String, u32>,
-    pub views: BTreeMap<String, serde_json::Value>,
-    pub clocks: BTreeMap<String, [f32; 3]>,
-    pub sampled_clocks: BTreeMap<String, f32>,
-}
 pub(crate) struct Selection {
     pub(crate) weapon: WeaponId,
     pub(crate) action: WeaponAnimation,
@@ -208,53 +198,3 @@ pub(super) fn select_visible(
         }
     }
 }
-pub(super) fn record_motion(
-    state: Res<State<GameState>>,
-    mut rigs: Query<&mut Rig>,
-    poses: Query<&Transform>,
-    players: Query<&AnimationPlayer>,
-    mut evidence: ResMut<EquipmentPresentationEvidence>,
-) {
-    if **state != GameState::Playing {
-        return;
-    }
-    for mut rig in &mut rigs {
-        let Some(phase) = rig.playback else {
-            continue;
-        };
-        let key = format!(
-            "{}:{phase:?}:{}",
-            rig.weapon.0,
-            if rig.arms { "arms" } else { "model" }
-        );
-        *evidence.phase_frames.entry(key.clone()).or_default() += 1;
-        for entity in &rig.players {
-            if let Ok(player) = players.get(*entity) {
-                for (_, active) in player.playing_animations() {
-                    let sampled = evidence.sampled_clocks.entry(key.clone()).or_default();
-                    *sampled = sampled.max(active.seek_time());
-                }
-            }
-        }
-        if rig.sampled_phase != Some(phase) {
-            for (_, sample) in &mut rig.tracked {
-                *sample = None;
-            }
-            rig.sampled_phase = Some(phase);
-        }
-        for (entity, sample) in &mut rig.tracked {
-            let Ok(pose) = poses.get(*entity) else {
-                continue;
-            };
-            if let Some((translation, rotation)) = *sample {
-                let motion =
-                    translation.distance(pose.translation) + rotation.angle_between(pose.rotation);
-                let maximum = evidence.motion.entry(key.clone()).or_default();
-                *maximum = maximum.max(motion);
-            }
-            *sample = Some((pose.translation, pose.rotation));
-        }
-        evidence.frames += 1;
-    }
-}
-

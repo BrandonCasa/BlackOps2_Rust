@@ -368,7 +368,6 @@ pub(crate) fn pause_and_restart(
     state: Res<State<GameState>>,
     mut next: ResMut<NextState<GameState>>,
     mut cursors: Query<(&Window, &mut CursorOptions)>,
-    mut commands: Commands,
     settings: Res<ControlSettings>,
     menu: Res<menu::ControlMenu>,
     mut restart: MessageReader<RestartGame>,
@@ -393,7 +392,6 @@ pub(crate) fn pause_and_restart(
     if **state == GameState::GameOver
         && (settings.just_pressed(Action::Restart, &keys, &mouse) || requested)
     {
-        commands.queue(crate::session::teardown);
         next.set(GameState::StartingSession);
     }
     for (window, mut cursor) in &mut cursors {
