@@ -20,9 +20,7 @@ struct SourceWeapon {
     clip_bindings: BTreeMap<String, String>,
 }
 pub(crate) fn bind(game: &mut GameDefinition, root: &Path) -> Result<(), String> {
-    let mut catalog: Catalog =
-        serde_json::from_str(include_str!("../../gameplay/origins/weapons.json"))
-            .map_err(|error| format!("Invalid source-authored weapon catalog: {error}"))?;
+    let mut catalog: Catalog = super::read(&root.join("weapons.json"));
     let file = root.join("source-weapons.json");
     let facts: BTreeMap<String, SourceWeapon> =
         serde_json::from_slice(&std::fs::read(&file).map_err(|error| {
@@ -82,23 +80,13 @@ pub(crate) fn bind(game: &mut GameDefinition, root: &Path) -> Result<(), String>
         }
     }
     game.content.weapons = catalog.weapons;
-    macro_rules! merge {
-        ($field:ident) => {{
-            for entry in catalog.$field {
-                game.content.$field.retain(|old| old.id != entry.id);
-                game.content.$field.push(entry);
-            }
-        }};
-    }
-    merge!(presentations);
-    merge!(animations);
-    merge!(ui_assets);
-    merge!(localized_strings);
-    for id in catalog.definitions {
-        if !game.content.definitions.contains(&id) {
-            game.content.definitions.push(id);
-        }
-    }
+    game.content.presentations.extend(catalog.presentations);
+    game.content.animations.extend(catalog.animations);
+    game.content.ui_assets.extend(catalog.ui_assets);
+    game.content
+        .localized_strings
+        .extend(catalog.localized_strings);
+    game.content.definitions.extend(catalog.definitions);
     Ok(())
 }
 
@@ -108,10 +96,15 @@ mod source_catalog_tests {
 
     #[test]
     fn authored_catalog_deserializes_with_per_surface_throwable_tables() {
-        let catalog: Catalog = serde_json::from_str(include_str!("../../gameplay/origins/weapons.json"))
-            .expect("source-authored weapon data must match runtime types");
-        let monkey = catalog.weapons.iter().find(|weapon| weapon.id.0 == "weapon.cymbal_monkey_zm")
-            .and_then(|weapon| weapon.throwable.as_ref()).expect("source monkey definition");
+        let catalog: Catalog =
+            serde_json::from_str(include_str!("../../gameplay/origins/weapons.json"))
+                .expect("source-authored weapon data must match runtime types");
+        let monkey = catalog
+            .weapons
+            .iter()
+            .find(|weapon| weapon.id.0 == "weapon.cymbal_monkey_zm")
+            .and_then(|weapon| weapon.throwable.as_ref())
+            .expect("source monkey definition");
         assert_eq!(monkey.tangent_bounce[0], 0.5);
         assert_eq!(monkey.tangent_bounce[1], 0.6);
         assert_eq!(monkey.normal_bounce[6], 0.225);

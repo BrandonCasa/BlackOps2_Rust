@@ -15,9 +15,7 @@ use bevy::prelude::*;
 mod source;
 #[derive(Resource, Default)]
 pub struct Rituals {
-    pub headshots: u32,
     pub generators: u32,
-    pub spent: u64,
     pub chests: u32,
     pub claimed: [bool; 4],
     pub souls: [u32; 4],
@@ -28,12 +26,12 @@ pub struct Rituals {
     latched: bool,
 }
 impl Rituals {
-    pub fn eligible(&self, index: usize) -> bool {
+    pub fn eligible(&self, index: usize, session: &Session) -> bool {
         !self.claimed[index]
             && match index {
-                0 => self.headshots >= 115,
+                0 => session.challenge_headshots >= 115,
                 1 => self.generators >= 6,
-                2 => self.spent >= 30000,
+                2 => session.spent >= 30000,
                 _ => self.chests >= 4,
             }
     }
@@ -200,14 +198,7 @@ fn track(
     mut rituals: ResMut<Rituals>,
     mut deaths: MessageReader<EnemyDeath>,
     mut stomps: MessageReader<crate::robots::RobotStomp>,
-    enemies: Query<
-        (
-            &Transform,
-            &Collider,
-            Option<&crate::rounds::PopulationKind>,
-        ),
-        With<crate::enemies::Zombie>,
-    >,
+    enemies: Query<(&Transform, &Collider), With<crate::enemies::Zombie>>,
     volumes: Query<(
         &crate::environment::triggers::MapTrigger,
         &crate::environment::triggers::TriggerState,
@@ -215,12 +206,10 @@ fn track(
     query: SpatialQuery,
     game: Res<GameDefinition>,
     generators: Res<crate::generators::Generators>,
-    ledger: Res<crate::economy::PointLedger>,
     mut boxes: Query<(Entity, &SoulChest, &mut SoulBoxGlow)>,
     players: Query<(&Vitality, &IronFists), With<Player>>,
 ) {
     rituals.generators = generators.completions;
-    rituals.spent = ledger.spent;
     for event in stomps.read() {
         for (i, (_, _, center)) in source::BOXES.iter().enumerate() {
             if !rituals.complete[i]
@@ -241,21 +230,10 @@ fn track(
         }
     }
     for death in deaths.read() {
-        if death.0.impact.region.head()
-            && death.0.impact.source.player_attributed()
-            && matches!(death.0.impact.category, DamageCategory::Bullet)
-            && enemies
-                .get(death.0.impact.target)
-                .is_ok_and(|(_, _, kind)| {
-                    kind != Some(&crate::rounds::PopulationKind::GeneratorDefender)
-                })
-        {
-            rituals.headshots += 1;
-        }
         if !death.0.can_supply_soul() {
             continue;
         }
-        let Ok((pose, shape, _)) = enemies.get(death.0.impact.target) else {
+        let Ok((pose, shape)) = enemies.get(death.0.impact.target) else {
             continue;
         };
         let touched = query.shape_intersections(
@@ -365,7 +343,7 @@ pub(crate) fn claim(
     else {
         return;
     };
-    let available: Vec<_> = (0..4).filter(|i| rituals.eligible(*i)).collect();
+    let available: Vec<_> = (0..4).filter(|i| rituals.eligible(*i, &session)).collect();
     if available.is_empty() {
         return;
     }

@@ -1,8 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::BTreeMap,
-    fmt,
-};
+use std::collections::BTreeMap;
 
 macro_rules! identifiers {
     ($($name:ident),+ $(,)?) => {$ (
@@ -41,38 +38,6 @@ pub enum DamageCategory {
     Environmental,
     Crush,
 }
-
-#[derive(Debug)]
-pub enum ContentError {
-    Io {
-        path: std::path::PathBuf,
-        source: std::io::Error,
-    },
-    Json {
-        path: std::path::PathBuf,
-        source: serde_json::Error,
-    },
-    InvalidDefinition(String),
-}
-impl fmt::Display for ContentError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Io { path, source } => write!(
-                f,
-                "Cannot read {}: {source}. Restore the required asset files.",
-                path.display()
-            ),
-            Self::Json { path, source } => write!(
-                f,
-                "Invalid {}: {source}. Regenerate/import game.json.",
-                path.display()
-            ),
-            Self::InvalidDefinition(reason) => f.write_str(reason),
-
-        }
-    }
-}
-impl std::error::Error for ContentError {}
 
 #[derive(Clone, Deserialize)]
 pub struct WeaponDefinition {
@@ -480,7 +445,6 @@ impl EnemyPhysics {
     pub fn center(self, crawler: bool) -> bevy::prelude::Vec3 {
         bevy::prelude::Vec3::Y * (self.height(crawler) * 0.5)
     }
-
 }
 #[derive(Clone, Deserialize)]
 pub struct HitVolumeDefinition {
@@ -927,7 +891,6 @@ pub struct AnimationRootMotion {
     pub rotation: Vec<[f32; 5]>,
 }
 impl AnimationRootMotion {
-
     pub fn translation_at(&self, seconds: f32) -> [f32; 3] {
         let Some(first) = self.translation.first() else {
             return [0.; 3];
@@ -1017,14 +980,6 @@ pub struct LocalizedString {
     pub text: String,
 }
 #[derive(Clone, Deserialize)]
-pub struct CinematicSequence {
-    pub id: ContentId,
-    pub video: String,
-    /// Source stereo bed, then center-channel narration.
-    pub audio: [ContentId; 2],
-}
-
-#[derive(Clone, Deserialize)]
 pub struct ContentCatalog {
     #[serde(default)]
     pub barriers: Vec<crate::barriers::BarrierDefinition>,
@@ -1062,8 +1017,6 @@ pub struct ContentCatalog {
     pub sounds: Vec<SoundDefinition>,
     pub animations: Vec<AnimationDefinition>,
     pub ui_assets: Vec<UiAsset>,
-    #[serde(default)]
-    pub cinematics: Vec<CinematicSequence>,
     #[serde(default)]
     pub localized_strings: Vec<LocalizedString>,
 }

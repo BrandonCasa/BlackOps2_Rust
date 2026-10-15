@@ -7,7 +7,6 @@ pub struct SprintState {
     pub capacity: f32,
     pub sprinting: bool,
     pub exhausted: bool,
-    pub last_run_seconds: f32,
     active_seconds: f32,
     recovery_age: f32,
     restart_blocked: bool,
@@ -29,6 +28,7 @@ impl SprintState {
         dt: f32,
         requested: bool,
         eligible: bool,
+        jump_command: bool,
         capacity: f32,
         minimum: f32,
         recovery_rate: f32,
@@ -36,7 +36,7 @@ impl SprintState {
         latch_interruptions: bool,
     ) {
         if self.capacity != capacity {
-            self.remaining = (self.remaining + capacity - self.capacity).clamp(0., capacity);
+            self.remaining = (self.remaining + capacity - self.capacity).min(capacity);
             self.capacity = capacity;
             self.exhausted |= self.remaining == 0.;
         }
@@ -47,6 +47,7 @@ impl SprintState {
         let was_sprinting = self.sprinting;
         self.sprinting = requested
             && eligible
+            && !jump_command
             && !self.exhausted
             && !self.restart_blocked
             && self.remaining > if was_sprinting { 0. } else { minimum };
@@ -58,7 +59,11 @@ impl SprintState {
         } else {
             if was_sprinting {
                 self.restart_blocked = requested && latch_interruptions;
-                self.last_run_seconds = self.active_seconds;
+                if jump_command && !self.exhausted {
+                    // Native sprint end advances 800 ms; recovery subtracts that end twice.
+                    // Keep the debt below zero until recovered, as the source timestamps do.
+                    self.remaining -= 1.6;
+                }
                 self.active_seconds = 0.;
             }
             let before = self.recovery_age;
@@ -107,7 +112,7 @@ impl Default for MobilityTuning {
             prone_speed: 190. * 0.15 * 0.0254,
             prone_step: 10. * 0.0254,
             stance: StanceTuning::default(),
-            jump_recovery: 0.25,
+            jump_recovery: 0.5,
             dive_jump_height: 39. * 0.0254,
             dive_launch_multiplier: 2.,
             dive_apex_seconds: 0.4,
@@ -189,8 +194,6 @@ impl Default for StanceTuning {
     }
 }
 impl StanceTuning {
-
-
     fn sample(&self, kind: usize, percent: f32) -> f32 {
         let points = &self.curves[kind];
         let Some(pair) = points.windows(2).find(|pair| percent <= pair[1][0]) else {
@@ -377,19 +380,6 @@ pub struct Landing {
     pub diving: bool,
     pub surface_flags: u32,
 }
-#[derive(Resource, Default)]
-pub struct MovementEvidence {
-    pub events: Vec<serde_json::Value>,
-    pub motion: Vec<serde_json::Value>,
-}
-impl MovementEvidence {
-    pub fn record(&mut self, event: serde_json::Value) {
-        if self.events.len() < 128 {
-            self.events.push(event);
-        }
-    }
-}
-
 #[derive(Component, Default)]
 pub struct MotionFeedback {
     pub rumble: Vec2,

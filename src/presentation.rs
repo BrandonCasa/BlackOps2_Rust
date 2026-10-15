@@ -55,14 +55,14 @@ pub(crate) struct ViewModelGroup {
     owner: Entity,
 }
 #[derive(Component, Clone)]
-#[require(AnimationPlayer)]
+#[require(crate::animation::SceneClips)]
 pub(crate) struct Rig {
     pub(crate) owner: Entity,
     pub(crate) weapon: WeaponId,
     phase: Option<WeaponAnimation>,
     source: Handle<Gltf>,
-    graph: Option<Handle<AnimationGraph>>,
     nodes: BTreeMap<String, AnimationNodeIndex>,
+    prefetched: bool,
     sockets: [Option<Entity>; 3],
     camera_chain: Vec<Entity>,
     bind_rotation: Quat,
@@ -279,17 +279,29 @@ fn spawn_viewmodels(
                 let Some(scene) = scene else {
                     continue;
                 };
-                let source = server.load(scene.split('#').next().unwrap_or(scene).to_owned());
+                let source = server
+                    .load_builder()
+                    .with_settings(|settings: &mut bevy::gltf::GltfLoaderSettings| {
+                        settings.load_animations = false;
+                    })
+                    .load(scene.split('#').next().unwrap_or(scene).to_owned());
                 let rig = commands
                     .spawn((
-                        WorldAssetRoot(server.load(scene.to_owned())),
+                        WorldAssetRoot(
+                            server
+                                .load_builder()
+                                .with_settings(|settings: &mut bevy::gltf::GltfLoaderSettings| {
+                                    settings.load_animations = false;
+                                })
+                                .load(scene.to_owned()),
+                        ),
                         Rig {
                             owner,
                             weapon: weapon.id.clone(),
                             phase: None,
                             source,
-                            graph: None,
                             nodes: BTreeMap::new(),
+                            prefetched: false,
                             sockets: [None; 3],
                             camera_chain: Vec::new(),
                             bind_rotation: Quat::IDENTITY,
@@ -461,7 +473,14 @@ fn attachment_visuals(
                 .and_then(|p| p.scene.as_ref())
         {
             holder.insert((
-                WorldAssetRoot(server.load(scene.clone())),
+                WorldAssetRoot(
+                    server
+                        .load_builder()
+                        .with_settings(|settings: &mut bevy::gltf::GltfLoaderSettings| {
+                            settings.load_animations = false;
+                        })
+                        .load(scene.clone()),
+                ),
                 Transform::from_translation(Vec3::new(a.offset[0], a.offset[2], -a.offset[1]))
                     .with_rotation(Quat::from_euler(
                         EulerRot::YXZ,
@@ -525,20 +544,22 @@ fn follow_sockets(
 fn rig_ready(
     event: On<WorldInstanceReady>,
     mut commands: Commands,
-    mut rigs: Query<&mut Rig>,
+    mut rigs: Query<(&mut Rig, &mut crate::animation::SceneClips)>,
+    joints: crate::animation::SceneJoints,
     children: Query<&Children>,
     parents: Query<&ChildOf>,
     players: Query<(), With<AnimationPlayer>>,
-    targets: Query<(), With<bevy::animation::AnimationTargetId>>,
     meshes: Query<(), With<Mesh3d>>,
     names: Query<&Name>,
     gltfs: Res<Assets<Gltf>>,
     skins: Res<Assets<bevy::gltf::GltfSkin>>,
     nodes: Res<Assets<bevy::gltf::GltfNode>>,
 ) {
-    let Ok(mut rig) = rigs.get_mut(event.entity) else {
+    let Ok((mut rig, mut clips)) = rigs.get_mut(event.entity) else {
         return;
     };
+    joints.bind(event.entity, &mut commands);
+    clips.ready = true;
     rig.ready = true;
     rig.sequence = None;
     let source = gltfs.get(&rig.source).expect("Ready viewmodel glTF");
@@ -598,11 +619,6 @@ fn rig_ready(
         if players.contains(child) {
             commands.entity(child).remove::<AnimationPlayer>();
         }
-        if targets.contains(child) {
-            commands
-                .entity(child)
-                .insert(bevy::animation::AnimatedBy(event.entity));
-        }
         if meshes.contains(child) {
             commands
                 .entity(child)
@@ -614,10 +630,11 @@ fn rig_ready(
         let left_player = commands.spawn_empty().id();
         let mut left_rig = rig.clone();
         left_rig.left = true;
-        left_rig.graph = None;
         left_rig.nodes.clear();
+        left_rig.prefetched = false;
         commands.entity(left_player).insert((
             left_rig,
+            crate::animation::SceneClips::bound(),
             Transform::default(),
             Visibility::Inherited,
         ));
@@ -804,35 +821,46 @@ fn camera_pose(
 }
 fn build_graphs(
     mut commands: Commands,
-    mut rigs: Query<(Entity, &mut Rig)>,
-    assets: Res<Assets<Gltf>>,
-    mut graphs: ResMut<Assets<AnimationGraph>>,
+    mut rigs: Query<(
+        Entity,
+        &mut Rig,
+        &mut crate::animation::SceneClips,
+        &mut AnimationGraphHandle,
+        Has<AnimationTransitions>,
+    )>,
+    mut assets: crate::animation::ClipAssets,
     definition: Option<Res<GameDefinition>>,
 ) {
     let Some(definition) = definition else { return };
-    for (entity, mut rig) in &mut rigs {
-        if rig.graph.is_some() {
+    for (entity, mut rig, mut loaded, mut graph, transitions) in &mut rigs {
+        if rig.prefetched {
             continue;
         }
-        let Some(source) = assets.get(&rig.source) else {
+        let Some(weapon) = definition
+            .content
+            .weapons
+            .iter()
+            .find(|weapon| weapon.id == rig.weapon)
+        else {
             continue;
         };
-        let mut graph = AnimationGraph::new();
-        for (name, clip) in &source.named_animations {
-            let node = graph.add_clip(clip.clone(), 1., graph.root);
-            rig.nodes.insert(name.to_string(), node);
+        let mut complete = true;
+        for action in weapon.animation_actions.values() {
+            let name = action.0.rsplit('.').next().unwrap();
+            let Some(path) = crate::animation::clip_path(&definition, &rig.source, name) else {
+                continue;
+            };
+            if let Some((node, _)) = loaded.node(path, &mut graph, &mut assets) {
+                rig.nodes.insert(name.to_owned(), node);
+            } else {
+                complete = false;
+            }
         }
-        let graph = graphs.add(graph);
-        rig.graph = Some(graph.clone());
-        commands.entity(entity).insert(AnimationGraphHandle(graph));
-        let layered = rig.arms
-            && definition
-                .content
-                .weapons
-                .iter()
-                .find(|weapon| weapon.id == rig.weapon)
-                .is_some_and(|weapon| weapon.mechanics.native_ads_pitch.is_some());
-        if !layered {
+        rig.prefetched = complete;
+        if !transitions
+            && !(rig.arms && weapon.mechanics.native_ads_pitch.is_some())
+            && !rig.nodes.is_empty()
+        {
             commands.entity(entity).insert(AnimationTransitions::new());
         }
     }
@@ -942,14 +970,15 @@ fn animate(
         &mut Visibility,
         &mut AnimationPlayer,
         Option<&mut AnimationTransitions>,
+        &mut crate::animation::SceneClips,
+        &mut AnimationGraphHandle,
     )>,
-    clips: Res<Assets<AnimationClip>>,
-    gltfs: Res<Assets<Gltf>>,
+    mut assets: crate::animation::ClipAssets,
 ) {
     let Some(definition) = definition else {
         return;
     };
-    for (mut rig, mut visibility, mut player, mut transitions) in &mut rigs {
+    for (mut rig, mut visibility, mut player, mut transitions, mut loaded, mut graph) in &mut rigs {
         let Ok((inventory, lethal, tactical, mines, drinking, buildables)) =
             inventories.get(rig.owner)
         else {
@@ -999,7 +1028,7 @@ fn animate(
             };
             continue;
         }
-        if !rig.ready || rig.graph.is_none() {
+        if !rig.ready {
             continue;
         }
         let (mut action, mut shot_seek) = selected.as_ref().map_or_else(
@@ -1030,9 +1059,7 @@ fn animate(
                 .0
                 .rsplit('.')
                 .next()?;
-            rig.nodes.get(name)?;
-            let handle = gltfs.get(&rig.source)?.named_animations.get(name)?;
-            let duration = clips.get(handle)?.duration();
+            let duration = assets.duration(*rig.nodes.get(name)?, &graph)?;
             (duration > 0.).then_some(if weapon.mechanics.sprint_seconds[index] > 0. {
                 weapon.mechanics.sprint_seconds[index]
             } else {
@@ -1128,16 +1155,30 @@ fn animate(
             .get(&clip_action)
             .or_else(|| weapon.animation_actions.get(&WeaponAnimation::Idle));
         let name = clip.and_then(|id| id.0.rsplit('.').next());
-        let Some(node) = name.and_then(|name| rig.nodes.get(name)).copied() else {
+        if name.is_some_and(|name| {
+            crate::animation::clip_binding(&definition, &rig.source, name) == Some(None)
+        }) {
+            // This action has no channels for this part; restore its authored bind pose.
+            player.stop_all();
+            rig.main_node = None;
+            rig.playback = Some(action);
+            rig.phase = selected.as_ref().map(|s| s.action);
+            rig.sequence = Some(sequence);
+            continue;
+        }
+        let Some((name, path)) = name.and_then(|name| {
+            crate::animation::clip_path(&definition, &rig.source, name).map(|path| (name, path))
+        }) else {
             if !rig.arms {
                 rig.playback = Some(action);
                 rig.phase = selected.as_ref().map(|s| s.action);
             }
             continue;
         };
-        let native_clip = name
-            .and_then(|name| gltfs.get(&rig.source)?.named_animations.get(name))
-            .and_then(|handle| clips.get(handle));
+        let Some((node, clip_duration)) = loaded.node(path, &mut graph, &mut assets) else {
+            continue;
+        };
+        rig.nodes.insert(name.to_owned(), node);
         let melee = definition
             .content
             .weapons
@@ -1154,12 +1195,12 @@ fn animate(
             .or_else(|| selected.as_ref().and_then(|s| s.timing))
             .or_else(|| inventory.hand_reload_timing(rig.left))
             .or_else(|| inventory.presentation_timing(weapon, melee));
-        let seek = native_clip.and_then(|clip| {
+        let seek = (|| {
             if let Some((_, elapsed, duration, looping)) = locomotion {
                 let duration = if duration > 0. {
                     duration
                 } else {
-                    clip.duration()
+                    clip_duration
                 };
                 if duration <= 0. {
                     return None;
@@ -1169,20 +1210,17 @@ fn animate(
                 } else {
                     elapsed.min(duration)
                 };
-                Some(elapsed / duration * clip.duration())
+                Some(elapsed / duration * clip_duration)
             } else if let Some(fraction) = sprint_fraction {
-                Some(fraction.clamp(0., 1.) * clip.duration())
+                Some(fraction.clamp(0., 1.) * clip_duration)
             } else if let Some((duration, remaining)) = timing {
-                Some(
-                    ((duration - remaining).max(0.) / duration * clip.duration())
-                        .min(clip.duration()),
-                )
+                Some(((duration - remaining).max(0.) / duration * clip_duration).min(clip_duration))
             } else if selected.is_none() && shot_seek.is_some() {
-                shot_seek.map(|age| age.min(clip.duration()))
+                shot_seek.map(|age| age.min(clip_duration))
             } else {
                 None
             }
-        });
+        })();
         let looping = clip
             .and_then(|id| {
                 definition
@@ -1248,11 +1286,7 @@ fn animate(
                 let Some(&node) = rig.nodes.get(name) else {
                     continue;
                 };
-                let Some(clip) = gltfs
-                    .get(&rig.source)
-                    .and_then(|gltf| gltf.named_animations.get(name))
-                    .and_then(|handle| clips.get(handle))
-                else {
+                let Some(duration) = assets.duration(node, &graph) else {
                     continue;
                 };
                 let fraction = if index == 0 {
@@ -1264,7 +1298,7 @@ fn animate(
                 player
                     .play(node)
                     .set_weight(rig.ads_from[index].lerp(weight, blend))
-                    .set_seek_time(fraction * clip.duration())
+                    .set_seek_time(fraction * duration)
                     .pause();
             }
         }

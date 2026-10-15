@@ -1,5 +1,5 @@
 //! Bind existing authored enemy animation records to exact external scene labels.
-use super::{AnimationNotification, GameDefinition, HitVolumeDefinition, EnemyPhysics, EnemyRagdoll};
+use super::{AnimationNotification, GameDefinition};
 use serde::Deserialize;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -25,66 +25,19 @@ struct ClipTrack {
 }
 
 #[derive(Deserialize)]
-struct NativeActorData {
-    hit_regions: Vec<HitVolumeDefinition>,
-    physics: Option<EnemyPhysics>,
-    ragdoll: Option<EnemyRagdoll>,
-}
-
-fn bind_native_data(game: &mut GameDefinition) -> Result<(), String> {
-    let source: BTreeMap<String, NativeActorData> = serde_json::from_str(include_str!("../../gameplay/origins/actors.json"))
-        .map_err(|error| format!("Invalid source-authored actor collision data: {error}"))?;
-    for enemy in &mut game.content.enemies {
-        let presentation = enemy.presentation.as_ref()
-            .ok_or_else(|| format!("Enemy {} has no source presentation", enemy.id.0))?;
-        let model = presentation.0.strip_prefix("actor.")
-            .ok_or_else(|| format!("Enemy {} lacks exact source model identity", enemy.id.0))?;
-        let body = source.get(model).ok_or_else(|| format!("Enemy {} source model {model} has no recovered native collision data", enemy.id.0))?;
-        let mut hits = body.hit_regions.clone();
-        for part in &enemy.parts {
-            let model = part.presentation.0.strip_prefix("actor.")
-                .ok_or_else(|| format!("Enemy {} part has no source model identity", enemy.id.0))?;
-            // Source hats are cosmetic attachments; native damage volumes belong to body/head.
-            if matches!(model, "c_zom_tomb_german_hat_1" | "c_zom_tomb_german_hat_2" | "c_zom_tomb_german_hat_3" | "c_zom_tomb_crusader_hat_3") { continue; }
-            let part = source.get(model).ok_or_else(|| format!("Enemy {} part model {model} has no recovered native collision data", enemy.id.0))?;
-            hits.extend(part.hit_regions.iter().cloned());
-        }
-        enemy.hit_regions = hits;
-        if let Some(physics) = body.physics { enemy.physics = Some(physics); }
-        if let Some(ragdoll) = &body.ragdoll { enemy.ragdoll = Some(ragdoll.clone()); }
-    }
-    Ok(())
-}
-
-#[derive(Deserialize)]
 struct ActorCatalog {
     enemies: Vec<super::EnemyDefinition>,
     presentations: Vec<super::PresentationDefinition>,
     animations: Vec<super::AnimationDefinition>,
 }
 
-pub(crate) fn populate(game: &mut GameDefinition) -> Result<(), String> {
-    let source: ActorCatalog = serde_json::from_str(include_str!("../../gameplay/origins/enemies.json"))
-        .map_err(|error| format!("Invalid source-authored enemy catalog: {error}"))?;
-    if game.content.enemies.is_empty() { game.content.enemies = source.enemies; }
-    for presentation in source.presentations {
-        if let Some(existing) = game.content.presentations.iter_mut().find(|existing| existing.id == presentation.id) {
-            *existing = presentation;
-        } else { game.content.presentations.push(presentation); }
-    }
-    for animation in source.animations {
-        if let Some(existing) = game.content.animations.iter_mut().find(|existing| existing.id == animation.id) {
-            *existing = animation;
-        } else { game.content.animations.push(animation); }
-    }
-    Ok(())
-}
-
 /// Gameplay definitions remain authoritative for actor identity, hit volumes,
 /// physics, ragdolls, state selection and traversal root motion.
 pub(crate) fn bind(game: &mut GameDefinition, root: &Path) -> Result<(), String> {
-    populate(game)?;
-    bind_native_data(game)?;
+    let catalog: ActorCatalog = super::read(&root.join("enemies.json"));
+    game.content.enemies = catalog.enemies;
+    game.content.presentations.extend(catalog.presentations);
+    game.content.animations.extend(catalog.animations);
     let path = root.join("source-actor-clips.json");
     let scenes: Vec<Scene> =
         serde_json::from_slice(&std::fs::read(&path).map_err(|error| {
@@ -118,11 +71,12 @@ pub(crate) fn bind(game: &mut GameDefinition, root: &Path) -> Result<(), String>
         let source = if let Some(source) = scenes.iter().find(|scene| scene.model == model) {
             source
         } else if presentation.animations.is_empty() {
-
-
             continue;
         } else {
-            return Err(format!("Actor presentation {} has no exact exported animated source binding", presentation.id.0));
+            return Err(format!(
+                "Actor presentation {} has no exact exported animated source binding",
+                presentation.id.0
+            ));
         };
 
         let tracks_path = root.join(format!("actors/{}/source-tracks.json", source.machine));
@@ -189,4 +143,3 @@ pub(crate) fn bind(game: &mut GameDefinition, root: &Path) -> Result<(), String>
     }
     Ok(())
 }
-

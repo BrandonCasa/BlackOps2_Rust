@@ -50,7 +50,7 @@ pub fn player_solids(excluded: impl IntoIterator<Item = Entity>) -> SpatialQuery
     SpatialQueryFilter::from_mask(1u32 | PLAYER_INGRESS_LAYER).with_excluded_entities(excluded)
 }
 #[derive(Component)]
-pub struct MudVolume(pub String);
+pub struct MudVolume;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FootstepSurface {
     Solid,
@@ -110,7 +110,6 @@ impl Plugin for EnvironmentPlugin {
                     .run_if(in_state(GameState::Playing)),
             );
         app.add_plugins((weather::WeatherPlugin, digging::DiggingPlugin));
-
     }
 }
 fn spawn(mut commands: Commands, game: Res<GameDefinition>, existing: Query<(), With<MudVolume>>) {
@@ -128,7 +127,7 @@ fn spawn(mut commands: Commands, game: Res<GameDefinition>, existing: Query<(), 
                     .collect::<Vec<_>>(),
             ) {
                 commands.spawn((
-                    MudVolume(volume.id.clone()),
+                    MudVolume,
                     crate::gameplay::SessionEntity,
                     shape,
                     Sensor,
@@ -144,10 +143,9 @@ pub(crate) fn slow(
     game: Res<GameDefinition>,
     time: Res<Time<Fixed>>,
     query: SpatialQuery,
-    volumes: Query<&MudVolume>,
+    volumes: Query<(), With<MudVolume>>,
     mut players: Query<
         (
-            Entity,
             &Transform,
             &Collider,
             &crate::solo_revive::PerkInventory,
@@ -156,28 +154,23 @@ pub(crate) fn slow(
         ),
         With<Player>,
     >,
-    mut evidence: ResMut<crate::movement::MovementEvidence>,
 ) {
     let Some(mud) = &game.environment.mud else {
         return;
     };
-    for (owner, pose, shape, owned, health, mut motion) in &mut players {
+    for (pose, shape, owned, health, mut motion) in &mut players {
         let touching = query.shape_intersections(
             shape,
             pose.translation,
             Quat::IDENTITY,
             &SpatialQueryFilter::from_mask(2u32),
         );
-        let area = touching.iter().find_map(|e| volumes.get(*e).ok());
-        let muddy = area.is_some()
+        let muddy = touching.iter().any(|entity| volumes.contains(*entity))
             && matches!(
                 health.state(),
                 crate::life::LifeState::Standing | crate::life::LifeState::Downed
             );
-        if motion.muddy != muddy {
-            motion.muddy = muddy;
-            evidence.record(serde_json::json!({"event":if muddy {"mud_enter"}else{"mud_leave"},"owner":owner.to_bits(),"area":area.map(|v|&v.0),"scale":motion.scale}));
-        }
+        motion.muddy = muddy;
         motion.clock += time.delta_secs();
         while motion.clock + 1e-6 >= mud.interval {
             motion.clock = (motion.clock - mud.interval).max(0.);
@@ -199,7 +192,6 @@ pub(crate) fn slow(
                 } else {
                     target
                 };
-                evidence.record(serde_json::json!({"event":"mud_scale","mud":muddy,"scale":motion.scale,"stamin":stamin}));
             }
         }
     }
@@ -220,7 +212,6 @@ fn feedback(
         &mut crate::movement::MotionFeedback,
     )>,
     mut steps: MessageWriter<Footstep>,
-    mut evidence: ResMut<crate::movement::MovementEvidence>,
 ) {
     for (owner, player, pose, health, terrain, sprint, mobility, inventory, mut motion) in
         &mut players
@@ -257,7 +248,6 @@ fn feedback(
                     surface,
                     position: pose.translation - Vec3::Y * player.height * 0.5,
                 });
-                evidence.record(serde_json::json!({"event":"footstep","surface":format!("{surface:?}"),"sprint":sprint.sprinting}));
             }
             motion.phase %= std::f32::consts::TAU * 2.;
             let amplitude = Vec2::from_array(if sprint.sprinting {

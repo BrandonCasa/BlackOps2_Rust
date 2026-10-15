@@ -278,11 +278,10 @@ fn interact(
     if song.is_some_and(|alias| crate::audio::resolve_alias(&game, alias).is_none()) {
         return;
     }
-    let request = crate::audio::emit_owned(
+    let request = crate::audio::emit(
         &mut commands,
         alias,
         crate::audio::SoundSource::World(position),
-        entity,
     );
     state.pending.insert(request, (entity, target, position));
     commands.entity(entity).insert(PendingSecret);
@@ -413,17 +412,16 @@ fn tick(
             }
         }
     }
-    for (entity, pose, mut log) in &mut logs {
+    for (_, pose, mut log) in &mut logs {
         log.retry = (log.retry - dt).max(0.);
         if log.request.is_none()
             && log.retry == 0.
             && let Some(alias) = log.lines.front()
         {
-            log.request = Some(crate::audio::emit_owned(
+            log.request = Some(crate::audio::emit(
                 &mut commands,
                 alias.clone(),
                 crate::audio::SoundSource::World(pose.translation),
-                entity,
             ));
         }
     }
@@ -437,11 +435,10 @@ fn tick(
                     commands.entity(entity).insert(crate::audio::RetiringSound);
                 }
             }
-            song.request = Some(crate::audio::emit_owned(
+            song.request = Some(crate::audio::emit(
                 &mut commands,
                 song.alias.clone(),
                 crate::audio::SoundSource::World(song.origin),
-                song.owner,
             ));
         }
         if song.started {

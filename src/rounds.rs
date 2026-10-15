@@ -55,8 +55,6 @@ fn native_actor_think_seconds() -> f32 {
     0.05
 }
 impl RoundProfile {
-
-
     pub fn health(&self, round: u32) -> u32 {
         let mut health = self.health_start;
         for r in 2..=round.clamp(1, 255) {
@@ -279,7 +277,9 @@ pub(crate) fn advance(
             round: session.round,
         });
     }
-    let reserve = generators.reserve() + usize::from(robots.triple_active) * 2;
+    let reserve = generators.reserve()
+        + usize::from(robots.triple_active) * 2
+        + usize::from(quest.enabled && quest.stage == crate::quests::QuestStage::RecoverDrone);
     if population.ordinary + population.special
         >= (profile.ordinary_cap as usize).saturating_sub(reserve)
     {
@@ -329,8 +329,7 @@ pub(crate) fn advance(
             health.state() == LifeState::ActorAlive
                 && ((delta.xz().length_squared() < 0.5625 && delta.y.abs() < 1.)
                     || zombie.is_some_and(|z| z.reserves(position)))
-        })
-        {
+        }) {
             return None;
         }
         let shape = crate::enemies::body_shape(source_enemy, false);
@@ -379,7 +378,10 @@ pub(crate) fn advance(
             })
             .collect();
         let enemy = choices.get(session.random() as usize % choices.len().max(1))?;
-        let spawners: Vec<_> = definition.access.spawners.iter()
+        let spawners: Vec<_> = definition
+            .access
+            .spawners
+            .iter()
             .filter(|spawner| spawner.archetype == enemy.archetype)
             .collect();
         let spawner = *spawners.get(session.random() as usize % spawners.len().max(1))?;
@@ -401,8 +403,19 @@ pub(crate) fn advance(
             entrance,
         ))
     })();
-    let Some((position, shape, health, identity, gait, spawn_source, spawn_zone, rising,
-        admission, spawner, entrance)) = candidate
+    let Some((
+        position,
+        shape,
+        health,
+        identity,
+        gait,
+        spawn_source,
+        spawn_zone,
+        rising,
+        admission,
+        spawner,
+        entrance,
+    )) = candidate
     else {
         evidence.failed_admissions += 1;
         evidence.budget_consumed_on_failure += u64::from(pending != session.pending);

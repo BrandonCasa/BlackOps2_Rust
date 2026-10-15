@@ -1,28 +1,61 @@
 use std::{
     ffi::OsString,
-    path::{Path, PathBuf},
-    time::Instant,
+    path::PathBuf,
 };
 
 use avian3d::prelude::*;
 use bevy::{
-    asset::{LoadState, RecursiveDependencyLoadState},
     prelude::*,
-    world_serialization::{WorldAsset, WorldAssetRoot, WorldInstanceReady},
+    world_serialization::{
+        WorldAsset, WorldAssetRoot, WorldInstance, WorldInstanceReady, WorldInstanceSpawner,
+    },
 };
 
 use crate::GameState;
 
 pub(crate) const SOURCE_UNIT_METERS: f32 = 0.0254;
 
-pub const ATTRIBUTE_SURFACE: bevy::mesh::MeshVertexAttribute =
-    bevy::mesh::MeshVertexAttribute::new("Surface", 0x4f52_4947_5355_5246, bevy::render::render_resource::VertexFormat::Float32);
+pub const ATTRIBUTE_SURFACE: bevy::mesh::MeshVertexAttribute = bevy::mesh::MeshVertexAttribute::new(
+    "Surface",
+    0x4f52_4947_5355_5246,
+    bevy::render::render_resource::VertexFormat::Float32,
+);
 
 // Canonical IDs written by the unchanged upstream collision exporter.
 const ENGINE_SURFACES: [&str; 33] = [
-    "default", "bark", "brick", "carpet", "cloth", "concrete", "dirt", "flesh", "foliage", "glass", "grass",
-    "gravel", "ice", "metal", "mud", "paper", "plaster", "rock", "sand", "snow", "water", "wood",
-    "asphalt", "ceramic", "plastic", "rubber", "cushion", "fruit", "paintedmetal", "riotshield", "slush", "player", "tallgrass",
+    "default",
+    "bark",
+    "brick",
+    "carpet",
+    "cloth",
+    "concrete",
+    "dirt",
+    "flesh",
+    "foliage",
+    "glass",
+    "grass",
+    "gravel",
+    "ice",
+    "metal",
+    "mud",
+    "paper",
+    "plaster",
+    "rock",
+    "sand",
+    "snow",
+    "water",
+    "wood",
+    "asphalt",
+    "ceramic",
+    "plastic",
+    "rubber",
+    "cushion",
+    "fruit",
+    "paintedmetal",
+    "riotshield",
+    "slush",
+    "player",
+    "tallgrass",
 ];
 
 #[derive(Resource, Default)]
@@ -37,7 +70,9 @@ impl LaunchOptions {
         } else {
             // Cargo profiles live below target; ordinary assets live at target/assets.
             let executable = std::env::current_exe().expect("Origins executable path");
-            executable.ancestors().skip(1)
+            executable
+                .ancestors()
+                .skip(1)
                 .map(|parent| parent.join("assets"))
                 .find(|path| path.join("game.json").is_file())
                 .expect("Place the assets directory beside the executable or its profile directory")
@@ -45,34 +80,6 @@ impl LaunchOptions {
         Self { asset_root }
     }
 }
-
-#[derive(Debug)]
-pub struct AssetDirectory {
-    pub root: PathBuf,
-}
-
-impl AssetDirectory {
-    pub fn discover(root: &Path) -> Result<Self, String> {
-        if !root.is_absolute() || !root.is_dir() {
-            return Err(format!(
-                "Asset root must be an existing absolute directory: {}",
-                root.display()
-            ));
-        }
-        if !root.join("game.json").is_file() {
-            return Err(format!(
-                "Required gameplay definition is missing: {}",
-                root.join("game.json").display()
-            ));
-        }
-        Ok(Self {
-            root: root.to_owned(),
-        })
-    }
-}
-
-#[derive(Resource)]
-pub struct LoadConfiguration(pub Result<AssetDirectory, String>);
 
 pub use crate::origins::{GameDefinition, Tuning};
 #[derive(Component)]
@@ -225,31 +232,6 @@ impl WorldBrushes {
         (start_solid, fraction)
     }
 }
-fn world_mesh_collider(mesh: &Mesh) -> Option<Collider> {
-    use bevy::mesh::{Indices, PrimitiveTopology, VertexAttributeValues};
-    if mesh.primitive_topology() != PrimitiveTopology::TriangleList {
-        return None;
-    }
-    if let Some(indices) = mesh.indices() {
-        return (indices.len() % 3 == 0)
-            .then(|| Collider::trimesh_from_mesh(mesh))
-            .flatten();
-    }
-    let VertexAttributeValues::Float32x3(vertices) = mesh.attribute(Mesh::ATTRIBUTE_POSITION)?
-    else {
-        return None;
-    };
-    let count = u32::try_from(vertices.len()).ok()?;
-    if count == 0 || count % 3 != 0 {
-        return None;
-    }
-    Collider::trimesh_from_mesh(
-        &mesh
-            .clone()
-            .with_inserted_indices(Indices::U32((0..count).collect())),
-    )
-}
-
 // T6 appends riotshield after the T5 player/tallgrass entries. The
 // exporter's unified table inserts riotshield/slush before those two entries.
 fn native_surface_type(surface: usize) -> Result<u32, String> {
@@ -268,7 +250,9 @@ fn world_surface_colliders(mesh: &Mesh) -> Result<Vec<(usize, Collider)>, String
     if mesh.primitive_topology() != PrimitiveTopology::TriangleList {
         return Err("Required collision mesh is not a triangle list".into());
     }
-    let Some(VertexAttributeValues::Float32x3(positions)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION) else {
+    let Some(VertexAttributeValues::Float32x3(positions)) =
+        mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+    else {
         return Err("Required collision mesh has no Float32x3 positions".into());
     };
     let Some(VertexAttributeValues::Float32(surfaces)) = mesh.attribute(ATTRIBUTE_SURFACE) else {
@@ -285,103 +269,53 @@ fn world_surface_colliders(mesh: &Mesh) -> Result<Vec<(usize, Collider)>, String
             })
             .collect::<Result<_, _>>()?
     } else {
-        (0..u32::try_from(positions.len()).map_err(|_| "Collision vertex count exceeds u32")?).collect()
+        (0..u32::try_from(positions.len()).map_err(|_| "Collision vertex count exceeds u32")?)
+            .collect()
     };
     if indices.is_empty() || indices.len() % 3 != 0 {
         return Err("Required collision mesh contains no complete triangles".into());
     }
     let mut groups = std::collections::BTreeMap::<usize, Vec<u32>>::new();
     for triangle in indices.chunks_exact(3) {
-        let ids = triangle.iter().map(|index| surfaces.get(*index as usize).copied()).collect::<Option<Vec<_>>>()
+        let ids = triangle
+            .iter()
+            .map(|index| surfaces.get(*index as usize).copied())
+            .collect::<Option<Vec<_>>>()
             .ok_or("Collision triangle references a missing vertex")?;
         if ids[0] != ids[1] || ids[0] != ids[2] {
             return Err("Collision triangle has inconsistent source _SURFACE IDs".into());
         }
-        groups.entry(ids[0] as usize).or_default().extend_from_slice(triangle);
+        groups
+            .entry(ids[0] as usize)
+            .or_default()
+            .extend_from_slice(triangle);
     }
-    groups.into_iter().map(|(surface, indices)| {
-        let mut remap = std::collections::HashMap::new();
-        let mut vertices = Vec::new();
-        let triangles = indices.chunks_exact(3).map(|triangle| {
-            std::array::from_fn(|corner| {
-                let original = triangle[corner];
-                *remap.entry(original).or_insert_with(|| {
-                    let index = vertices.len() as u32;
-                    vertices.push(Vec3::from_array(positions[original as usize]));
-                    index
+    groups
+        .into_iter()
+        .map(|(surface, indices)| {
+            let mut remap = std::collections::HashMap::new();
+            let mut vertices = Vec::new();
+            let triangles = indices
+                .chunks_exact(3)
+                .map(|triangle| {
+                    std::array::from_fn(|corner| {
+                        let original = triangle[corner];
+                        *remap.entry(original).or_insert_with(|| {
+                            let index = vertices.len() as u32;
+                            vertices.push(Vec3::from_array(positions[original as usize]));
+                            index
+                        })
+                    })
                 })
-            })
-        }).collect();
-        Ok((surface, Collider::trimesh(vertices, triangles)))
-    }).collect()
-
+                .collect();
+            Ok((surface, Collider::trimesh(vertices, triangles)))
+        })
+        .collect()
 }
 
 #[cfg(test)]
 mod collision_tests {
     use super::*;
-
-    #[test]
-    fn nonindexed_collision_keeps_every_ordered_triangle_and_rejects_incomplete_lists() {
-        use bevy::asset::RenderAssetUsages;
-        use bevy::mesh::{Indices, PrimitiveTopology};
-        let vertices = vec![
-            [0., 0., 0.],
-            [1., 0., 0.],
-            [0., 0., 1.],
-            [2., 0., 0.],
-            [3., 0., 0.],
-            [2., 0., 1.],
-        ];
-        let mesh = Mesh::new(
-            PrimitiveTopology::TriangleList,
-            RenderAssetUsages::MAIN_WORLD,
-        )
-        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices.clone());
-        let collider = world_mesh_collider(&mesh).unwrap();
-        let triangles = collider.shape().as_trimesh().unwrap();
-        assert_eq!(triangles.indices().len(), 2);
-        for (index, triangle) in triangles.triangles().enumerate() {
-            for (vertex, source) in [triangle.a, triangle.b, triangle.c]
-                .iter()
-                .zip(&vertices[index * 3..index * 3 + 3])
-            {
-                assert_eq!([vertex.x, vertex.y, vertex.z], *source);
-            }
-        }
-        assert!(mesh.indices().is_none());
-        assert!(
-            world_mesh_collider(
-                &mesh
-                    .clone()
-                    .with_inserted_indices(Indices::U32((0..6).collect()))
-            )
-            .is_some()
-        );
-        assert!(
-            world_mesh_collider(
-                &mesh
-                    .clone()
-                    .with_inserted_indices(Indices::U32(vec![0, 1, 2, 3]))
-            )
-            .is_none()
-        );
-        assert!(
-            world_mesh_collider(
-                &mesh
-                    .clone()
-                    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices[..5].to_vec())
-            )
-            .is_none()
-        );
-        assert!(
-            world_mesh_collider(
-                &Mesh::new(PrimitiveTopology::LineList, RenderAssetUsages::MAIN_WORLD)
-                    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices)
-            )
-            .is_none()
-        );
-    }
 
     #[test]
     fn static_prop_pose_preserves_source_basis_scale_and_units() {
@@ -395,17 +329,11 @@ mod collision_tests {
             scale: 2.,
             model: "source_prop".into(),
         };
-        let pose = prop.transform().unwrap();
+        let pose = prop.transform();
         assert!((pose.translation - Vec3::new(1., 3., -2.)).length() < 0.00001);
         assert!((pose.rotation * Vec3::X - Vec3::NEG_Z).length() < 0.00001);
         assert!((pose.rotation * Vec3::Y - Vec3::Y).length() < 0.00001);
         assert!((pose.scale - Vec3::splat(2. / 39.37)).length() < 0.00001);
-        let mut invalid = prop;
-        invalid.axis[0][0] = f32::NAN;
-        assert!(invalid.transform().is_err());
-        invalid.axis = [[1., 0., 0.], [0., 1., 0.], [0., 0., 1.]];
-        invalid.scale = -1.;
-        assert!(invalid.transform().is_err());
     }
 
     fn external_brush(contents: u32) -> serde_json::Value {
@@ -558,17 +486,17 @@ struct SourcePosition {
     z: f32,
 }
 impl StaticProp {
-    fn transform(&self) -> Result<Transform, String> {
+    fn transform(&self) -> Transform {
         let position = Vec3::new(self.origin.x, self.origin.z, -self.origin.y) / 39.37;
         let source_rotation = Mat3::from_cols_array_2d(&self.axis);
         let frame = Mat3::from_cols(Vec3::X, Vec3::NEG_Z, Vec3::Y);
         let rotation = frame * source_rotation * frame.transpose();
         // OAT GLBs already use Y-up but retain source inches.
-        Ok(Transform {
+        Transform {
             translation: position,
             rotation: Quat::from_mat3(&rotation),
             scale: Vec3::splat(self.scale / 39.37),
-        })
+        }
     }
     fn gameplay_owned(&self) -> bool {
         matches!(
@@ -583,20 +511,12 @@ impl StaticProp {
     }
 }
 
-#[derive(Resource)]
-struct Loading {
-    handles: Vec<Handle<WorldAsset>>,
-    ready: usize,
-    scene_count: usize,
-    colliders: usize,
-    started: Instant,
-}
-
 pub struct GameAssetsPlugin;
 impl Plugin for GameAssetsPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(OnEnter(GameState::Loading), begin_load)
             .add_observer(scene_ready)
+            .add_systems(Update, asset_failures)
             .add_systems(
                 Update,
                 (poll_definition, finish_load)
@@ -608,57 +528,39 @@ impl Plugin for GameAssetsPlugin {
 
 type StaticProps = Vec<(String, String, Transform)>;
 #[derive(Resource)]
-struct DefinitionTask(
-    bevy::tasks::Task<Result<(GameDefinition, WorldBrushes, StaticProps), String>>,
-);
+struct DefinitionTask(bevy::tasks::Task<(GameDefinition, WorldBrushes, StaticProps)>);
 
 pub(crate) fn begin_load(
     mut commands: Commands,
-    config: Res<LoadConfiguration>,
+    options: Res<LaunchOptions>,
     roots: Query<Entity, Or<(With<MapRoot>, With<StaticPropRoot>)>>,
 ) {
     for root in &roots {
         commands.entity(root).despawn();
     }
-    commands.remove_resource::<Loading>();
     commands.remove_resource::<WorldBrushes>();
     commands.remove_resource::<DefinitionTask>();
-    let root = config.0.as_ref().expect("Invalid Origins asset root").root.clone();
+    let root = options.asset_root.clone();
     let task = bevy::tasks::IoTaskPool::get().spawn(async move {
         info!("Origins asset root: {}", root.display());
-        let definition =
-            GameDefinition::load_from_root(&root).map_err(|error| error.to_string())?;
+        let definition = GameDefinition::load_from_root(&root);
         let volumes = root.join(&definition.collision_metadata);
-        let bytes = std::fs::read(&volumes).map_err(|error| {
-            format!(
-                "Required external collision metadata {}: {error}",
-                volumes.display()
-            )
-        })?;
-        let brushes = WorldBrushes::load(&bytes)?;
-        let metadata_path = root.join(&definition.world_metadata);
-        let bytes = std::fs::read(&metadata_path).map_err(|error| {
-            format!(
-                "Required world metadata {}: {error}",
-                metadata_path.display()
-            )
-        })?;
-        let metadata: WorldMetadata = serde_json::from_slice(&bytes).map_err(|error| {
-            format!(
-                "Invalid world metadata {}: {error}",
-                metadata_path.display()
-            )
-        })?;
+        let bytes = std::fs::read(&volumes).unwrap_or_else(|error| {
+            panic!("Read collision metadata {}: {error}", volumes.display())
+        });
+        let brushes = WorldBrushes::load(&bytes)
+            .unwrap_or_else(|error| panic!("Collision metadata {}: {error}", volumes.display()));
+        let metadata: WorldMetadata = crate::origins::read(&root.join(&definition.world_metadata));
         let mut props = Vec::new();
         for prop in metadata.static_models {
-            let transform = prop.transform()?;
+            let transform = prop.transform();
             if prop.gameplay_owned() {
                 continue;
             }
             let path = format!("model_export/{}_lod0.glb", prop.model);
             props.push((path, prop.model, transform));
         }
-        Ok((definition, brushes, props))
+        (definition, brushes, props)
     });
     commands.insert_resource(DefinitionTask(task));
 }
@@ -675,45 +577,49 @@ fn poll_definition(
         return;
     };
     commands.remove_resource::<DefinitionTask>();
-    let (definition, brushes, props) = definition.expect("Origins source asset loading failed");
-            commands.insert_resource(brushes);
-            let mut handles = Vec::new();
-            let scene_count = 2 + definition.additional_scenes.len();
-            for (path, collision) in std::iter::once((&definition.scene, false))
-                .chain(std::iter::once((&definition.collision_scene, true)))
-                .chain(
-                    definition
-                        .additional_scenes
-                        .iter()
-                        .map(|path| (path, false)),
-                )
-            {
-                let handle: Handle<WorldAsset> = server.load(path.clone());
-                commands.spawn((
-                    WorldAssetRoot(handle.clone()),
-                    MapRoot { collision },
-                    Visibility::Hidden,
-                ));
-                handles.push(handle);
-            }
-            for (path, model, transform) in props {
-                let handle: Handle<WorldAsset> = server.load(format!("{path}#Scene0"));
-                handles.push(handle.clone());
-                commands.spawn((
-                    WorldAssetRoot(handle),
-                    StaticPropRoot,
-                    transform,
-                    Name::new(model),
-                ));
-            }
-            commands.insert_resource(definition);
-            commands.insert_resource(Loading {
-                handles,
-                ready: 0,
-                scene_count,
-                colliders: 0,
-                started: Instant::now(),
-            });
+    let (definition, brushes, props) = definition;
+    commands.insert_resource(brushes);
+    for (path, collision) in std::iter::once((&definition.scene, false))
+        .chain(std::iter::once((&definition.collision_scene, true)))
+        .chain(
+            definition
+                .additional_scenes
+                .iter()
+                .map(|path| (path, false)),
+        )
+    {
+        let handle: Handle<WorldAsset> = server.load_builder()
+            .with_settings(move |settings: &mut bevy::gltf::GltfLoaderSettings| {
+                settings.load_animations = false;
+                settings.load_meshes = if collision {
+                    bevy::asset::RenderAssetUsages::MAIN_WORLD
+                } else {
+                    bevy::asset::RenderAssetUsages::RENDER_WORLD
+                };
+                settings.load_materials = bevy::asset::RenderAssetUsages::RENDER_WORLD;
+            }).load(path.clone());
+        commands.spawn((
+            WorldAssetRoot(handle.clone()),
+            MapRoot { collision },
+            Visibility::Hidden,
+        ));
+    }
+    for (path, model, transform) in props {
+        let handle: Handle<WorldAsset> = server.load_builder()
+            .with_settings(|settings: &mut bevy::gltf::GltfLoaderSettings| {
+                settings.load_animations = false;
+                settings.load_meshes = bevy::asset::RenderAssetUsages::RENDER_WORLD;
+                settings.load_materials = bevy::asset::RenderAssetUsages::RENDER_WORLD;
+            }).load(format!("{path}#Scene0"));
+        commands.spawn((
+            WorldAssetRoot(handle),
+            StaticPropRoot,
+            Visibility::Hidden,
+            transform,
+            Name::new(model),
+        ));
+    }
+    commands.insert_resource(definition);
 }
 
 pub(crate) fn native_scene<'a>(game: &'a GameDefinition, model: &str) -> Option<&'a String> {
@@ -734,13 +640,12 @@ fn scene_ready(
     extras: Query<&bevy::gltf::GltfExtras>,
     definition: Res<GameDefinition>,
     meshes: Res<Assets<Mesh>>,
-    loading: Option<ResMut<Loading>>,
     mut commands: Commands,
 ) {
-    let Some(mut loading) = loading else { return };
     let Ok(root) = roots.get(event.entity) else {
         return;
     };
+    let mut colliders = 0;
     if !root.collision {
         let mut owners = std::collections::HashMap::new();
         for entity in children.iter_descendants(event.entity) {
@@ -836,7 +741,11 @@ fn scene_ready(
                     metadata["group"]
                 );
             };
-            let groups = match meshes.get(&mesh.0).ok_or_else(|| "Required collision mesh asset is missing".to_owned()).and_then(world_surface_colliders) {
+            let groups = match meshes
+                .get(&mesh.0)
+                .ok_or_else(|| "Required collision mesh asset is missing".to_owned())
+                .and_then(world_surface_colliders)
+            {
                 Ok(groups) => groups,
                 Err(error) => {
                     panic!("Collision mesh {:?}: {error}", mesh.0.path());
@@ -879,7 +788,9 @@ fn scene_ready(
             )>();
             for (surface, collider) in groups {
                 let mut child = commands.spawn((
-                    ChildOf(entity), Transform::default(), Visibility::default(),
+                    ChildOf(entity),
+                    Transform::default(),
+                    Visibility::default(),
                     Name::new(format!("Collision surface {}", ENGINE_SURFACES[surface])),
                     RigidBody::Static,
                     collider,
@@ -892,66 +803,51 @@ fn scene_ready(
                             | (native_surface_type(surface).expect("surface type validated") << 20),
                     ),
                 ));
-                if metadata["group"] == "soup" { child.insert(WorldTerrain); }
-                loading.colliders += 1;
+                if metadata["group"] == "soup" {
+                    child.insert(WorldTerrain);
+                }
+                colliders += 1;
             }
         }
     }
-    if root.collision && loading.colliders == 0 {
+    if root.collision && colliders == 0 {
         panic!("Required collision scene contains no usable collision meshes");
     }
-    loading.ready += 1;
+}
+
+fn asset_failures(mut failures: MessageReader<bevy::asset::UntypedAssetLoadFailedEvent>) {
+    for failure in failures.read() {
+        panic!("Required asset {}: {}", failure.path, failure.error);
+    }
 }
 
 fn finish_load(
     mut commands: Commands,
-    roots: Query<(Entity, &MapRoot)>,
-    loading: Option<ResMut<Loading>>,
-    config: Res<LoadConfiguration>,
+    roots: Query<
+        (
+            Entity,
+            &WorldAssetRoot,
+            Option<&WorldInstance>,
+            Option<&MapRoot>,
+        ),
+        Or<(With<MapRoot>, With<StaticPropRoot>)>,
+    >,
+    spawner: Res<WorldInstanceSpawner>,
     server: Res<AssetServer>,
     mut next: ResMut<NextState<GameState>>,
 ) {
-    let Some(loading) = loading else {
-        return;
-    };
-    for handle in &loading.handles {
-        let error = match server.get_load_state(handle.id()) {
-            Some(LoadState::Failed(error)) => Some(error),
-            _ => match server.get_recursive_dependency_load_state(handle.id()) {
-                Some(RecursiveDependencyLoadState::Failed(error)) => Some(error),
-                _ => None,
-            },
-        };
-        if let Some(error) = error {
-            let root = config
-                .0
-                .as_ref()
-                .map(|c| c.root.display().to_string())
-                .unwrap_or_default();
-            panic!(
-                "Asset root: {root}\nRequired scene {:?}: {error}",
-                handle.path()
-            );
-        }
-    }
-    if loading.ready == loading.scene_count
-        && loading.colliders > 0
-        && loading
-            .handles
-            .iter()
-            .all(|handle| server.is_loaded_with_dependencies(handle.id()))
+    if roots.is_empty()
+        || roots.iter().any(|(_, scene, instance, _)| {
+            !instance.is_some_and(|instance| spawner.instance_is_ready(**instance))
+                || !server.is_loaded_with_dependencies(scene.0.id())
+        })
     {
-        info!(
-            "Origins scene dependencies loaded: {} colliders",
-            loading.colliders
-        );
-        for (entity, root) in &roots {
-            if !root.collision {
-                commands.entity(entity).insert(Visibility::Inherited);
-            }
-        }
-        next.set(GameState::StartingSession);
-    } else if loading.started.elapsed().as_secs() > 120 {
-        panic!("Scene loading timed out or collision coverage is incomplete.");
+        return;
     }
+    for (entity, _, _, root) in &roots {
+        if !root.is_some_and(|root| root.collision) {
+            commands.entity(entity).insert(Visibility::Inherited);
+        }
+    }
+    next.set(GameState::StartingSession);
 }

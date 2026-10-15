@@ -1,7 +1,6 @@
 use crate::{
     GameState,
     assets::GameDefinition,
-    economy::{PointLedger, PurchaseError},
     gameplay::{GameStep, Session, SessionEntity},
     input::GameInput,
     life::{LifeState, Vitality},
@@ -48,15 +47,6 @@ pub enum InteractionRejection {
     Unavailable,
     Duplicate,
 }
-impl From<PurchaseError<Self>> for InteractionRejection {
-    fn from(error: PurchaseError<Self>) -> Self {
-        match error {
-            PurchaseError::InsufficientPoints => Self::InsufficientPoints,
-            PurchaseError::Duplicate => Self::Duplicate,
-            PurchaseError::Rejected(reason) => reason,
-        }
-    }
-}
 pub struct InteractionPlugin;
 #[derive(Resource, Default)]
 struct WallMaterials(HashMap<AssetId<StandardMaterial>, Handle<StandardMaterial>>);
@@ -64,7 +54,6 @@ impl Plugin for InteractionPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<InteractionFocus>()
             .init_resource::<WallMaterials>()
-            .init_resource::<PointLedger>()
             .add_systems(
                 OnEnter(GameState::StartingSession),
                 assemble.in_set(crate::session::SessionSetup::World),
@@ -116,7 +105,6 @@ fn assemble(
     definition: Res<GameDefinition>,
     existing: Query<(), With<Usable>>,
     mut focus: ResMut<InteractionFocus>,
-    mut ledger: ResMut<PointLedger>,
     players: Query<(), With<Player>>,
     server: Res<AssetServer>,
 ) {
@@ -124,7 +112,6 @@ fn assemble(
         return;
     }
     *focus = InteractionFocus::default();
-    *ledger = PointLedger::default();
     for source in &definition.content.interactions {
         let Some(placement) = definition
             .content
@@ -146,46 +133,74 @@ fn assemble(
         ));
         if let InteractionAction::Perk { perk } = &source.action {
             if source.source_trigger.is_some() {
-                if let Some(profile) = definition.content.perks.iter().find(|p|p.id==*perk) {
+                if let Some(profile) = definition.content.perks.iter().find(|p| p.id == *perk) {
                     entity.insert(crate::perks::PerkMachine::new(perk.clone()));
                     entity.with_children(|parent| {
                         for volume in &profile.collision {
-                            let layers = (if volume.contents & 1 != 0 {1}else{0})
-                                | (if volume.contents & 0x10000 != 0 {crate::environment::PLAYER_INGRESS_LAYER}else{0})
-                                | (if volume.contents & 0x20000 != 0 {crate::environment::MONSTER_CLIP_LAYER}else{0});
-                            let memberships = crate::assets::world_collision_layers(volume.contents).memberships
-                                & LayerMask::from(crate::assets::RAGDOLL_WORLD_LAYER | crate::assets::DYNENT_WORLD_LAYER);
-                            if let Some(shape)=Collider::convex_hull(&volume.vertices.iter().copied().map(Vec3::from_array).collect::<Vec<_>>()) {
-                                parent.spawn((crate::perks::PerkMachineClip,RigidBody::Static,shape,CollisionLayers::new(LayerMask::from(layers) | memberships,LayerMask::ALL),Transform::from_translation(Vec3::from_array(volume.position))));
+                            let layers = (if volume.contents & 1 != 0 { 1 } else { 0 })
+                                | (if volume.contents & 0x10000 != 0 {
+                                    crate::environment::PLAYER_INGRESS_LAYER
+                                } else {
+                                    0
+                                })
+                                | (if volume.contents & 0x20000 != 0 {
+                                    crate::environment::MONSTER_CLIP_LAYER
+                                } else {
+                                    0
+                                });
+                            let memberships =
+                                crate::assets::world_collision_layers(volume.contents).memberships
+                                    & LayerMask::from(
+                                        crate::assets::RAGDOLL_WORLD_LAYER
+                                            | crate::assets::DYNENT_WORLD_LAYER,
+                                    );
+                            if let Some(shape) = Collider::convex_hull(
+                                &volume
+                                    .vertices
+                                    .iter()
+                                    .copied()
+                                    .map(Vec3::from_array)
+                                    .collect::<Vec<_>>(),
+                            ) {
+                                parent.spawn((
+                                    crate::perks::PerkMachineClip,
+                                    RigidBody::Static,
+                                    shape,
+                                    CollisionLayers::new(
+                                        LayerMask::from(layers) | memberships,
+                                        LayerMask::ALL,
+                                    ),
+                                    Transform::from_translation(Vec3::from_array(volume.position)),
+                                ));
                             }
                         }
                     });
                 }
             } else {
-            let scene = definition
-                .content
-                .perks
-                .iter()
-                .find(|p| p.id == *perk)
-                .and_then(|p| p.presentation.as_ref())
-                .and_then(|id| {
-                    definition
-                        .content
-                        .presentations
-                        .iter()
-                        .find(|p| p.id == *id)
-                })
-                .and_then(|p| p.scene.as_ref());
-            if let Some(scene) = scene {
-                entity.insert(WorldAssetRoot(server.load(scene.clone())));
-            }
-            entity.with_children(|parent| {
-                parent.spawn((
-                    RigidBody::Static,
-                    Collider::cuboid(1.66, 2.17, 0.9),
-                    Transform::from_xyz(-0.203, 1.085, 0.152),
-                ));
-            });
+                let scene = definition
+                    .content
+                    .perks
+                    .iter()
+                    .find(|p| p.id == *perk)
+                    .and_then(|p| p.presentation.as_ref())
+                    .and_then(|id| {
+                        definition
+                            .content
+                            .presentations
+                            .iter()
+                            .find(|p| p.id == *id)
+                    })
+                    .and_then(|p| p.scene.as_ref());
+                if let Some(scene) = scene {
+                    entity.insert(WorldAssetRoot(server.load(scene.clone())));
+                }
+                entity.with_children(|parent| {
+                    parent.spawn((
+                        RigidBody::Static,
+                        Collider::cuboid(1.66, 2.17, 0.9),
+                        Transform::from_xyz(-0.203, 1.085, 0.152),
+                    ));
+                });
             }
         }
         if let InteractionAction::Weapon { weapon, .. } = &source.action {
@@ -270,7 +285,6 @@ pub(crate) fn interact(
         Has<crate::perks::PerkDrinking>,
     )>,
     mut focus: ResMut<InteractionFocus>,
-    mut ledger: ResMut<PointLedger>,
     mut session: ResMut<Session>,
     mut access: ResMut<crate::access::ZoneAccess>,
     mut barriers: ResMut<crate::barriers::Barriers>,
@@ -441,8 +455,8 @@ pub(crate) fn interact(
             return;
         }
         focus.latched = true;
-        let purchase = ledger.command(d.price);
-        let result = ledger.accept(&mut session.points, purchase, || {
+
+        let result = session.purchase(d.price, || {
             if busy {
                 return Err(InteractionRejection::Busy);
             }
@@ -453,7 +467,7 @@ pub(crate) fn interact(
                 focus.accepted += 1;
                 None
             }
-            Err(error) => Some(error.into()),
+            Err(error) => Some(error),
         };
         return;
     }
@@ -527,8 +541,8 @@ pub(crate) fn interact(
         }
         focus.latched = true;
         focus.progress = 0.;
-        let purchase = ledger.command(price);
-        match ledger.accept(&mut session.points, purchase, || {
+
+        match session.purchase(price, || {
             access
                 .unlock(&definition, connection)
                 .map_err(|()| InteractionRejection::Unavailable)
@@ -596,7 +610,7 @@ pub(crate) fn interact(
                 focus.rejection = None;
                 focus.prompt.clear();
             }
-            Err(error) => focus.rejection = Some(error.into()),
+            Err(error) => focus.rejection = Some(error),
         }
         return;
     }
@@ -624,8 +638,8 @@ pub(crate) fn interact(
         }
         focus.latched = true;
         focus.progress = 0.;
-        let purchase = ledger.command(perk.price);
-        let result = ledger.accept(&mut session.points, purchase, || {
+
+        let result = session.purchase(perk.price, || {
             if perk.id == definition.solo_revive.perk {
                 perks.can_buy_solo(&definition.solo_revive)?;
             } else if perks.owned.contains(&perk.id) {
@@ -656,7 +670,7 @@ pub(crate) fn interact(
                 );
                 None
             }
-            Err(error) => Some(error.into()),
+            Err(error) => Some(error),
         };
         return;
     }
@@ -729,8 +743,8 @@ pub(crate) fn interact(
     }
     focus.latched = true;
     focus.progress = 0.;
-    let purchase = ledger.command(cost);
-    let result = ledger.accept(&mut session.points, purchase, || {
+
+    let result = session.purchase(cost, || {
         if weapon.mine.is_some() {
             mines.receive(weapon)?;
         } else if weapon.throwable.is_some() {
@@ -788,7 +802,7 @@ pub(crate) fn interact(
             );
             None
         }
-        Err(error) => Some(error.into()),
+        Err(error) => Some(error),
     };
 }
 

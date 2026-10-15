@@ -30,21 +30,6 @@ pub enum Channel {
 }
 #[derive(Clone, Deserialize)]
 pub struct Alias {
-    pub sounds: Vec<ContentId>,
-    pub spatial: bool,
-    pub channel: Channel,
-    pub subtitle: String,
-    pub limit: usize,
-    pub priority: u32,
-    pub seconds: f32,
-    pub secondary: Option<String>,
-    #[serde(default)]
-    pub reverb_send: f32,
-    #[serde(default)]
-    pub wet_distance_min: f32,
-    #[serde(default)]
-    pub wet_distance_max: f32,
-    #[serde(default)]
     pub native: Vec<NativeSound>,
 }
 
@@ -142,22 +127,6 @@ impl NativeSound {
         }
         let gain = ((distance / 0.0254 - 800.) / 2200.).clamp(0., 1.) * -30.;
         1. + gain / 35.
-    }
-    fn alias(&self) -> Alias {
-        Alias {
-            sounds: self.sound.iter().cloned().collect(),
-            spatial: self.spatial,
-            channel: self.channel,
-            subtitle: self.subtitle.clone(),
-            limit: self.limit.count as usize,
-            priority: self.priority[0] as u32,
-            seconds: self.seconds.unwrap_or(5.),
-            secondary: self.secondary.clone(),
-            reverb_send: self.reverb_send,
-            wet_distance_min: self.wet_distance[0],
-            wet_distance_max: self.wet_distance[1],
-            native: Vec::new(),
-        }
     }
     fn attenuation(&self, distance: f32, minimum: f32, maximum: f32) -> f32 {
         if distance < minimum {
@@ -331,34 +300,16 @@ impl AudioSettings {
     }
 }
 #[derive(Resource, Default)]
-pub struct AudioEvidence {
-    pub requested: u32,
-    pub started: u32,
-    pub rejected: u32,
-    pub peak: usize,
-    pub paused: u32,
-    pub resumed: u32,
-    pub owner_stops: u32,
-    pub frozen_tails: u32,
-    pub events: BTreeMap<String, u32>,
-    pub sinks: BTreeMap<String, u32>,
-}
-#[cfg(all(debug_assertions, feature = "dev-tools"))]
-#[derive(Resource, Default)]
-pub(crate) struct RequestedAliases(pub BTreeMap<String, u32>);
-#[derive(Resource, Default)]
 pub struct Subtitle {
     pub text: String,
     remaining: f32,
+    pauseable: bool,
 }
 #[derive(Component)]
 pub struct SurfaceSound(pub String);
 #[derive(Resource, Default)]
 pub(crate) struct Mixer {
-    sequence: u64,
     clock: f32,
-    voice_cooldown: f32,
-    last_voice: BTreeMap<String, f32>,
     native_random: Option<u32>,
     native_previous: BTreeMap<String, usize>,
     native_played: BTreeSet<(String, usize)>,
@@ -538,8 +489,6 @@ pub fn emit_loop(commands: &mut Commands, alias: impl Into<String>, source: Soun
         ))
         .id()
 }
-#[derive(Component)]
-pub(crate) struct ConversationSound(pub Entity);
 #[derive(Resource, Default)]
 pub(crate) struct StoryReservation(pub Option<Entity>);
 #[derive(Resource, Default)]
@@ -586,8 +535,6 @@ pub struct DynamicsDefinition {
     pub attack: f32,
     pub release: f32,
 }
-
-impl MasterDefinition {}
 
 #[derive(Clone, Deserialize)]
 pub struct RoomDefinition {
@@ -764,10 +711,6 @@ pub(crate) struct SemanticPlayback {
     wet: Option<Arc<AtomicU32>>,
     filter: Option<Arc<AtomicU32>>,
     voice: Option<Arc<reverb::VoiceControl>>,
-    send: f32,
-    wet_min: f32,
-    wet_max: f32,
-    wet_curves: Option<[SoundCurve; 2]>,
     obstruction: f32,
     obstruction_target: f32,
 }
@@ -781,16 +724,6 @@ impl Drop for SemanticPlayback {
 }
 #[derive(Component)]
 struct PendingRoom(Handle<AudioSource>);
-pub(crate) fn emit_owned(
-    commands: &mut Commands,
-    alias: impl Into<String>,
-    source: SoundSource,
-    owner: Entity,
-) -> Entity {
-    let entity = emit(commands, alias, source);
-    commands.entity(entity).insert(ConversationSound(owner));
-    entity
-}
 pub(crate) fn resolve_alias<'a>(game: &'a GameDefinition, name: &str) -> Option<&'a str> {
     let name = match name {
         "purchase" => "zmb_cha_ching",
@@ -809,7 +742,12 @@ pub(crate) fn resolve_alias<'a>(game: &'a GameDefinition, name: &str) -> Option<
     game.audio
         .aliases
         .iter()
-        .find(|(_, a)| a.sounds.iter().any(|id| id.0 == name))
+        .find(|(_, alias)| {
+            alias
+                .native
+                .iter()
+                .any(|sound| sound.sound.as_ref().is_some_and(|id| id.0 == name))
+        })
         .map(|(name, _)| name.as_str())
 }
 #[derive(Component, Clone)]
@@ -835,7 +773,7 @@ pub(crate) struct PlayingSound {
     priority: f32,
     gain: f32,
     started: f32,
-    native: Option<usize>,
+    native: usize,
     frame: u64,
     delay: f32,
     age: f32,
@@ -844,19 +782,7 @@ pub(crate) struct PlayingSound {
     velocity: Vec3,
 }
 
-pub(crate) fn attenuation(distance: f32, minimum: f32, maximum: f32) -> f32 {
-    if distance >= maximum {
-        0.
-    } else if distance <= minimum {
-        1.
-    } else {
-        (maximum - distance) / (maximum - minimum)
-    }
-}
-fn pitch_speed(value: f32, native: bool) -> f32 {
-    if !native {
-        return value;
-    }
+fn pitch_speed(value: f32) -> f32 {
     if (value - 1.).abs() < 1.52879e-05 {
         1.
     } else {
@@ -906,19 +832,12 @@ fn native_limit(
         _ => Err(()),
     }
 }
-fn speech(alias: &str) -> bool {
-    if alias.starts_with("vox_maxi_audio_log_") {
-        return false;
-    }
-    alias.starts_with("vox_plr_") || alias.starts_with("vox_sam_") || alias.starts_with("vox_maxi_")
-}
 pub struct GameAudioPlugin;
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct AudioPlayback;
 impl Plugin for GameAudioPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<AudioSettings>()
-            .init_resource::<AudioEvidence>()
             .init_resource::<Subtitle>()
             .init_resource::<Mixer>()
             .init_resource::<StoryReservation>()
@@ -988,35 +907,28 @@ fn play(
     server: Res<AssetServer>,
     state: Res<State<GameState>>,
     settings: Res<AudioSettings>,
-    time: Res<Time>,
+    time: Res<Time<Real>>,
     requests: Query<(
         Entity,
         &SoundRequest,
         Option<&SoundFade>,
-        Option<&ConversationSound>,
         Option<&SoundControl>,
     )>,
     playing: Query<(Entity, &PlayingSound, &SemanticPlayback)>,
     camera: Query<Entity, With<crate::rendering::GameCamera>>,
     transforms: TransformHelper,
     mut mixer: ResMut<Mixer>,
-    mut evidence: ResMut<AudioEvidence>,
     mut subtitle: ResMut<Subtitle>,
-    (reservation, music, generators, weather, mut events, mut lifetimes): (
-        Res<StoryReservation>,
+    (music, generators, weather): (
         Res<MusicOverride>,
         Res<crate::generators::Generators>,
         Res<crate::environment::weather::Weather>,
-        MessageWriter<PlaybackEvent>,
-        ResMut<Lifetimes>,
     ),
-    #[cfg(all(debug_assertions, feature = "dev-tools"))] mut validation_requests: Option<
-        ResMut<RequestedAliases>,
-    >,
+    mut events: MessageWriter<PlaybackEvent>,
+    mut lifetimes: ResMut<Lifetimes>,
 ) {
-    let Some(game) = game else {
-        return;
-    };
+    let Some(game) = game else { return };
+    mixer.clock += time.delta_secs();
     if **state == GameState::Paused {
         return;
     }
@@ -1024,18 +936,22 @@ fn play(
         **state,
         GameState::Playing | GameState::GameOver | GameState::Ending | GameState::StartingSession
     ) {
-        for (e, ..) in &requests {
-            commands.entity(e).try_despawn();
+        for (entity, ..) in &requests {
+            commands.entity(entity).try_despawn();
         }
         return;
     }
-    mixer.voice_cooldown = (mixer.voice_cooldown - time.delta_secs()).max(0.);
-    mixer.clock += time.delta_secs();
     mixer.native_frame = mixer.native_frame.wrapping_add(1);
+    if requests.is_empty() {
+        return;
+    }
     let mut contexts = game.audio.contexts.clone();
-    if let Some(room) = game.audio.room_contexts.get(&weather.ambient_room) {
-        contexts.extend(room.iter().map(|(kind, value)| (*kind, *value)));
-    } else if let Some(room) = game.audio.room_contexts.get("tomb_outdoor") {
+    if let Some(room) = game
+        .audio
+        .room_contexts
+        .get(&weather.ambient_room)
+        .or_else(|| game.audio.room_contexts.get("tomb_outdoor"))
+    {
         contexts.extend(room.iter().map(|(kind, value)| (*kind, *value)));
     }
     let listener = camera
@@ -1043,72 +959,40 @@ fn play(
         .ok()
         .and_then(|e| transforms.compute_global_transform(e).ok())
         .map_or(Vec3::ZERO, |t| t.translation());
-    let mut counts = BTreeMap::<String, usize>::new();
-    let mut live = BTreeMap::<String, Vec<(Entity, f32)>>::new();
-    let mut count = 0;
-    let mut voice = Vec::new();
     let mut native_voices = Vec::new();
-    for (e, s, semantic) in &playing {
-        count += 1;
-        *counts.entry(s.alias.clone()).or_default() += 1;
-        live.entry(s.alias.clone())
-            .or_default()
-            .push((e, s.started));
-        if s.channel == Channel::Dialogue && speech(&s.alias) && !semantic.completed {
-            voice.push((e, s.priority));
+    for (entity, sound, semantic) in &playing {
+        if semantic.completed {
+            continue;
         }
-        if !semantic.completed
-            && let Some(native) = s.native.and_then(|index| {
-                game.audio
-                    .aliases
-                    .get(&s.alias)
-                    .and_then(|alias| alias.native.get(index))
-            })
-        {
-            native_voices.push(NativeVoice {
-                entity: e,
-                alias: s.alias.clone(),
-                source: s.source.key(),
-                priority: s.priority,
-                started: s.started,
-                frame: s.frame,
-                loaded: native.loaded,
-                voice_limit: native.voice_limit,
-                announcer: native.announcer,
-            });
-        }
+        let native = &game.audio.aliases[&sound.alias].native[sound.native];
+        native_voices.push(NativeVoice {
+            entity,
+            alias: sound.alias.clone(),
+            source: sound.source.key(),
+            priority: sound.priority,
+            started: sound.started,
+            frame: sound.frame,
+            loaded: native.loaded,
+            voice_limit: native.voice_limit,
+            announcer: native.announcer,
+        });
     }
     let mut pending: VecDeque<_> = requests
         .iter()
-        .map(|(entity, request, fade, owner, control)| {
-            (
-                entity,
-                request.clone(),
-                fade.cloned(),
-                owner.map(|owner| owner.0),
-                control.cloned(),
-            )
+        .map(|(entity, request, fade, control)| {
+            (entity, request.clone(), fade.cloned(), control.cloned())
         })
         .collect();
-    while let Some((entity, mut request, fade, owner, control)) = pending.pop_front() {
-        let resolved = resolve_alias(&game, &request.alias).map(str::to_owned);
-        request.alias = resolved.unwrap_or_else(|| request.alias.clone());
+    while let Some((entity, mut request, fade, control)) = pending.pop_front() {
+        if let Some(resolved) = resolve_alias(&game, &request.alias) {
+            request.alias = resolved.to_owned();
+        }
         if **state == GameState::GameOver && request.alias != "mus_zombie_game_over" {
             commands.entity(entity).try_despawn();
             continue;
         }
-        if !request.secondary_sent {
-            evidence.requested += 1;
-        }
-        #[cfg(all(debug_assertions, feature = "dev-tools"))]
-        if let Some(aliases) = validation_requests.as_mut() {
-            *aliases.0.entry(request.alias.clone()).or_default() += 1;
-        }
-        let Some(source_alias) = game.audio.aliases.get(&request.alias) else {
+        let Some(alias) = game.audio.aliases.get(&request.alias) else {
             commands.entity(entity).try_despawn();
-            if !game.audio.absent.contains(&request.alias) {
-                evidence.rejected += 1;
-            }
             events.write(PlaybackEvent {
                 entity,
                 status: if game.audio.absent.contains(&request.alias) {
@@ -1119,32 +1003,24 @@ fn play(
             });
             continue;
         };
-        let native_index = if source_alias.native.is_empty() {
-            None
-        } else {
-            let Some(index) = request
-                .native
-                .or_else(|| mixer.select(&request.alias, source_alias, request.source, &contexts))
-            else {
-                commands.entity(entity).try_despawn();
-                events.write(PlaybackEvent {
-                    entity,
-                    status: PlaybackStatus::Completed,
-                });
-                continue;
-            };
-            request.native = Some(index);
-            Some(index)
+        let Some(native_index) = request
+            .native
+            .or_else(|| mixer.select(&request.alias, alias, request.source, &contexts))
+        else {
+            commands.entity(entity).try_despawn();
+            events.write(PlaybackEvent {
+                entity,
+                status: PlaybackStatus::Completed,
+            });
+            continue;
         };
-        let native = native_index.and_then(|index| source_alias.native.get(index));
-        let native_alias = native.map(NativeSound::alias);
-        let alias = native_alias.as_ref().unwrap_or(source_alias);
-        if native.is_some_and(|sound| {
-            sound.never_play_twice
-                && mixer
-                    .native_played
-                    .contains(&(request.alias.clone(), native_index.unwrap()))
-        }) {
+        request.native = Some(native_index);
+        let native = &alias.native[native_index];
+        if native.never_play_twice
+            && mixer
+                .native_played
+                .contains(&(request.alias.clone(), native_index))
+        {
             commands.entity(entity).try_despawn();
             events.write(PlaybackEvent {
                 entity,
@@ -1152,9 +1028,9 @@ fn play(
             });
             continue;
         }
-        if native.is_some() && !request.secondary_sent {
+        if !request.secondary_sent {
             request.secondary_sent = true;
-            if let Some(secondary) = &alias.secondary {
+            if let Some(secondary) = &native.secondary {
                 let child = emit(&mut commands, secondary.clone(), request.source);
                 let secondary = SoundRequest {
                     alias: secondary.clone(),
@@ -1163,20 +1039,21 @@ fn play(
                     native: None,
                     secondary_sent: false,
                 };
-                pending.push_front((entity, request, fade, owner, control.clone()));
-                pending.push_front((child, secondary, None, None, control));
+                pending.push_front((entity, request, fade, control.clone()));
+                pending.push_front((child, secondary, None, control));
                 continue;
             }
         }
-        if native.is_some_and(|sound| sound.sound.is_none()) {
-            if !alias.subtitle.is_empty() {
+        let Some(sound_id) = &native.sound else {
+            if !native.subtitle.is_empty() {
                 subtitle.text = game
                     .content
                     .localized_strings
                     .iter()
-                    .find(|s| s.key == alias.subtitle)
-                    .map_or_else(|| alias.subtitle.clone(), |s| s.text.clone());
+                    .find(|s| s.key == native.subtitle)
+                    .map_or_else(|| native.subtitle.clone(), |s| s.text.clone());
                 subtitle.remaining = 5.;
+                subtitle.pauseable = native.pauseable;
             }
             commands.entity(entity).try_despawn();
             events.write(PlaybackEvent {
@@ -1184,142 +1061,41 @@ fn play(
                 status: PlaybackStatus::Completed,
             });
             continue;
-        }
-        if native.is_none()
-            && alias.channel == Channel::Dialogue
-            && !request.alias.starts_with("vox_maxi_audio_log_")
-            && reservation.0.is_some()
-            && reservation.0 != owner
-        {
-            commands.entity(entity).try_despawn();
-            events.write(PlaybackEvent {
-                entity,
-                status: PlaybackStatus::Rejected,
-            });
-            evidence.rejected += 1;
-            continue;
-        }
-        if alias.channel == Channel::Music
-            && request.alias.starts_with("mus_zombie_")
-            && (music.0.is_some()
-                || (generators.raid_active
+        };
+        if native.channel == Channel::Music && request.alias.starts_with("mus_zombie_") {
+            if music.0.is_some()
+                || generators.raid_active
                     && !matches!(
                         request.alias.as_str(),
                         "mus_zombie_dog_start" | "mus_zombie_dog_end"
-                    )))
-        {
-            commands.entity(entity).try_despawn();
-            events.write(PlaybackEvent {
-                entity,
-                status: PlaybackStatus::Rejected,
-            });
-            evidence.rejected += 1;
-            continue;
-        }
-        if alias.channel == Channel::Music && request.alias.starts_with("mus_zombie_") {
-            for (e, s, _) in &playing {
-                if s.alias.starts_with("mus_zombie_") {
-                    commands.entity(e).try_insert(RetiringSound);
-                }
-            }
-        }
-        let concurrent = *counts.get(&request.alias).unwrap_or(&0);
-        let character_speech = native.is_none()
-            && alias.channel == Channel::Dialogue
-            && speech(&request.alias)
-            && !request.alias.starts_with("vox_maxi_audio_log_");
-        if native.is_none() && concurrent >= alias.limit && character_speech {
-            commands.entity(entity).try_despawn();
-            evidence.rejected += 1;
-            events.write(PlaybackEvent {
-                entity,
-                status: PlaybackStatus::Rejected,
-            });
-            continue;
-        }
-        if native.is_none() && concurrent >= alias.limit {
-            if let Some(entries) = live.get_mut(&request.alias)
-                && let Some((index, _)) = entries
-                    .iter()
-                    .enumerate()
-                    .min_by(|(_, a), (_, b)| a.1.total_cmp(&b.1))
-            {
-                let (old, _) = entries.remove(index);
-                commands.entity(old).try_despawn();
-                count -= 1;
-                *counts.get_mut(&request.alias).unwrap() -= 1;
-            }
-        }
-        if native.is_none() && count >= 64 {
-            commands.entity(entity).try_despawn();
-            evidence.rejected += 1;
-            events.write(PlaybackEvent {
-                entity,
-                status: PlaybackStatus::Rejected,
-            });
-            continue;
-        }
-        if character_speech {
-            let now = mixer.clock;
-            let repeated = mixer
-                .last_voice
-                .get(&request.alias)
-                .is_some_and(|last| now - last < 45.);
-            if (owner.is_none() && repeated)
-                || (owner.is_none() && mixer.voice_cooldown > 0. && alias.priority < 100)
-                || voice.iter().any(|(_, p)| *p >= alias.priority as f32)
+                    )
             {
                 commands.entity(entity).try_despawn();
-                evidence.rejected += 1;
                 events.write(PlaybackEvent {
                     entity,
                     status: PlaybackStatus::Rejected,
                 });
                 continue;
             }
-            for (e, _) in voice.drain(..) {
-                commands.entity(e).try_despawn();
+            for (old, sound, _) in &playing {
+                if sound.alias.starts_with("mus_zombie_") {
+                    commands.entity(old).try_insert(RetiringSound);
+                }
             }
-            mixer.last_voice.insert(request.alias.clone(), now);
-            mixer.voice_cooldown = 8.;
-            subtitle.text = game
-                .content
-                .localized_strings
-                .iter()
-                .find(|s| s.key == alias.subtitle)
-                .map_or_else(|| alias.subtitle.clone(), |s| s.text.clone());
-            if subtitle.text.is_empty() {
-                subtitle.text = if request.alias.starts_with("vox_plr_") {
-                    "[Player dialogue]".into()
-                } else {
-                    "[Voice]".into()
-                };
-            }
-            subtitle.remaining = alias.seconds;
         }
-        if native.is_none() {
-            mixer.sequence = mixer
-                .sequence
-                .wrapping_mul(6364136223846793005)
-                .wrapping_add(1);
-        }
-        let choice = if native.is_some() {
-            0
-        } else {
-            (mixer.sequence >> 32) as usize % alias.sounds.len()
-        };
-        let Some(sound) = game
+        let sound = game
             .content
             .sounds
             .iter()
-            .find(|s| s.id == alias.sounds[choice])
-        else {
-            commands.entity(entity).try_despawn();
-            continue;
-        };
+            .find(|sound| sound.id == *sound_id)
+            .unwrap_or_else(|| {
+                panic!(
+                    "native alias {} references missing sound {}",
+                    request.alias, sound_id.0
+                )
+            });
         let Some(position) = request.source.position(&transforms) else {
             commands.entity(entity).try_despawn();
-            evidence.rejected += 1;
             events.write(PlaybackEvent {
                 entity,
                 status: PlaybackStatus::Rejected,
@@ -1328,155 +1104,136 @@ fn play(
         };
         let looping = request.looping || sound.looping;
         let distance = listener.distance(position);
-        if alias.spatial
-            && !native.is_some_and(|sound| sound.ignore_max_distance)
-            && (native.is_some() || !looping)
-            && distance > sound.distance
-        {
+        if native.spatial && !native.ignore_max_distance && distance > sound.distance {
             commands.entity(entity).try_despawn();
-            evidence.rejected += 1;
             events.write(PlaybackEvent {
                 entity,
                 status: PlaybackStatus::Rejected,
             });
             continue;
         }
-        let attenuation = if alias.spatial {
-            native.map_or_else(
-                || attenuation(distance, sound.distance_min, sound.distance),
-                |native| native.attenuation(distance, sound.distance_min, sound.distance),
-            )
+        let attenuation = if native.spatial {
+            native.attenuation(distance, sound.distance_min, sound.distance)
         } else {
             1.
         };
-        let priority = native.map_or(alias.priority as f32, |native| {
-            native.priority_distance(distance, sound.distance_min)
-        });
-        if let Some(native) = native {
-            if sound.volume < 1.52879e-05 && native.volume_max < 1.52879e-05 {
-                commands.entity(entity).try_despawn();
-                events.write(PlaybackEvent {
-                    entity,
-                    status: PlaybackStatus::Completed,
-                });
-                continue;
-            }
-            if native.probability != 0
-                && mixer.random() as f32 * 3.0517578e-05 > native.probability as f32 * 0.003921569
-            {
-                commands.entity(entity).try_despawn();
-                events.write(PlaybackEvent {
-                    entity,
-                    status: PlaybackStatus::Rejected,
-                });
-                continue;
-            }
-            let mut victims = BTreeSet::new();
-            let mut rejected = false;
-            for (limit, per_entity) in [(native.limit, false), (native.entity_limit, true)] {
-                let candidates = native_voices
-                    .iter()
-                    .filter(|voice| {
-                        voice.alias == request.alias
-                            && (!per_entity || voice.source == request.source.key())
-                            && !victims.contains(&voice.entity)
-                    })
-                    .collect::<Vec<_>>();
-                match native_limit(
-                    limit,
-                    &candidates,
-                    priority,
-                    per_entity.then_some(mixer.native_frame),
-                ) {
-                    Ok(Some(victim)) => {
-                        victims.insert(victim);
-                    }
-                    Ok(None) => {}
-                    Err(()) => {
-                        rejected = true;
-                        break;
-                    }
+        let priority = native.priority_distance(distance, sound.distance_min);
+        if sound.volume < 1.52879e-05 && native.volume_max < 1.52879e-05 {
+            commands.entity(entity).try_despawn();
+            events.write(PlaybackEvent {
+                entity,
+                status: PlaybackStatus::Completed,
+            });
+            continue;
+        }
+        if native.probability != 0
+            && mixer.random() as f32 * 3.0517578e-05 > native.probability as f32 * 0.003921569
+        {
+            commands.entity(entity).try_despawn();
+            events.write(PlaybackEvent {
+                entity,
+                status: PlaybackStatus::Rejected,
+            });
+            continue;
+        }
+        let mut victims = BTreeSet::new();
+        let mut rejected = false;
+        for (limit, per_entity) in [(native.limit, false), (native.entity_limit, true)] {
+            let candidates = native_voices
+                .iter()
+                .filter(|voice| {
+                    voice.alias == request.alias
+                        && (!per_entity || voice.source == request.source.key())
+                        && !victims.contains(&voice.entity)
+                })
+                .collect::<Vec<_>>();
+            match native_limit(
+                limit,
+                &candidates,
+                priority,
+                per_entity.then_some(mixer.native_frame),
+            ) {
+                Ok(Some(victim)) => {
+                    victims.insert(victim);
+                }
+                Ok(None) => {}
+                Err(()) => {
+                    rejected = true;
+                    break;
                 }
             }
-            if !rejected {
-                rejected = native.announcer
-                    && native_voices
-                        .iter()
-                        .any(|voice| voice.announcer && !victims.contains(&voice.entity));
-            }
-            if !rejected && native.voice_limit {
-                victims.extend(
-                    native_voices
-                        .iter()
-                        .filter(|voice| voice.voice_limit && voice.source == request.source.key())
-                        .map(|voice| voice.entity),
-                );
-            }
-            if !rejected {
-                let concurrent = native_voices
-                    .iter()
-                    .filter(|voice| {
-                        voice.loaded == native.loaded && !victims.contains(&voice.entity)
-                    })
-                    .count();
-                rejected = concurrent >= if native.loaded { 58 } else { 10 };
-            }
-            if rejected {
-                commands.entity(entity).try_despawn();
-                events.write(PlaybackEvent {
-                    entity,
-                    status: PlaybackStatus::Rejected,
-                });
-                continue;
-            }
-            for victim in victims {
-                commands.entity(victim).try_despawn();
-                native_voices.retain(|voice| voice.entity != victim);
-            }
         }
-        let key = native.map_or(0, |native| {
-            native
-                .id
-                .wrapping_shl(16)
-                .wrapping_add(request.source.key())
-        });
-        let volume = if let Some(native) = native {
-            let fraction = if native.randomize & 1 != 0 {
-                mixer.entity_fraction(key | 0x80000000)
-            } else {
-                mixer.random() as f32 * 3.0517578e-05
-            };
-            sound.volume + (native.volume_max - sound.volume) * fraction
+        if !rejected {
+            rejected = native.announcer
+                && native_voices
+                    .iter()
+                    .any(|voice| voice.announcer && !victims.contains(&voice.entity));
+        }
+        if !rejected && native.voice_limit {
+            victims.extend(
+                native_voices
+                    .iter()
+                    .filter(|voice| voice.voice_limit && voice.source == request.source.key())
+                    .map(|voice| voice.entity),
+            );
+        }
+        if !rejected {
+            let concurrent = native_voices
+                .iter()
+                .filter(|voice| voice.loaded == native.loaded && !victims.contains(&voice.entity))
+                .count();
+            rejected = concurrent >= if native.loaded { 58 } else { 10 };
+        }
+        if rejected {
+            commands.entity(entity).try_despawn();
+            events.write(PlaybackEvent {
+                entity,
+                status: PlaybackStatus::Rejected,
+            });
+            continue;
+        }
+        for victim in victims {
+            commands.entity(victim).try_despawn();
+            native_voices.retain(|voice| voice.entity != victim);
+        }
+
+        let key = native
+            .id
+            .wrapping_shl(16)
+            .wrapping_add(request.source.key());
+        let fraction = if native.randomize & 1 != 0 {
+            mixer.entity_fraction(key | 0x80000000)
         } else {
-            sound.volume
+            mixer.random() as f32 * 3.0517578e-05
         };
-        let fraction = if let Some(native) = native {
-            if native.randomize & 2 != 0 {
-                mixer.entity_fraction(key & 0x7fffffff)
-            } else {
-                mixer.random() as f32 * 3.0517578e-05
-            }
+        let volume = sound.volume + (native.volume_max - sound.volume) * fraction;
+        let fraction = if native.randomize & 2 != 0 {
+            mixer.entity_fraction(key & 0x7fffffff)
         } else {
-            ((mixer.sequence >> 16) & 65535) as f32 / 65535.
+            mixer.random() as f32 * 3.0517578e-05
         };
         let speed = sound.pitch[0] + (sound.pitch[1] - sound.pitch[0]) * fraction;
-        let playback_speed = pitch_speed(
-            speed * control.map_or(1., |control| control.pitch),
-            native.is_some(),
-        );
-        let gain = if fade.as_ref().is_some_and(|f| !f.out) {
+        let gain = if fade.as_ref().is_some_and(|fade| !fade.out) {
             0.
         } else {
-            1.
-        } * if native.is_some() {
-            settings.gain(alias.channel).powi(2)
-        } else {
-            settings.gain(alias.channel)
-        } * attenuation;
+            settings.gain(native.channel).powi(2) * attenuation
+        };
+        let semantic = SemanticPlayback {
+            accepted: false,
+            completed: false,
+            dry_done: Some(Arc::new(AtomicBool::new(false))),
+            wet: Some(Arc::new(AtomicU32::new(
+                (native.reverb_send / 100.).to_bits(),
+            ))),
+            filter: Some(Arc::new(AtomicU32::new(1_f32.to_bits()))),
+            voice: None,
+            obstruction: 0.,
+            obstruction_target: 0.,
+        };
         commands.entity(entity).remove::<SoundRequest>().insert((
             PlayingSound {
                 alias: request.alias.clone(),
-                channel: alias.channel,
+                channel: native.channel,
                 source: request.source,
                 looping,
                 base: volume,
@@ -1487,113 +1244,59 @@ fn play(
                 started: mixer.clock,
                 native: native_index,
                 frame: mixer.native_frame,
-                delay: native.map_or(0., |native| native.delay),
+                delay: native.delay,
                 age: 0.,
                 stop_remaining: None,
                 speed,
-                velocity: native.map_or(Vec3::ZERO, |native| native.velocity(listener, position)),
+                velocity: native.velocity(listener, position),
             },
             PlaybackSettings {
-                mode: if looping {
-                    PlaybackMode::Loop
-                } else {
-                    PlaybackMode::Once
-                },
-                spatial: alias.spatial && native.is_none_or(|native| native.panning),
+                mode: PlaybackMode::Once,
+                spatial: native.spatial && native.panning,
                 spatial_scale: Some(SpatialScale::new(1. / (sound.distance + 0.2))),
-                speed: playback_speed,
+                speed: pitch_speed(speed * control.map_or(1., |control| control.pitch)),
                 volume: Volume::Linear(
                     volume * gain * control.map_or(1., |control| control.volume),
                 ),
-                paused: native.is_some_and(|native| native.delay > 0.),
+                paused: native.delay > 0.,
                 ..default()
             },
             Transform::from_translation(position),
+            semantic,
+            PendingRoom(server.load(sound.path.clone())),
         ));
-        let mut semantic = SemanticPlayback::default();
-        if alias.reverb_send > 0. || native.is_some() {
-            semantic.dry_done = Some(Arc::new(AtomicBool::new(false)));
-            semantic.wet = Some(Arc::new(AtomicU32::new(
-                (alias.reverb_send / 100.).to_bits(),
-            )));
-            semantic.filter = Some(Arc::new(AtomicU32::new(1_f32.to_bits())));
-            semantic.send = alias.reverb_send / 100.;
-            semantic.wet_min = alias.wet_distance_min;
-            semantic.wet_max = alias.wet_distance_max;
-            semantic.wet_curves = native.map(|native| native.reverb_curves.clone());
-            commands
-                .entity(entity)
-                .insert(PendingRoom(server.load(sound.path.clone())));
-            if looping {
-                commands.entity(entity).insert(PlaybackSettings {
-                    mode: PlaybackMode::Once,
-                    spatial: alias.spatial && native.is_none_or(|native| native.panning),
-                    spatial_scale: Some(SpatialScale::new(1. / (sound.distance + 0.2))),
-                    speed: playback_speed,
-                    volume: Volume::Linear(
-                        volume * gain * control.map_or(1., |control| control.volume),
-                    ),
-                    paused: native.is_some_and(|native| native.delay > 0.),
-                    ..default()
-                });
-            }
-        } else {
-            commands
-                .entity(entity)
-                .insert(AudioPlayer::<AudioSource>::new(
-                    server.load(sound.path.clone()),
-                ));
-        }
-        commands.entity(entity).insert(semantic);
         lifetimes.0.insert(entity, false);
-        if character_speech {
-            voice.push((entity, alias.priority as f32));
-        }
-        *counts.entry(request.alias.clone()).or_default() += 1;
-        live.entry(request.alias.clone())
-            .or_default()
-            .push((entity, mixer.clock));
-        count += 1;
-        evidence.started += 1;
-        *evidence.events.entry(request.alias.clone()).or_default() += 1;
-        if let Some(native) = native {
-            mixer
-                .native_played
-                .insert((request.alias.clone(), native_index.unwrap()));
-            native_voices.push(NativeVoice {
-                entity,
-                alias: request.alias.clone(),
-                source: request.source.key(),
-                priority,
-                started: mixer.clock,
-                frame: mixer.native_frame,
-                loaded: native.loaded,
-                voice_limit: native.voice_limit,
-                announcer: native.announcer,
-            });
-            if !alias.subtitle.is_empty() {
-                subtitle.text = game
-                    .content
-                    .localized_strings
-                    .iter()
-                    .find(|s| s.key == alias.subtitle)
-                    .map_or_else(|| alias.subtitle.clone(), |s| s.text.clone());
-                subtitle.remaining = alias.seconds;
-            }
-        }
-        if native.is_none()
-            && let Some(secondary) = &alias.secondary
-        {
-            emit(&mut commands, secondary.clone(), request.source);
+        mixer
+            .native_played
+            .insert((request.alias.clone(), native_index));
+        native_voices.push(NativeVoice {
+            entity,
+            alias: request.alias.clone(),
+            source: request.source.key(),
+            priority,
+            started: mixer.clock,
+            frame: mixer.native_frame,
+            loaded: native.loaded,
+            voice_limit: native.voice_limit,
+            announcer: native.announcer,
+        });
+        if !native.subtitle.is_empty() {
+            subtitle.text = game
+                .content
+                .localized_strings
+                .iter()
+                .find(|s| s.key == native.subtitle)
+                .map_or_else(|| native.subtitle.clone(), |s| s.text.clone());
+            subtitle.remaining = native.seconds.unwrap_or(5.);
+            subtitle.pauseable = native.pauseable;
         }
     }
-    evidence.peak = evidence.peak.max(count);
 }
 fn maintain(
     mut commands: Commands,
     state: Res<State<GameState>>,
     settings: Res<AudioSettings>,
-    time: Res<Time>,
+    time: Res<Time<Real>>,
     game: Option<Res<GameDefinition>>,
     camera: Query<(Entity, &SpatialListener), With<crate::rendering::GameCamera>>,
     mut queries: ParamSet<(
@@ -1611,8 +1314,6 @@ fn maintain(
             Option<&SoundControl>,
         )>,
     )>,
-    mut evidence: ResMut<AudioEvidence>,
-    mut heard: Local<BTreeSet<Entity>>,
     mut events: MessageWriter<PlaybackEvent>,
     mut lifetimes: ResMut<Lifetimes>,
     mut ducks: ResMut<NativeDucks>,
@@ -1620,6 +1321,7 @@ fn maintain(
     contents: Query<&crate::assets::WorldContents>,
     mut obstruction_frame: Local<u32>,
 ) {
+    let Some(game) = game else { return };
     *obstruction_frame = obstruction_frame.wrapping_add(1);
     let sources: Vec<_> = queries
         .p1()
@@ -1642,47 +1344,39 @@ fn maintain(
         .into_iter()
         .map(|(e, source)| (e, source.position(&transforms)))
         .collect();
-    if let Some(game) = &game {
-        let voices = queries
-            .p1()
-            .iter()
-            .filter_map(
-                |(entity, sound, semantic, pose, regular, spatial, playback, _, _, _)| {
-                    let native = game
-                        .audio
-                        .aliases
-                        .get(&sound.alias)?
-                        .native
-                        .get(sound.native?)?;
-                    let profile = native.duck?;
-                    if !native.spatial && game.audio.ducks[&profile].distance > 1.52879e-05 {
-                        return None;
-                    }
-                    Some(DuckVoice {
-                        entity,
-                        profile,
-                        position: positions[&entity].unwrap_or(pose.translation),
-                        seconds: native.seconds.unwrap_or(0.) / pitch_speed(sound.speed, true),
-                        looping: sound.looping,
-                        playing: (regular.is_some() || spatial.is_some())
-                            && !semantic.completed
-                            && sound.delay <= time.delta_secs(),
-                        paused: (**state == GameState::Paused && native.pauseable)
-                            || playback.paused && sound.delay > time.delta_secs(),
-                    })
-                },
-            )
-            .collect::<Vec<_>>();
-        ducks.update(
-            &game.audio.ducks,
-            &voices,
-            listener,
-            time.delta_secs(),
-            **state == GameState::Paused,
-        );
-    }
+    let voices = queries
+        .p1()
+        .iter()
+        .filter_map(
+            |(entity, sound, semantic, pose, regular, spatial, playback, _, _, _)| {
+                let native = &game.audio.aliases[&sound.alias].native[sound.native];
+                let profile = native.duck?;
+                if !native.spatial && game.audio.ducks[&profile].distance > 1.52879e-05 {
+                    return None;
+                }
+                Some(DuckVoice {
+                    entity,
+                    profile,
+                    position: positions[&entity].unwrap_or(pose.translation),
+                    seconds: native.seconds.unwrap_or(0.) / pitch_speed(sound.speed),
+                    looping: sound.looping,
+                    playing: (regular.is_some() || spatial.is_some())
+                        && !semantic.completed
+                        && sound.delay <= time.delta_secs(),
+                    paused: (**state == GameState::Paused && native.pauseable)
+                        || playback.paused && sound.delay > time.delta_secs(),
+                })
+            },
+        )
+        .collect::<Vec<_>>();
+    ducks.update(
+        &game.audio.ducks,
+        &voices,
+        listener,
+        time.delta_secs(),
+        **state == GameState::Paused,
+    );
     let mut sounds = queries.p1();
-    heard.retain(|e| sounds.contains(*e));
     for (
         entity,
         mut sound,
@@ -1696,160 +1390,117 @@ fn maintain(
         control,
     ) in &mut sounds
     {
-        let native = game.as_ref().and_then(|game| {
-            sound.native.and_then(|index| {
-                game.audio
-                    .aliases
-                    .get(&sound.alias)
-                    .and_then(|alias| alias.native.get(index))
-            })
-        });
-        let paused = **state == GameState::Paused && native.is_none_or(|sound| sound.pauseable);
+        let native = &game.audio.aliases[&sound.alias].native[sound.native];
+        let paused = **state == GameState::Paused && native.pauseable;
         if !paused {
             sound.delay = (sound.delay - time.delta_secs()).max(0.);
         }
         playback.paused = paused || sound.delay > 0.;
         if let Some(position) = positions[&entity] {
             pose.translation = position;
-            if native.is_some() && !paused && matches!(sound.source, SoundSource::World(_)) {
+            if !paused && matches!(sound.source, SoundSource::World(_)) {
                 pose.translation += sound.velocity * time.delta_secs();
                 sound.source = SoundSource::World(pose.translation);
             }
-        } else if sound.looping || native.is_some_and(|native| native.stop_on_death) {
-            if let Some(native) = native {
-                sound.source = SoundSource::World(pose.translation);
-                let duration = native.fades[1].max(0.) * native.fade_in(sound.age);
-                sound.stop_remaining.get_or_insert(duration);
-            } else {
-                commands.entity(entity).try_despawn();
-                evidence.owner_stops += 1;
-                continue;
-            }
         } else {
             sound.source = SoundSource::World(pose.translation);
-            evidence.frozen_tails += 1;
+            if sound.looping || native.stop_on_death {
+                let duration = native.fades[1].max(0.) * native.fade_in(sound.age);
+                sound.stop_remaining.get_or_insert(duration);
+            }
         }
-        if (regular.is_some() || spatial.is_some()) && heard.insert(entity) {
-            *evidence.sinks.entry(sound.alias.clone()).or_default() += 1;
-        }
-        let falloff = if native.map_or(playback.spatial, |native| native.spatial) {
-            native.map_or_else(
-                || {
-                    attenuation(
-                        listener.distance(pose.translation),
-                        sound.distance_min,
-                        sound.distance,
-                    )
-                },
-                |native| {
-                    native.attenuation(
-                        listener.distance(pose.translation),
-                        sound.distance_min,
-                        sound.distance,
-                    )
-                },
+        let falloff = if native.spatial {
+            native.attenuation(
+                listener.distance(pose.translation),
+                sound.distance_min,
+                sound.distance,
             )
         } else {
             1.
         };
-        let target = if native.is_some() {
-            settings.gain(sound.channel).powi(2)
-        } else {
-            settings.gain(sound.channel) * falloff
-        };
-        if retiring.is_some() && native.is_none() {
-            if **state != GameState::Paused {
-                sound.gain *= (1. - time.delta_secs() * 5.).max(0.);
-            }
-        } else {
-            sound.gain = target;
-        }
-        if let Some(native) = native {
-            sound.gain *= ducks.gain(native.duck_group);
-            if native.spatial && native.obstruction > 0. && !playback.paused {
-                if !semantic.accepted
-                    || (entity.to_bits() as u32).wrapping_add(*obstruction_frame) & 3 == 0
-                {
-                    semantic.obstruction_target =
-                        obstruction::amount(listener, pose.translation, |start, end| {
-                            let delta = end - start;
-                            let Ok(direction) = Dir3::new(delta) else {
-                                return None;
-                            };
-                            query
-                                .cast_ray_predicate(
-                                    start,
-                                    direction,
-                                    delta.length(),
-                                    true,
-                                    &avian3d::prelude::SpatialQueryFilter::default(),
-                                    &|entity| {
-                                        contents
-                                            .get(entity)
-                                            .is_ok_and(|contents| contents.0 & 0x31 != 0)
-                                    },
-                                )
-                                .map(|hit| hit.distance / delta.length())
-                        });
-                    if !semantic.accepted {
-                        semantic.obstruction = semantic.obstruction_target;
-                    }
-                }
-                semantic.obstruction += (semantic.obstruction_target - semantic.obstruction)
-                    .clamp(-time.delta_secs() * 6., time.delta_secs() * 6.);
-            }
-            if let Some(filter) = &semantic.filter {
-                let mut spatial_filter =
-                    native.distance_filter(listener.distance(pose.translation));
-                if native.spatial {
-                    let mut gain = (spatial_filter - 1.) * 35.;
-                    gain = gain.min(-35. * native.obstruction * semantic.obstruction);
-                    if native.large && semantic.obstruction < 1. {
-                        gain *=
-                            (listener.distance(pose.translation) / (1000. * 0.0254)).clamp(0., 1.);
-                    }
-                    spatial_filter = 1. + gain / 35.;
-                }
-                filter.store(
-                    ducks.filter[native.duck_group as usize]
-                        .min(spatial_filter)
-                        .to_bits(),
-                    Ordering::Relaxed,
-                );
-            }
-            sound.priority =
-                native.priority_distance(listener.distance(pose.translation), sound.distance_min);
-            if (regular.is_some() || spatial.is_some())
-                && !playback.paused
-                && sound.stop_remaining.is_none()
+        sound.gain = settings.gain(sound.channel).powi(2);
+        sound.gain *= ducks.gain(native.duck_group);
+        if native.spatial && native.obstruction > 0. && !playback.paused {
+            if !semantic.accepted
+                || (entity.to_bits() as u32).wrapping_add(*obstruction_frame) & 3 == 0
             {
-                sound.age += time.delta_secs();
-            }
-            if retiring.is_some() {
-                let duration = native.fades[1].max(0.) * native.fade_in(sound.age);
-                sound.stop_remaining.get_or_insert(duration);
-            }
-            if let Some(mut remaining) = sound.stop_remaining {
-                if !paused {
-                    remaining = (remaining - time.delta_secs()).max(0.);
+                semantic.obstruction_target =
+                    obstruction::amount(listener, pose.translation, |start, end| {
+                        let delta = end - start;
+                        let Ok(direction) = Dir3::new(delta) else {
+                            return None;
+                        };
+                        query
+                            .cast_ray_predicate(
+                                start,
+                                direction,
+                                delta.length(),
+                                true,
+                                &avian3d::prelude::SpatialQueryFilter::default(),
+                                &|entity| {
+                                    contents
+                                        .get(entity)
+                                        .is_ok_and(|contents| contents.0 & 0x31 != 0)
+                                },
+                            )
+                            .map(|hit| hit.distance / delta.length())
+                    });
+                if !semantic.accepted {
+                    semantic.obstruction = semantic.obstruction_target;
                 }
-                sound.stop_remaining = Some(remaining);
-                if remaining == 0. {
-                    commands.entity(entity).try_despawn();
-                    continue;
-                }
-                sound.gain *= (remaining / native.fades[1]).clamp(0., 1.).powi(2);
-            } else {
-                sound.gain *= native.fade_in(sound.age).powi(2);
             }
+            semantic.obstruction += (semantic.obstruction_target - semantic.obstruction)
+                .clamp(-time.delta_secs() * 6., time.delta_secs() * 6.);
+        }
+        if let Some(filter) = &semantic.filter {
+            let mut spatial_filter = native.distance_filter(listener.distance(pose.translation));
+            if native.spatial {
+                let mut gain = (spatial_filter - 1.) * 35.;
+                gain = gain.min(-35. * native.obstruction * semantic.obstruction);
+                if native.large && semantic.obstruction < 1. {
+                    gain *= (listener.distance(pose.translation) / (1000. * 0.0254)).clamp(0., 1.);
+                }
+                spatial_filter = 1. + gain / 35.;
+            }
+            filter.store(
+                ducks.filter[native.duck_group as usize]
+                    .min(spatial_filter)
+                    .to_bits(),
+                Ordering::Relaxed,
+            );
+        }
+        sound.priority =
+            native.priority_distance(listener.distance(pose.translation), sound.distance_min);
+        if (regular.is_some() || spatial.is_some())
+            && !playback.paused
+            && sound.stop_remaining.is_none()
+        {
+            sound.age += time.delta_secs();
+        }
+        if retiring.is_some() {
+            let duration = native.fades[1].max(0.) * native.fade_in(sound.age);
+            sound.stop_remaining.get_or_insert(duration);
+        }
+        if let Some(mut remaining) = sound.stop_remaining {
+            if !paused {
+                remaining = (remaining - time.delta_secs()).max(0.);
+            }
+            sound.stop_remaining = Some(remaining);
+            if remaining == 0. {
+                commands.entity(entity).try_despawn();
+                continue;
+            }
+            sound.gain *= (remaining / native.fades[1]).clamp(0., 1.).powi(2);
+        } else {
+            sound.gain *= native.fade_in(sound.age).powi(2);
         }
         if let Some(mut fade) = fade {
-            if **state != GameState::Paused {
+            if !paused {
                 fade.remaining = (fade.remaining - time.delta_secs()).max(0.);
             }
             let fraction = (fade.remaining / fade.duration.max(0.001)).clamp(0., 1.);
             let gain = if fade.out { fraction } else { 1. - fraction };
-            sound.gain *= if native.is_some() { gain.powi(2) } else { gain };
+            sound.gain *= gain.powi(2);
             if fade.remaining == 0. {
                 if fade.out {
                     commands.entity(entity).try_despawn();
@@ -1858,46 +1509,28 @@ fn maintain(
                 commands.entity(entity).remove::<SoundFade>();
             }
         }
-        if native.is_none() && retiring.is_some() && sound.gain < 0.002 {
-            commands.entity(entity).try_despawn();
-            continue;
-        }
         if let Some(wet) = &semantic.wet {
-            let distance = if native.map_or(playback.spatial, |native| native.spatial) {
+            let distance = if native.spatial {
                 listener.distance(pose.translation)
             } else {
                 0.
             };
-            let gain = if let Some(curves) = &semantic.wet_curves {
-                if distance < semantic.wet_min {
-                    curves[1].sample((distance / semantic.wet_min).clamp(0., 1.))
-                } else {
-                    curves[0].sample(
-                        ((distance - semantic.wet_min) / (semantic.wet_max - semantic.wet_min))
-                            .clamp(0., 1.),
-                    )
-                }
-            } else if semantic.wet_max > semantic.wet_min {
-                attenuation(distance, semantic.wet_min, semantic.wet_max)
+            let [minimum, maximum] = native.wet_distance;
+            let gain = if distance < minimum {
+                native.reverb_curves[1].sample((distance / minimum).clamp(0., 1.))
             } else {
-                1.
+                native.reverb_curves[0]
+                    .sample(((distance - minimum) / (maximum - minimum)).clamp(0., 1.))
             };
-            let source_gain = if native.is_some() {
+            let source_gain =
                 (sound.base * sound.gain * control.map_or(1., |control| control.volume))
-                    .clamp(0., 1.)
-            } else if falloff > 0. {
-                sound.base * sound.gain / falloff * control.map_or(1., |control| control.volume)
-            } else {
-                0.
-            };
+                    .clamp(0., 1.);
             wet.store(
-                (source_gain
-                    * semantic.send
+                (source_gain * native.reverb_send / 100.
                     * gain
-                    * native.map_or(1., |native| {
-                        1. - semantic.obstruction
-                            * (1. - (0.75 + native.obstruction * 0.5).clamp(0., 1.))
-                    }))
+                    * (1.
+                        - semantic.obstruction
+                            * (1. - (0.75 + native.obstruction * 0.5).clamp(0., 1.))))
                 .to_bits(),
                 Ordering::Relaxed,
             );
@@ -1929,24 +1562,19 @@ fn maintain(
             continue;
         }
         let source_volume = sound.base * sound.gain * control.map_or(1., |control| control.volume);
-        let volume = Volume::Linear(if native.is_some() {
+        let volume = Volume::Linear(
             source_volume.clamp(0., 1.)
                 * falloff
-                * ((1. - semantic.obstruction)
-                    * (1.25 - native.unwrap().obstruction * 0.5).clamp(0., 1.)
+                * ((1. - semantic.obstruction) * (1.25 - native.obstruction * 0.5).clamp(0., 1.)
                     + semantic.obstruction)
                 * game
+                    .audio
+                    .master
                     .as_ref()
-                    .and_then(|game| game.audio.master.as_ref())
-                    .map_or(1., |master| master.buses[native.unwrap().bus as usize])
-        } else {
-            source_volume.clamp(0., 1.)
-        });
-        playback.volume = volume;
-        playback.speed = pitch_speed(
-            sound.speed * control.map_or(1., |control| control.pitch),
-            native.is_some(),
+                    .map_or(1., |master| master.buses[native.bus as usize]),
         );
+        playback.volume = volume;
+        playback.speed = pitch_speed(sound.speed * control.map_or(1., |control| control.pitch));
         if let Some(voice) = &semantic.voice {
             voice
                 .dry
@@ -1986,11 +1614,9 @@ fn maintain(
             sink.set_speed(playback.speed);
             if playback.paused && !sink.is_paused() {
                 sink.pause();
-                evidence.paused += 1;
             }
             if !playback.paused && sink.is_paused() {
                 sink.play();
-                evidence.resumed += 1;
             }
         }
     }
@@ -2036,8 +1662,8 @@ fn game_over(mut commands: Commands, game: Option<Res<GameDefinition>>) {
         );
     }
 }
-fn subtitles(state: Res<State<GameState>>, time: Res<Time>, mut subtitle: ResMut<Subtitle>) {
-    if **state == GameState::Playing {
+fn subtitles(state: Res<State<GameState>>, time: Res<Time<Real>>, mut subtitle: ResMut<Subtitle>) {
+    if **state != GameState::Paused || !subtitle.pauseable {
         subtitle.remaining = (subtitle.remaining - time.delta_secs()).max(0.);
     }
     if subtitle.remaining == 0. {
@@ -2062,6 +1688,7 @@ fn route(
     mut events: MessageWriter<PlaybackEvent>,
     game: Option<Res<GameDefinition>>,
 ) {
+    let Some(game) = game else { return };
     for (entity, pending, mut semantic, sound, mut playback) in &mut pending {
         if matches!(
             server.get_load_state(pending.0.id()),
@@ -2081,14 +1708,14 @@ fn route(
                 semantic.filter.as_ref().unwrap().clone(),
                 playback.speed,
                 playback.paused,
-                game.as_ref()
-                    .and_then(|game| {
-                        sound.native.and_then(|index| {
-                            game.audio.aliases.get(&sound.alias)?.native.get(index)
-                        })
-                    })
-                    .filter(|native| !native.panning)
-                    .map_or([[1.; 2]; 2], |native| native.pan),
+                {
+                    let native = &game.audio.aliases[&sound.alias].native[sound.native];
+                    if native.panning {
+                        [[1.; 2]; 2]
+                    } else {
+                        native.pan
+                    }
+                },
                 0.,
                 semantic.dry_done.as_ref().unwrap().clone(),
                 playback.spatial,
@@ -2272,10 +1899,9 @@ mod tests {
 
     #[test]
     fn native_pitch_clamps_the_combined_speed_and_snaps_near_one() {
-        assert_eq!(pitch_speed(0., true), 0.01);
-        assert_eq!(pitch_speed(1.5 * 1.6, true), 1.9);
-        assert_eq!(pitch_speed(1.000001, true), 1.);
-        assert_eq!(pitch_speed(2.4, false), 2.4);
+        assert_eq!(pitch_speed(0.), 0.01);
+        assert_eq!(pitch_speed(1.5 * 1.6), 1.9);
+        assert_eq!(pitch_speed(1.000001), 1.);
     }
 
     #[test]

@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+use bevy::{image::ImageSampler, prelude::*, render::render_resource::TextureFormat};
 use std::collections::BTreeMap;
 
 #[derive(Component, Clone, PartialEq)]
@@ -160,6 +160,7 @@ fn render(
     mut commands: Commands,
     game: Option<Res<crate::assets::GameDefinition>>,
     server: Res<AssetServer>,
+    mut images: ResMut<Assets<Image>>,
     mut labels: Query<(
         Entity,
         &NativeText,
@@ -195,6 +196,27 @@ fn render(
         let (asset, font) = fonts.get(font_id.as_str()).unwrap_or_else(|| {
             panic!("required HUD font {font_id} is missing from the UI catalog")
         });
+        let texture = server.load(asset.path.clone());
+        let Some(atlas) = images.get(&texture) else {
+            continue;
+        };
+        if atlas.texture_descriptor.format == TextureFormat::R8Unorm {
+            let mut atlas = images.get_mut(&texture).unwrap();
+            // The source font is DDS A8. Bevy loads A8 as R8, while the original
+            // alphafont shader samples coverage from alpha and emits white RGB.
+            let coverage = atlas
+                .data
+                .take()
+                .expect("required font atlas has no CPU image data");
+            atlas.data = Some(
+                coverage
+                    .into_iter()
+                    .flat_map(|alpha| [255, 255, 255, alpha])
+                    .collect(),
+            );
+            atlas.texture_descriptor.format = TextureFormat::Rgba8UnormSrgb;
+            atlas.sampler = ImageSampler::linear();
+        }
         if let Some(children) = children {
             for child in children.iter().filter(|child| glyphs.contains(*child)) {
                 commands.entity(child).despawn();
@@ -248,7 +270,6 @@ fn render(
         if node.height == Val::Auto {
             node.height = px(label.size * lines.len().max(1) as f32);
         }
-        let texture = server.load(asset.path.clone());
         commands.entity(entity).with_children(|parent| {
             for (line, text) in lines.iter().enumerate() {
                 let mut x = match label.align {

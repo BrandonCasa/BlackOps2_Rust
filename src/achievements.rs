@@ -83,6 +83,7 @@ fn observe(
     generators: Res<crate::generators::Generators>,
     raids: Res<crate::generators::GeneratorRaids>,
     rituals: Res<crate::rituals::Rituals>,
+    session: Res<crate::gameplay::Session>,
     tank: Res<crate::tank::Tank>,
     mut releases: MessageReader<crate::panzer::PanzerClawReleased>,
     players: Query<
@@ -137,9 +138,9 @@ fn observe(
             "Playing with Power",
         );
     }
-    if rituals.headshots >= 115
+    if session.challenge_headshots >= 115
         && rituals.generators >= 6
-        && rituals.spent >= 30000
+        && session.spent >= 30000
         && rituals.chests >= 4
     {
         earn(&mut state, "ZM_DLC4_OVERACHIEVER", "Overachiever");

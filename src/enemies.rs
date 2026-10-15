@@ -1,7 +1,6 @@
 use crate::hit_regions::SkeletalReady as ActorReady;
 use crate::{
     GameState,
-    animation::{AnimationGraphs, AnimationLayer, AnimationPlayback},
     assets::GameDefinition,
     gameplay::{GameStep, Navigation},
     life::{LifeState, Vitality},
@@ -516,6 +515,7 @@ pub struct EnemyEvidence {
     pub adjusted_landings: u32,
 }
 #[derive(Component)]
+#[require(crate::animation::SceneClips)]
 pub(crate) struct ActorRig {
     presentation: ContentId,
     replacement: bool,
@@ -527,11 +527,7 @@ pub(crate) struct ActorRig {
     partial_root: Option<String>,
     ready: bool,
     attached: bool,
-    players: Vec<Entity>,
     sockets: HashMap<String, Entity>,
-    action: Option<EnemyAnimation>,
-    clip: Option<String>,
-    sequence: Option<u64>,
 }
 impl ActorRig {
     pub(crate) fn joint(&self, owner: Entity, name: &str) -> Option<Entity> {
@@ -571,12 +567,7 @@ impl Plugin for EnemyPlugin {
         ragdoll::plugin(app);
         gibs::plugin(app);
         app.init_resource::<EnemyEvidence>()
-            .add_systems(
-                Update,
-                eyes::update
-                    .after(crate::presentation::cues::advance)
-                    .run_if(in_state(GameState::Playing)),
-            )
+            .add_systems(Update, eyes::update.run_if(in_state(GameState::Playing)))
             .add_systems(
                 FixedUpdate,
                 clone_animation
@@ -639,6 +630,7 @@ impl Plugin for EnemyPlugin {
 #[derive(Component)]
 struct VisualClone {
     elapsed: f32,
+    clip: String,
 }
 pub(crate) fn spawn_visual_clone(
     commands: &mut Commands,
@@ -651,7 +643,10 @@ pub(crate) fn spawn_visual_clone(
     let enemy = game.content.enemies.iter().find(|e| e.id == *definition)?;
     let owner = commands
         .spawn((
-            VisualClone { elapsed: 0. },
+            VisualClone {
+                elapsed: 0.,
+                clip: clip.to_owned(),
+            },
             crate::gameplay::SessionEntity,
             pose,
             Visibility::Inherited,
@@ -679,11 +674,23 @@ pub(crate) fn spawn_visual_clone(
         else {
             continue;
         };
-        let source: Handle<Gltf> = server.load(scene.split('#').next().unwrap_or(scene).to_owned());
+        let source: Handle<Gltf> = server
+            .load_builder()
+            .with_settings(|settings: &mut bevy::gltf::GltfLoaderSettings| {
+                settings.load_animations = false;
+            })
+            .load(scene.split('#').next().unwrap_or(scene).to_owned());
         let body = socket.is_none();
         commands.spawn((
             ChildOf(owner),
-            WorldAssetRoot(server.load(scene.to_owned())),
+            WorldAssetRoot(
+                server
+                    .load_builder()
+                    .with_settings(|settings: &mut bevy::gltf::GltfLoaderSettings| {
+                        settings.load_animations = false;
+                    })
+                    .load(scene.to_owned()),
+            ),
             ActorRig {
                 presentation: id.clone(),
                 replacement: false,
@@ -695,11 +702,7 @@ pub(crate) fn spawn_visual_clone(
                 partial_root,
                 ready: false,
                 attached: body,
-                players: Vec::new(),
                 sockets: HashMap::new(),
-                action: None,
-                clip: None,
-                sequence: None,
             },
             if body {
                 Transform::from_translation(-body_center(enemy, false))
@@ -711,28 +714,37 @@ pub(crate) fn spawn_visual_clone(
             } else {
                 Visibility::Hidden
             },
-            crate::animation::NativeAnimation {
-                source,
-                clip: clip.into(),
-                seconds: 0.,
-                looping: false,
-                restart: 0,
-            },
         ));
     }
     Some(owner)
 }
 fn clone_animation(
     time: Res<Time<Fixed>>,
+    game: Res<GameDefinition>,
+    mut assets: crate::animation::ClipAssets,
     mut clones: Query<&mut VisualClone>,
-    mut rigs: Query<(&ActorRig, &mut crate::animation::NativeAnimation)>,
+    mut rigs: Query<(
+        &ActorRig,
+        &mut crate::animation::SceneClips,
+        &mut AnimationPlayer,
+        &mut AnimationGraphHandle,
+    )>,
 ) {
     for mut clone in &mut clones {
         clone.elapsed += time.delta_secs();
     }
-    for (rig, mut animation) in &mut rigs {
-        if let Ok(clone) = clones.get(rig.owner) {
-            animation.seconds = clone.elapsed;
+    for (rig, mut clips, mut player, mut graph) in &mut rigs {
+        if let Ok(clone) = clones.get(rig.owner)
+            && let Some(path) = crate::animation::clip_path(&game, &rig.source, &clone.clip)
+        {
+            clips.sample(
+                path,
+                clone.elapsed,
+                false,
+                &mut player,
+                &mut graph,
+                &mut assets,
+            );
         }
     }
 }
@@ -762,6 +774,7 @@ pub(crate) fn lifecycle(
             Without<Player>,
             Without<crate::panzer::Panzer>,
             Without<crate::tank::TankMotion>,
+            Without<crate::quest_recovery::Pilot>,
         ),
     >,
     slide: MoveAndSlide,
@@ -1996,9 +2009,21 @@ fn spawn_actors(
                 continue;
             };
             let body = socket.is_none();
-            let source = server.load(scene.split('#').next().unwrap_or(scene).to_owned());
+            let source = server
+                .load_builder()
+                .with_settings(|settings: &mut bevy::gltf::GltfLoaderSettings| {
+                    settings.load_animations = false;
+                })
+                .load(scene.split('#').next().unwrap_or(scene).to_owned());
             pending.push((
-                WorldAssetRoot(server.load(scene.to_owned())),
+                WorldAssetRoot(
+                    server
+                        .load_builder()
+                        .with_settings(|settings: &mut bevy::gltf::GltfLoaderSettings| {
+                            settings.load_animations = false;
+                        })
+                        .load(scene.to_owned()),
+                ),
                 ActorRig {
                     presentation: id.clone(),
                     replacement,
@@ -2010,11 +2035,7 @@ fn spawn_actors(
                     partial_root,
                     ready: false,
                     attached: body,
-                    players: Vec::new(),
                     sockets: HashMap::new(),
-                    action: None,
-                    clip: None,
-                    sequence: None,
                 },
                 if body {
                     Transform::from_translation(if zombie.definition.0 == "enemy.panzer" {
@@ -2049,7 +2070,6 @@ fn ready(
     mut commands: Commands,
     mut rigs: Query<&mut ActorRig>,
     children: Query<&Children>,
-    players: Query<(), With<AnimationPlayer>>,
     meshes: Query<(), With<Mesh3d>>,
     names: Query<&Name>,
     definition: Res<GameDefinition>,
@@ -2061,11 +2081,7 @@ fn ready(
     rig.ready = true;
     rig.attached = rig.socket.is_none();
     rig.socket_entity = None;
-    rig.players.clear();
     rig.sockets.clear();
-    rig.action = None;
-    rig.clip = None;
-    rig.sequence = None;
     let owner = rig.owner;
     let body = rig.socket.is_none() && !rig.replacement;
     commands.entity(owner).remove::<ActorReady>();
@@ -2112,9 +2128,6 @@ fn ready(
             && let Ok(name) = names.get(child)
         {
             rig.sockets.entry(name.to_string()).or_insert(child);
-        }
-        if players.contains(child) {
-            rig.players.push(child);
         }
         if meshes.contains(child) {
             commands
@@ -2174,17 +2187,19 @@ fn attach_parts(
 fn admit_ready(
     mut commands: Commands,
     enemies: Query<Entity, (With<Zombie>, Without<ActorReady>)>,
-    rigs: Query<&ActorRig>,
-    cache: Res<AnimationGraphs>,
+    rigs: Query<(&ActorRig, &crate::animation::SceneClips, &AnimationPlayer)>,
 ) {
     for owner in &enemies {
-        let mut parts = rigs.iter().filter(|r| r.owner == owner).peekable();
+        let mut parts = rigs
+            .iter()
+            .filter(|(rig, _, _)| rig.owner == owner)
+            .peekable();
         if parts.peek().is_some()
-            && parts.all(|r| {
-                r.ready
-                    && r.attached
-                    && (r.socket.is_some() && r.players.is_empty()
-                        || !r.players.is_empty() && cache.contains_scene(&r.source))
+            && parts.all(|(rig, clips, player)| {
+                rig.ready
+                    && rig.attached
+                    && clips.ready
+                    && (rig.socket.is_some() || player.playing_animations().next().is_some())
             })
         {
             commands.entity(owner).insert(ActorReady);
@@ -2192,23 +2207,20 @@ fn admit_ready(
     }
 }
 fn animate(
-    mut commands: Commands,
     definition: Option<Res<GameDefinition>>,
     enemies: Query<&Zombie>,
     panzers: Query<&crate::panzer::Panzer>,
-    mut cache: ResMut<AnimationGraphs>,
-    mut graphs: ResMut<Assets<AnimationGraph>>,
-    gltfs: Res<Assets<Gltf>>,
-    clips: Res<Assets<AnimationClip>>,
-    mut rigs: Query<&mut ActorRig>,
-    mut evidence: ResMut<EnemyEvidence>,
-
+    mut assets: crate::animation::ClipAssets,
+    mut rigs: Query<(
+        &ActorRig,
+        &mut crate::animation::SceneClips,
+        &mut AnimationPlayer,
+        &mut AnimationGraphHandle,
+    )>,
 ) {
-    let Some(definition) = definition else {
-        return;
-    };
-    for mut rig in &mut rigs {
-        if !rig.ready || !rig.attached || rig.players.is_empty() {
+    let Some(definition) = definition else { return };
+    for (rig, mut clips, mut player, mut graph) in &mut rigs {
+        if !rig.ready || !rig.attached {
             continue;
         }
         let Ok(zombie) = enemies.get(rig.owner) else {
@@ -2218,41 +2230,21 @@ fn animate(
             .content
             .enemies
             .iter()
-            .find(|e| e.id == zombie.definition)
+            .find(|enemy| enemy.id == zombie.definition)
         else {
-            continue;
-        };
-        let Some(bindings) = cache.scene(&rig.source, &gltfs, &mut graphs) else {
             continue;
         };
         let panzer = panzers.get(rig.owner).ok();
-        let name = if let Some(panzer) = panzer {
-            Some(panzer.animation().0)
-        } else {
-            zombie.animation_name(enemy)
-        };
-        let Some(name) = name else {
-            continue;
-        };
-        let Some(&node) = bindings.named.get(name) else {
-            if !rig.primary {
-                continue;
-            }
-            panic!("{}", format!(
+        let name = panzer
+            .map(|panzer| panzer.animation().0)
+            .or_else(|| zombie.animation_name(enemy));
+        let Some(name) = name else { continue };
+        let Some(path) = crate::animation::clip_path(&definition, &rig.source, name) else {
+            assert!(
+                !rig.primary,
                 "Required actor animation {name} missing from {:?}",
                 rig.source.path()
-            ));
-        };
-        let changed = rig.action != Some(zombie.action)
-            || rig.clip.as_deref() != Some(name)
-            || rig.sequence != Some(zombie.animation_sequence);
-        let Some(duration) = gltfs
-            .get(&rig.source)
-            .and_then(|g| g.named_animations.get(name))
-            .and_then(|h| clips.get(h))
-            .map(AnimationClip::duration)
-            .filter(|d| *d > 0.)
-        else {
+            );
             continue;
         };
         let looping = panzer.map_or_else(
@@ -2267,31 +2259,10 @@ fn animate(
                     })
                     .is_some_and(|animation| animation.looping)
             },
-            |p| p.animation().1,
+            |panzer| panzer.animation().1,
         );
-        let elapsed = panzer.map_or(zombie.elapsed, |p| p.animation_elapsed);
-        let seek = if looping {
-            elapsed.rem_euclid(duration)
-        } else {
-            elapsed.min(duration)
-        };
-        let mut playback = AnimationPlayback::new(
-            bindings.graph.clone(),
-            vec![AnimationLayer::new(node, Some(seek), looping)],
-        );
-        playback.restart = zombie.animation_sequence;
-        for &entity in &rig.players {
-            commands.entity(entity).insert(playback.clone());
-        }
-        if changed {
-            evidence.animations.insert(format!("{:?}", zombie.action));
-            if EnemyLocomotion::for_action(zombie.action).is_some() {
-                evidence.locomotion_clips.insert(name.to_owned());
-            }
-            rig.action = Some(zombie.action);
-            rig.clip = Some(name.to_owned());
-            rig.sequence = Some(zombie.animation_sequence);
-        }
+        let elapsed = panzer.map_or(zombie.elapsed, |panzer| panzer.animation_elapsed);
+        clips.sample(path, elapsed, looping, &mut player, &mut graph, &mut assets);
     }
 }
 

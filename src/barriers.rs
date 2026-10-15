@@ -1,6 +1,5 @@
 use crate::{
     GameState,
-    animation::{AnimationGraphs, AnimationLayer, AnimationPlayback},
     assets::GameDefinition,
     gameplay::{GameStep, Session, SessionEntity},
     origins::{ContentId, PlacementId},
@@ -93,8 +92,6 @@ impl BarrierDefinition {
         let clips = clips.get(&format!("barrier_{gait}_{slot}"))?;
         clips.get(random as usize % clips.len().max(1))
     }
-
-
 }
 #[derive(Clone, Deserialize)]
 pub struct BoardDefinition {
@@ -121,8 +118,6 @@ pub struct RepairQuakeDefinition {
     pub duration: [f32; 2],
     pub radius: f32,
 }
-
-
 
 #[derive(Clone, Deserialize)]
 pub struct BarrierAudioDefinition {
@@ -554,7 +549,8 @@ impl RepairQuakes {
 
 fn repair_quake_camera(
     state: Res<State<GameState>>,
-    clock: Res<crate::presentation::cues::CueClock>,
+    clock: Res<crate::session::SessionClock>,
+    time: Res<Time<Virtual>>,
     mut barriers: ResMut<Barriers>,
     mut cameras: Query<&mut Transform, With<crate::rendering::GameCamera>>,
 ) {
@@ -564,9 +560,7 @@ fn repair_quake_camera(
     ) {
         return;
     }
-    let Some(now) = clock.render_milliseconds() else {
-        return;
-    };
+    let now = clock.milliseconds(&time);
     let Ok(mut camera) = cameras.single_mut() else {
         return;
     };
@@ -597,15 +591,11 @@ pub struct BarrierBlocker(pub ContentId, pub usize);
 pub struct BarrierRepairTrigger(pub ContentId);
 pub const REPAIR_TRIGGER_LAYER: u32 = 32;
 #[derive(Component)]
+#[require(crate::animation::SceneClips)]
 pub struct BoardVisual {
     id: ContentId,
     index: usize,
     source: Handle<Gltf>,
-    graph: Option<(
-        Handle<AnimationGraph>,
-        AnimationNodeIndex,
-        AnimationNodeIndex,
-    )>,
 }
 #[derive(Component)]
 struct WoodAudio;
@@ -688,10 +678,13 @@ fn assemble(
                 false,
                 &crate::environment::solids([]),
             ) else {
-                panic!("{}", format!(
-                    "Source barrier {} attack slot {slot} has no loaded ground collision",
-                    d.id.0
-                ));
+                panic!(
+                    "{}",
+                    format!(
+                        "Source barrier {} attack slot {slot} has no loaded ground collision",
+                        d.id.0
+                    )
+                );
             };
             spots[slot] = source - Vec3::Y * floor.distance;
         }
@@ -704,10 +697,13 @@ fn assemble(
             false,
             &crate::environment::solids([]),
         ) else {
-            panic!("{}", format!(
-                "Source barrier {} repair origin has no loaded ground collision",
-                d.id.0
-            ));
+            panic!(
+                "{}",
+                format!(
+                    "Source barrier {} repair origin has no loaded ground collision",
+                    d.id.0
+                )
+            );
         };
         let repair_origin = repair_origin - Vec3::Y * floor.distance + Vec3::Y * (4. * 0.0254)
             - Quat::from_rotation_y(d.repair_yaw) * Vec3::NEG_Z * (11. * 0.0254);
@@ -725,10 +721,13 @@ fn assemble(
                 let Some(shape) =
                     crate::environment::brushes::compound(&[], std::slice::from_ref(collision))
                 else {
-                    panic!("{}", format!(
-                        "Source barrier {} board {index} collision is unusable",
-                        d.id.0
-                    ));
+                    panic!(
+                        "{}",
+                        format!(
+                            "Source barrier {} board {index} collision is unusable",
+                            d.id.0
+                        )
+                    );
                 };
                 let mut blocker = commands.spawn((
                     SessionEntity,
@@ -759,10 +758,21 @@ fn assemble(
                 BoardVisual {
                     id: d.id.clone(),
                     index,
-                    source: server.load(base.to_owned()),
-                    graph: None,
+                    source: server
+                        .load_builder()
+                        .with_settings(|settings: &mut bevy::gltf::GltfLoaderSettings| {
+                            settings.load_animations = false;
+                        })
+                        .load(base.to_owned()),
                 },
-                WorldAssetRoot(server.load(scene.clone())),
+                WorldAssetRoot(
+                    server
+                        .load_builder()
+                        .with_settings(|settings: &mut bevy::gltf::GltfLoaderSettings| {
+                            settings.load_animations = false;
+                        })
+                        .load(scene.clone()),
+                ),
                 Transform::from_translation(origin).with_rotation(rotation),
                 if d.initially_open {
                     Visibility::Hidden
@@ -921,14 +931,13 @@ fn tick(
 
 fn audio(
     mut commands: Commands,
-    clock: Res<crate::presentation::cues::CueClock>,
+    clock: Res<crate::session::SessionClock>,
+    time: Res<Time<Virtual>>,
     definition: Res<GameDefinition>,
     mut barriers: ResMut<Barriers>,
 ) {
     let barriers = &mut *barriers;
-    let Some(now) = clock.render_milliseconds() else {
-        return;
-    };
+    let now = clock.milliseconds(&time);
     for d in &definition.content.barriers {
         let Some(states) = barriers.windows.get(&d.id).cloned() else {
             continue;
@@ -995,20 +1004,22 @@ fn audio(
     }
 }
 fn animate(
-    mut commands: Commands,
     definition: Option<Res<GameDefinition>>,
-    mut barriers: ResMut<Barriers>,
-    gltfs: Res<Assets<Gltf>>,
-    mut graphs: ResMut<Assets<AnimationGraph>>,
-    mut cache: ResMut<AnimationGraphs>,
-    mut boards: Query<(Entity, &mut BoardVisual, &mut Visibility, &mut Transform)>,
-    children: Query<&Children>,
-    players: Query<(), With<AnimationPlayer>>,
+    barriers: Res<Barriers>,
+    mut assets: crate::animation::ClipAssets,
+    mut boards: Query<(
+        &BoardVisual,
+        &mut Visibility,
+        &mut Transform,
+        &mut crate::animation::SceneClips,
+        &mut AnimationPlayer,
+        &mut AnimationGraphHandle,
+    )>,
 ) {
     let Some(definition) = definition else {
         return;
     };
-    for (entity, mut visual, mut visibility, mut pose) in &mut boards {
+    for (visual, mut visibility, mut pose, mut clips, mut player, mut graph) in &mut boards {
         let Some(d) = definition
             .content
             .barriers
@@ -1030,43 +1041,18 @@ fn animate(
         } else {
             Visibility::Inherited
         };
-        if visual.graph.is_none() {
-            let Some(bindings) = cache.scene(&visual.source, &gltfs, &mut graphs) else {
-                continue;
-            };
-            let board = &d.boards[visual.index];
-            let Some(repair) = board
-                .repair
-                .0
-                .rsplit('.')
-                .next()
-                .and_then(|name| bindings.named.get(name))
-                .copied()
-            else {
-                continue;
-            };
-            let Some(pull) = board
-                .pull
-                .0
-                .rsplit('.')
-                .next()
-                .and_then(|name| bindings.named.get(name))
-                .copied()
-            else {
-                continue;
-            };
-            visual.graph = Some((bindings.graph.clone(), repair, pull));
-            barriers.animated_boards += 1;
-        }
-        let Some((graph, repair, pull)) = &visual.graph else {
-            continue;
-        };
         let board = &d.boards[visual.index];
-        let (node, elapsed, animation) = match state {
-            BoardState::Opening(age) => (*pull, age, &board.pull),
-            BoardState::Closing(age) => (*repair, age, &board.repair),
-            _ => (*repair, board.repair_seconds, &board.repair),
+        let (elapsed, animation) = match state {
+            BoardState::Opening(age) => (age, &board.pull),
+            BoardState::Closing(age) => (age, &board.repair),
+            _ => (board.repair_seconds, &board.repair),
         };
+        let name = animation.0.rsplit('.').next().unwrap();
+        let path = crate::animation::clip_path(&definition, &visual.source, name)
+            .expect("Required barrier clip binding");
+        if !clips.sample(path, elapsed, false, &mut player, &mut graph, &mut assets) {
+            *visibility = Visibility::Hidden;
+        }
         let Some(placement) = definition
             .content
             .placements
@@ -1088,15 +1074,6 @@ fn animate(
             let seconds = elapsed.clamp(0., root.seconds);
             pose.translation += base_rotation * Vec3::from_array(root.translation_at(seconds));
             pose.rotation = base_rotation * Quat::from_array(root.rotation_at(seconds));
-        }
-        for child in children.iter_descendants(entity) {
-            if !players.contains(child) {
-                continue;
-            }
-            commands.entity(child).insert(AnimationPlayback::new(
-                graph.clone(),
-                vec![AnimationLayer::new(node, Some(elapsed), false)],
-            ));
         }
     }
 }

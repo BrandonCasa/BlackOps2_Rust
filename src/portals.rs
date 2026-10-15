@@ -61,6 +61,7 @@ struct CrystalPlinth {
     origin: Vec3,
 }
 #[derive(Component)]
+#[require(crate::animation::SceneClips)]
 struct PortalFrame {
     element: usize,
     exit: bool,
@@ -145,9 +146,21 @@ fn setup(
                         effect: None,
                         sound: None,
                         phase: 0,
-                        source: server.load(scene.split('#').next().unwrap_or(scene).to_owned()),
+                        source: server
+                            .load_builder()
+                            .with_settings(|settings: &mut bevy::gltf::GltfLoaderSettings| {
+                                settings.load_animations = false;
+                            })
+                            .load(scene.split('#').next().unwrap_or(scene).to_owned()),
                     },
-                    WorldAssetRoot(server.load(scene.clone())),
+                    WorldAssetRoot(
+                        server
+                            .load_builder()
+                            .with_settings(|settings: &mut bevy::gltf::GltfLoaderSettings| {
+                                settings.load_animations = false;
+                            })
+                            .load(scene.clone()),
+                    ),
                     Transform::from_translation(Vec3::from_array(pose.feet)).with_rotation(
                         Quat::from_rotation_y(pose.yaw + std::f32::consts::FRAC_PI_2),
                     ),
@@ -181,7 +194,14 @@ fn setup(
             commands.spawn((
                 SessionEntity,
                 CrystalPlinth { element: i, origin },
-                WorldAssetRoot(server.load(scene.clone())),
+                WorldAssetRoot(
+                    server
+                        .load_builder()
+                        .with_settings(|settings: &mut bevy::gltf::GltfLoaderSettings| {
+                            settings.load_animations = false;
+                        })
+                        .load(scene.clone()),
+                ),
                 Transform::from_translation(origin - Vec3::Y * 1.9812)
                     .with_rotation(Quat::from_rotation_y(yaw.to_radians())),
             ));
@@ -673,9 +693,17 @@ fn crystals(
 fn presentation(
     mut commands: Commands,
     portals: Res<Portals>,
-    mut frames: Query<(Entity, &mut PortalFrame)>,
+    game: Res<GameDefinition>,
+    mut assets: crate::animation::ClipAssets,
+    mut frames: Query<(
+        Entity,
+        &mut PortalFrame,
+        &mut crate::animation::SceneClips,
+        &mut AnimationPlayer,
+        &mut AnimationGraphHandle,
+    )>,
 ) {
-    for (entity, mut frame) in &mut frames {
+    for (entity, mut frame, mut clips, mut player, mut graph) in &mut frames {
         let phase = if frame.exit {
             if portals.returns[frame.element] > 20. {
                 PortalPhase::Opening(portals.returns[frame.element] - 20.)
@@ -743,14 +771,8 @@ fn presentation(
             PortalPhase::Closing(t) => ("fxanim_zom_tomb_portal_collapse_anim", CLOSE_SECONDS - t),
             PortalPhase::Closed => ("fxanim_zom_tomb_portal_collapse_anim", CLOSE_SECONDS),
         };
-        commands
-            .entity(entity)
-            .insert(crate::animation::NativeAnimation {
-                source: frame.source.clone(),
-                clip: clip.into(),
-                seconds,
-                looping: false,
-                restart: 0,
-            });
+        let path = crate::animation::clip_path(&game, &frame.source, clip)
+            .expect("Portal source clip binding");
+        clips.sample(path, seconds, false, &mut player, &mut graph, &mut assets);
     }
 }

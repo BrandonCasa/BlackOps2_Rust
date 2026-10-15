@@ -1,6 +1,5 @@
 use crate::{
     GameState,
-    animation::{AnimationGraphs, AnimationLayer, AnimationPlayback},
     assets::GameDefinition,
     equipment::Grenade,
     gameplay::GameStep,
@@ -43,11 +42,11 @@ impl LureEvidence {
     }
 }
 #[derive(Component)]
+#[require(crate::animation::SceneClips)]
 pub struct LureRig {
     pub owner: Entity,
     pub clip: Handle<AnimationClip>,
     ready: bool,
-    players: Vec<Entity>,
 }
 impl LureRig {
     pub fn new(owner: Entity, clip: Handle<AnimationClip>) -> Self {
@@ -55,7 +54,6 @@ impl LureRig {
             owner,
             clip,
             ready: false,
-            players: Vec::new(),
         }
     }
 }
@@ -199,7 +197,6 @@ fn ready(
     meshes: Query<&MeshMaterial3d<StandardMaterial>>,
     mut rigs: Query<&mut LureRig>,
     children: Query<&Children>,
-    players: Query<(), With<AnimationPlayer>>,
 ) {
     let Ok(mut rig) = rigs.get_mut(event.entity) else {
         return;
@@ -222,23 +219,20 @@ fn ready(
         };
         commands.entity(entity).insert(MeshMaterial3d(handle));
     }
-    rig.players = children
-        .iter_descendants(event.entity)
-        .filter(|e| players.contains(*e))
-        .collect();
 }
 fn animate(
-    mut commands: Commands,
     state: Res<State<GameState>>,
-    rigs: Query<&LureRig>,
+    mut rigs: Query<(
+        &LureRig,
+        &mut crate::animation::SceneClips,
+        &mut AnimationPlayer,
+        &mut AnimationGraphHandle,
+    )>,
     grenades: Query<&Grenade>,
-    clips: Res<Assets<AnimationClip>>,
-    mut graphs: ResMut<Assets<AnimationGraph>>,
-    mut cache: ResMut<AnimationGraphs>,
-    mut evidence: ResMut<LureEvidence>,
+    mut assets: crate::animation::ClipAssets,
 ) {
-    for rig in &rigs {
-        if !rig.ready {
+    for (rig, mut clips, mut player, mut graph) in &mut rigs {
+        if !rig.ready || !clips.ready {
             continue;
         }
         let Ok(grenade) = grenades.get(rig.owner) else {
@@ -247,18 +241,16 @@ fn animate(
         if !grenade.lure_active {
             continue;
         }
-        let Some(bindings) = cache.clip(&rig.clip, &clips, &mut graphs) else {
+        let path = rig.clip.path().expect("Source lure clip path").to_string();
+        let Some((node, _)) = clips.node(&path, &mut graph, &mut assets) else {
             continue;
         };
-        let playback = AnimationPlayback::new(
-            bindings.graph.clone(),
-            vec![AnimationLayer::new(bindings.ordered[0], None, true)],
-        );
-        for entity in &rig.players {
-            commands.entity(*entity).insert(playback.clone());
-            if *state == GameState::Playing {
-                evidence.frames += 1;
-            }
+        let active = player.play(node);
+        active.repeat();
+        if *state == GameState::Playing {
+            active.resume();
+        } else {
+            active.pause();
         }
     }
 }

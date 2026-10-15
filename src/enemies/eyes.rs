@@ -78,7 +78,8 @@ impl ActorEyes {
 }
 
 pub(super) fn update(
-    clock: Res<crate::presentation::cues::CueClock>,
+    clock: Res<crate::session::SessionClock>,
+    time: Res<Time<Virtual>>,
     mut commands: Commands,
     mut removed: RemovedComponents<Zombie>,
     mut former: Query<&mut CueParameters, Without<Zombie>>,
@@ -106,9 +107,7 @@ pub(super) fn update(
             inputs.luminous_channel = Some((2, 1));
             inputs.script_vectors[2] = [0.; 4];
         }
-        let Some(milliseconds) = clock.server_milliseconds() else {
-            continue;
-        };
+        let milliseconds = clock.source_milliseconds(&time);
         let rising = zombie
             .traversal
             .as_ref()
@@ -133,7 +132,8 @@ mod tests {
     #[test]
     fn recycled_actor_clears_only_its_eye_override_and_removes_retired_state() {
         let mut app = App::new();
-        app.init_resource::<crate::presentation::cues::CueClock>()
+        app.init_resource::<crate::session::SessionClock>()
+            .init_resource::<Time<Virtual>>()
             .add_systems(Update, update);
         let actor = app
             .world_mut()

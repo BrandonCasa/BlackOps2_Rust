@@ -1,7 +1,6 @@
 use crate::{
     GameState,
     assets::GameDefinition,
-    economy::{PointLedger, TransactionId},
     gameplay::{GameStep, Session, SessionEntity},
     input::GameInput,
     interactions::{InteractionFocus, InteractionRejection},
@@ -25,12 +24,12 @@ const MACHINES: [[f32; 3]; 6] = [
 #[derive(Component)]
 pub(crate) struct Machine(usize);
 #[derive(Component)]
+#[require(crate::animation::SceneClips)]
 struct MachineVisual {
     source: Option<Handle<Gltf>>,
     active: bool,
     mode: u8,
     age: f32,
-    restart: u64,
     location_clock: f32,
     light_mode: u8,
     lights: Vec<Entity>,
@@ -53,13 +52,13 @@ pub enum BottlePhase {
         perk: PerkId,
         remaining: f32,
         bear: bool,
-        purchase: TransactionId,
+        refund: u32,
     },
     Available {
         owner: Entity,
         perk: PerkId,
         remaining: f32,
-        purchase: TransactionId,
+        refund: u32,
     },
     Moving(f32),
 }
@@ -105,28 +104,28 @@ impl Plugin for VendorPlugin {
             OnEnter(GameState::StartingSession),
             setup.in_set(crate::session::SessionSetup::World),
         )
-            .add_systems(
-                FixedUpdate,
-                (
-                    tick,
-                    interact,
-                    ground_bottles,
-                    presentation,
-                    machine_presentation,
-                )
-                    .chain()
-                    .in_set(GameStep::Interactions)
-                    .after(crate::tank::interact)
-                    .run_if(in_state(GameState::Playing)),
+        .add_systems(
+            FixedUpdate,
+            (
+                tick,
+                interact,
+                ground_bottles,
+                presentation,
+                machine_presentation,
             )
-            .add_systems(
-                PostUpdate,
-                ball_visibility
-                    .in_set(crate::animation::AnimationPoseModifiers)
-                    .after(bevy::app::AnimationSystems)
-                    .before(bevy::transform::TransformSystems::Propagate)
-                    .run_if(in_state(GameState::Playing)),
-            );
+                .chain()
+                .in_set(GameStep::Interactions)
+                .after(crate::tank::interact)
+                .run_if(in_state(GameState::Playing)),
+        )
+        .add_systems(
+            PostUpdate,
+            ball_visibility
+                .in_set(crate::animation::AnimationPoseModifiers)
+                .after(bevy::app::AnimationSystems)
+                .before(bevy::transform::TransformSystems::Propagate)
+                .run_if(in_state(GameState::Playing)),
+        );
     }
 }
 fn setup(
@@ -172,7 +171,6 @@ fn setup(
             active: false,
             mode: u8::MAX,
             age: 0.,
-            restart: 0,
             location_clock: 0.,
             light_mode: u8::MAX,
             lights: Vec::new(),
@@ -383,16 +381,20 @@ fn machine_presentation(
     mut session: ResMut<Session>,
     children: Query<&Children>,
     names: Query<&Name>,
+    mut clips: crate::animation::ClipAssets,
     mut machines: Query<(
         Entity,
         &Machine,
         &Transform,
         &mut MachineVisual,
-        Option<&crate::animation::NativeAnimation>,
+        &mut crate::animation::SceneClips,
+        &mut AnimationPlayer,
+        &mut AnimationGraphHandle,
     )>,
 ) {
     let dt = time.delta_secs();
-    for (entity, machine, pose, mut visual, animation) in &mut machines {
+    for (entity, machine, pose, mut visual, mut scene_clips, mut player, mut graph) in &mut machines
+    {
         let active = state.active == machine.0 && !matches!(state.phase, BottlePhase::Moving(_));
         let cycling = active
             && matches!(
@@ -421,7 +423,6 @@ fn machine_presentation(
         if mode != visual.mode {
             visual.mode = mode;
             visual.age = 0.;
-            visual.restart += 1;
         }
         if mode == 1 && visual.age >= 5. && visual.age - dt < 5. {
             crate::audio::emit(
@@ -431,26 +432,30 @@ fn machine_presentation(
             );
         }
         if let Some(source) = &visual.source {
-            let (clip, duration, looping) = match mode {
-                1 => ("turn_on", 9., false),
-                2 => ("ballspin_loop", 1.4666667, true),
-                3 => ("turn_off", 3.4666667, false),
-                _ => ("on_idle", 5.9666667, true),
+            let (clip_name, duration, looping) = match mode {
+                1 => ("o_zombie_dlc4_vending_diesel_turn_on", 9., false),
+                2 => (
+                    "o_zombie_dlc4_vending_diesel_ballspin_loop",
+                    1.4666667,
+                    true,
+                ),
+                3 => ("o_zombie_dlc4_vending_diesel_turn_off", 3.4666667, false),
+                _ => ("o_zombie_dlc4_vending_diesel_on_idle", 5.9666667, true),
             };
-            let request = crate::animation::NativeAnimation {
-                source: source.clone(),
-                clip: format!("o_zombie_dlc4_vending_diesel_{clip}"),
-                seconds: if looping {
+            let path = crate::animation::clip_path(&game, source, clip_name)
+                .expect("Wunderfizz machine clip exported");
+            scene_clips.sample(
+                path,
+                if looping {
                     visual.age % duration
                 } else {
                     visual.age.min(duration)
                 },
                 looping,
-                restart: visual.restart,
-            };
-            if animation != Some(&request) {
-                commands.entity(entity).insert(request);
-            }
+                &mut player,
+                &mut graph,
+                &mut clips,
+            );
         }
         let light = if !powered_index(machine.0, &game, &generators) {
             0
@@ -638,17 +643,16 @@ fn tick(
     time: Res<Time<Fixed>>,
     mut state: ResMut<Wunderfizz>,
     mut session: ResMut<Session>,
-    mut ledger: ResMut<PointLedger>,
     players: Query<&PerkInventory, With<Player>>,
 ) {
     let dt = time.delta_secs();
-    state.phase = match state.phase.clone() {
+    state.phase = match std::mem::replace(&mut state.phase, BottlePhase::Idle) {
         BottlePhase::Rolling {
             owner,
             perk,
             mut remaining,
             bear,
-            purchase,
+            refund,
         } => {
             remaining -= dt;
             if remaining > 0. {
@@ -657,17 +661,17 @@ fn tick(
                     perk,
                     remaining,
                     bear,
-                    purchase,
+                    refund,
                 }
             } else if bear {
-                ledger.refund(&mut session.points, purchase);
+                session.award(refund);
                 BottlePhase::Moving(10.)
             } else {
                 BottlePhase::Available {
                     owner,
                     perk,
                     remaining: 10.,
-                    purchase,
+                    refund,
                 }
             }
         }
@@ -675,7 +679,7 @@ fn tick(
             owner,
             perk,
             mut remaining,
-            purchase,
+            refund,
         } => {
             remaining -= dt;
             if remaining <= 0.
@@ -687,7 +691,7 @@ fn tick(
                     .get(owner)
                     .is_ok_and(|p| p.owned.len() >= p.purchase_limit())
                 {
-                    ledger.refund(&mut session.points, purchase);
+                    session.award(refund);
                 }
                 state.expired += 1;
                 BottlePhase::Idle
@@ -696,7 +700,7 @@ fn tick(
                     owner,
                     perk,
                     remaining,
-                    purchase,
+                    refund,
                 }
             }
         }
@@ -727,7 +731,6 @@ pub(crate) fn interact(
     mut state: ResMut<Wunderfizz>,
     mut focus: ResMut<InteractionFocus>,
     mut session: ResMut<Session>,
-    mut ledger: ResMut<PointLedger>,
     reserved: Query<(), With<crate::actions::HandReservation>>,
     machines: Query<(Entity, &Machine, &Transform), Without<Player>>,
     mut players: Query<
@@ -840,11 +843,9 @@ pub(crate) fn interact(
                 focus.rejection = Some(InteractionRejection::Unavailable);
                 return;
             }
-            let purchase = ledger.command(1500);
-            if let Err(error) = ledger.accept(&mut session.points, purchase, || {
-                Ok::<_, InteractionRejection>(())
-            }) {
-                focus.rejection = Some(error.into());
+
+            if let Err(error) = session.purchase(1500, || Ok::<_, InteractionRejection>(())) {
+                focus.rejection = Some(error);
                 return;
             }
             let perk = roll(&game, perks, &mut state, &mut session).expect("eligible vendor perk");
@@ -856,7 +857,7 @@ pub(crate) fn interact(
                 perk,
                 remaining: if bear { 7. } else { 4. },
                 bear,
-                purchase: purchase.id,
+                refund: 1500,
             };
             focus.accepted += 1;
         }

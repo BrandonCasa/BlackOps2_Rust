@@ -9,7 +9,6 @@ use crate::{
 };
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
-use std::collections::VecDeque;
 
 #[derive(SystemParam)]
 pub(crate) struct Attribution<'w, 's> {
@@ -103,22 +102,12 @@ pub(crate) struct DamageApplied {
 }
 #[derive(Resource, Default)]
 pub struct DamageQueue(pub Vec<Impact>);
-#[derive(Resource, Default)]
-pub struct CombatHistory {
-    pub recent: VecDeque<DamageReceipt>,
-    pub melee_hits: u32,
-    pub melee_kills: u32,
-    pub headshot_kills: u32,
-    pub rejected_terminal: u32,
-    pub awarded_points: u32,
-}
 pub struct DamagePlugin;
 impl Plugin for DamagePlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<DamageApplied>()
             .add_message::<EnemyDeath>()
             .init_resource::<DamageQueue>()
-            .init_resource::<CombatHistory>()
             .add_systems(
                 FixedUpdate,
                 resolve
@@ -136,7 +125,6 @@ impl Plugin for DamagePlugin {
 }
 pub(crate) fn resolve(
     mut queue: ResMut<DamageQueue>,
-    mut history: ResMut<CombatHistory>,
     mut targets: Query<(
         &mut Vitality,
         Option<&mut crate::player_health::Recovery>,
@@ -480,7 +468,6 @@ pub(crate) fn resolve(
             DamageOutcome::Hurt { .. } => false,
             DamageOutcome::ActorDied { .. } => true,
             _ => {
-                history.rejected_terminal = history.rejected_terminal.saturating_add(1);
                 continue;
             }
         };
@@ -497,7 +484,6 @@ pub(crate) fn resolve(
 fn rewards(
     mut applied: MessageReader<DamageApplied>,
     mut deaths: MessageWriter<EnemyDeath>,
-    mut history: ResMut<CombatHistory>,
     definition: Res<GameDefinition>,
     mut session: ResMut<Session>,
     effects: Res<crate::powerups::PowerupEffects>,
@@ -511,7 +497,7 @@ fn rewards(
         if !zombies.contains(applied.impact.target) {
             continue;
         }
-        let impact = applied.impact.clone();
+        let impact = &applied.impact;
         let lethal = applied.lethal;
         let [hit, kill, head, torso, melee] = definition.tuning.combat_points;
         let is_melee = matches!(impact.category, DamageCategory::Melee);
@@ -532,30 +518,35 @@ fn rewards(
         } else {
             0
         };
-        let capture=capture_actors.get(impact.target).is_ok_and(|kind|*kind==crate::rounds::PopulationKind::GeneratorDefender);
-        let points =
-            if capture {
-                if lethal && impact.source.player_attributed() {generators.capture_kill_points(session.round)}else{0}
-            } else if lethal && panzers.contains(impact.target) && impact.source.player_attributed() {
-                750
-            } else if panzers.contains(impact.target) {
-                0
-            } else if !impact.source.player_attributed()
-                || matches!(impact.source, ImpactSource::Powerup)
-            {
-                0
-            } else if nuked.contains(impact.target) {
-                if !cherry && applied.aimed_bullet && (!lethal || applied.insta_kill) {
-                    hit
-                } else {
-                    0
-                }
-            } else if lethal {
-                kill.saturating_add(bonus)
-                    .saturating_add(if applied.insta_kill { hit } else { 0 })
+        let capture = capture_actors
+            .get(impact.target)
+            .is_ok_and(|kind| *kind == crate::rounds::PopulationKind::GeneratorDefender);
+        let points = if capture {
+            if lethal && impact.source.player_attributed() {
+                generators.capture_kill_points(session.round)
             } else {
+                0
+            }
+        } else if lethal && panzers.contains(impact.target) && impact.source.player_attributed() {
+            750
+        } else if panzers.contains(impact.target) {
+            0
+        } else if !impact.source.player_attributed()
+            || matches!(impact.source, ImpactSource::Powerup)
+        {
+            0
+        } else if nuked.contains(impact.target) {
+            if !cherry && applied.aimed_bullet && (!lethal || applied.insta_kill) {
                 hit
-            };
+            } else {
+                0
+            }
+        } else if lethal {
+            kill.saturating_add(bonus)
+                .saturating_add(if applied.insta_kill { hit } else { 0 })
+        } else {
+            hit
+        };
         let cherry_bonus = if !capture && cherry && lethal && !applied.insta_kill {
             40
         } else {
@@ -566,33 +557,24 @@ fn rewards(
             .saturating_add(cherry_bonus);
         if !lethal {
             session.award(points);
-            history.awarded_points = history.awarded_points.saturating_add(points);
         }
-        if is_melee {
-            history.melee_hits = history.melee_hits.saturating_add(1);
-        }
-        if history.recent.len() == 128 {
-            history.recent.pop_front();
-        }
-        let receipt = DamageReceipt {
-            impact,
-            base_amount: applied.base_amount,
-            lethal,
-            points,
-            aimed_bullet: applied.aimed_bullet,
-            insta_kill: applied.insta_kill,
-        };
         if lethal {
-            deaths.write(EnemyDeath(receipt.clone()));
+            deaths.write(EnemyDeath(DamageReceipt {
+                impact: impact.clone(),
+                base_amount: applied.base_amount,
+                lethal,
+                points,
+                aimed_bullet: applied.aimed_bullet,
+                insta_kill: applied.insta_kill,
+            }));
         }
-        history.recent.push_back(receipt);
     }
 }
 
 pub(crate) fn reward_deaths(
     mut deaths: MessageReader<EnemyDeath>,
-    mut history: ResMut<CombatHistory>,
     mut session: ResMut<Session>,
+    capture_actors: Query<&crate::rounds::PopulationKind>,
 ) {
     for EnemyDeath(receipt) in deaths.read() {
         if !receipt.impact.source.player_attributed()
@@ -601,12 +583,17 @@ pub(crate) fn reward_deaths(
             continue;
         }
         session.award(receipt.points);
-        history.awarded_points = history.awarded_points.saturating_add(receipt.points);
         session.kills = session.kills.saturating_add(1);
-        if matches!(receipt.impact.category, DamageCategory::Melee) {
-            history.melee_kills = history.melee_kills.saturating_add(1);
-        } else if receipt.impact.region.head() {
-            history.headshot_kills = history.headshot_kills.saturating_add(1);
+        if !matches!(receipt.impact.category, DamageCategory::Melee) && receipt.impact.region.head()
+        {
+            session.headshots = session.headshots.saturating_add(1);
+            if capture_actors
+                .get(receipt.impact.target)
+                .is_ok_and(|kind| *kind == crate::rounds::PopulationKind::GeneratorDefender)
+            {
+                continue;
+            }
+            session.challenge_headshots = session.challenge_headshots.saturating_add(1);
         }
     }
 }

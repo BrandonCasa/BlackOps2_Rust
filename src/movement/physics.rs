@@ -59,12 +59,6 @@ pub struct PhysicsTuning {
     pub step_speed_min: f32,
 }
 
-#[derive(Resource, Default)]
-pub struct PhysicsEvidence {
-    pub samples: Vec<serde_json::Value>,
-    pub projectiles: Vec<serde_json::Value>,
-}
-
 pub struct MotionOutput {
     pub slide: MoveAndSlideOutput,
     pub step_adjustment: f32,
@@ -94,9 +88,6 @@ impl Default for PhysicsTuning {
     }
 }
 impl PhysicsTuning {
-
-
-
     pub fn wish_velocity(
         &self,
         input: Vec2,

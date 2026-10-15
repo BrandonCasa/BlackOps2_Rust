@@ -18,7 +18,8 @@ pub struct QuestProgress {
     pub encounter_killed: u32,
     drone_step: Option<usize>,
     drone_pause: f32,
-    return_delay: f32,
+    stage_delay: Option<f32>,
+    staff_returns: Option<[f32; 4]>,
     collapse_delay: f32,
     spawn_timer: f32,
     latched: bool,
@@ -27,6 +28,26 @@ pub struct QuestProgress {
 pub(crate) enum Target {
     Staff { index: usize, robot: Option<usize> },
     Button(usize),
+}
+#[derive(Component, Default)]
+pub(crate) enum ButtonPhase {
+    #[default]
+    Dormant,
+    Start(f32),
+    Sync {
+        sound: Entity,
+        elapsed: f32,
+        accepted: bool,
+    },
+    Gap(f32),
+    Await {
+        sound: Entity,
+        elapsed: f32,
+        accepted: bool,
+    },
+    Ready,
+    Authorized(Entity),
+    Cooldown(f32),
 }
 pub struct MainQuestPlugin;
 impl Plugin for MainQuestPlugin {
@@ -38,7 +59,8 @@ impl Plugin for MainQuestPlugin {
             )
             .add_systems(
                 FixedUpdate,
-                interact
+                (buttons, interact)
+                    .chain()
                     .in_set(GameStep::Interactions)
                     .after(crate::tablets::interact)
                     .run_if(in_state(GameState::Playing)),
@@ -112,6 +134,7 @@ fn setup(
         let mut entity = commands.spawn((
             SessionEntity,
             Target::Button(robot),
+            ButtonPhase::default(),
             Transform::from_translation(point),
             Visibility::Hidden,
         ));
@@ -139,7 +162,7 @@ fn progress(
     game: Res<crate::assets::GameDefinition>,
     server: Res<AssetServer>,
     brushes: Query<(Entity, &crate::environment::brushes::MapBrush)>,
-    mut targets: Query<(&Target, &mut Visibility)>,
+    mut targets: Query<(&Target, &Transform, &mut Visibility)>,
     spatial: SpatialQuery,
     triggers: Query<(
         &crate::environment::triggers::MapTrigger,
@@ -147,14 +170,15 @@ fn progress(
     )>,
     waves: Res<crate::panzer::PanzerWaves>,
 ) {
-    for (target, mut visible) in &mut targets {
+    for (target, _, mut visible) in &mut targets {
         *visible = if quest.enabled
             && match target {
                 Target::Staff { index, .. } => {
                     quest.stage == QuestStage::PlaceStaffs
-                        && !quest
-                            .placed
-                            .contains(&crate::staff_upgrades::ELEMENTS[*index])
+                        || state.staff_returns.is_some()
+                            && quest
+                                .placed
+                                .contains(&crate::staff_upgrades::ELEMENTS[*index])
                 }
                 Target::Button(_) => quest.stage == QuestStage::BreakSeal,
             } {
@@ -168,19 +192,41 @@ fn progress(
         deaths.clear();
         return;
     }
+    if let Some(remaining) = state.staff_returns.as_mut() {
+        for (index, delay) in remaining.iter_mut().enumerate() {
+            let before = *delay;
+            *delay = (*delay - time.delta_secs()).max(0.);
+            if before >= 3. && *delay < 3. {
+                if let Some((_, pose, _)) = targets.iter().find(|(target, _, _)| matches!(target, Target::Staff { index: slot, .. } if *slot == index)) {
+                    crate::audio::emit(&mut commands, "zmb_footprintbox_disappear", crate::audio::SoundSource::World(pose.translation));
+                }
+            }
+            if *delay == 0. {
+                quest.placed.remove(&crate::staff_upgrades::ELEMENTS[index]);
+            }
+        }
+        if remaining.iter().all(|delay| *delay == 0.) {
+            state.staff_returns = None;
+        }
+    }
     if quest.stage == QuestStage::PlaceStaffs && quest.placed.len() == 4 {
-        if state.return_delay == 0. {
-            state.return_delay = 6.;
+        if state.stage_delay.is_none() {
+            // Solo wait_network_frame is 0.1 s after the source three-second alarm.
+            state.stage_delay = Some(3.1);
             crate::audio::emit(
                 &mut commands,
                 "zmb_squest_robot_alarm_high",
                 crate::audio::SoundSource::World(Vec3::new(-0.3556, 22.1234, 0.0254)),
             );
-        }
-        state.return_delay = (state.return_delay - time.delta_secs()).max(0.);
-        if state.return_delay == 0. {
-            quest.transition(QuestStage::PlaceStaffs, QuestStage::BreakSeal);
-            quest.placed.clear();
+        } else if let Some(remaining) = state.stage_delay.as_mut() {
+            *remaining = (*remaining - time.delta_secs()).max(0.);
+            if *remaining == 0. {
+                quest.transition(QuestStage::PlaceStaffs, QuestStage::BreakSeal);
+                // Authored plinth order is wind, ice, lightning, fire, staggered by
+                // three solo network frames; each staff returns three seconds later.
+                state.staff_returns = Some([3.9, 3.3, 3., 3.6]);
+                state.stage_delay = None;
+            }
         }
     }
     for strike in strikes.read() {
@@ -338,6 +384,136 @@ fn progress(
         quest.transition(QuestStage::PanzerEncounter, QuestStage::RecoverDrone);
     }
 }
+fn buttons(
+    mut commands: Commands,
+    time: Res<Time<Fixed>>,
+    quest: Res<MainQuest>,
+    mut events: MessageReader<crate::audio::PlaybackEvent>,
+    mut buttons: Query<(Entity, &Target, &mut ButtonPhase)>,
+) {
+    for event in events.read() {
+        for (_, _, mut phase) in &mut buttons {
+            let next = match *phase {
+                ButtonPhase::Sync { sound, .. } if sound == event.entity => ButtonPhase::Gap(0.5),
+                ButtonPhase::Await { sound, .. } if sound == event.entity => ButtonPhase::Ready,
+                _ => continue,
+            };
+            match event.status {
+                crate::audio::PlaybackStatus::Completed => *phase = next,
+                crate::audio::PlaybackStatus::Accepted => match &mut *phase {
+                    ButtonPhase::Sync { accepted, .. } | ButtonPhase::Await { accepted, .. } => {
+                        *accepted = true;
+                    }
+                    _ => unreachable!(),
+                },
+                crate::audio::PlaybackStatus::Rejected
+                | crate::audio::PlaybackStatus::Cancelled => match &mut *phase {
+                    ButtonPhase::Sync { accepted, .. } | ButtonPhase::Await { accepted, .. } => {
+                        *accepted = false;
+                    }
+                    _ => unreachable!(),
+                },
+            }
+        }
+    }
+    for (entity, target, mut phase) in &mut buttons {
+        if !quest.enabled || quest.stage != QuestStage::BreakSeal {
+            if let ButtonPhase::Authorized(sound) = *phase {
+                commands.entity(sound).try_despawn();
+            }
+            *phase = ButtonPhase::Dormant;
+            continue;
+        }
+        match *phase {
+            ButtonPhase::Dormant => {
+                let Target::Button(robot) = target else {
+                    unreachable!()
+                };
+                // Fire-link structs are authored in robot order 2, 1, 0.
+                *phase = ButtonPhase::Start((2 - *robot) as f32 * 0.1);
+            }
+            ButtonPhase::Start(mut remaining) => {
+                remaining -= time.delta_secs();
+                *phase = if remaining <= 0. {
+                    ButtonPhase::Sync {
+                        sound: crate::audio::emit(
+                            &mut commands,
+                            "vox_maxi_robot_sync_0",
+                            crate::audio::SoundSource::attached(entity),
+                        ),
+                        elapsed: 0.,
+                        accepted: false,
+                    }
+                } else {
+                    ButtonPhase::Start(remaining)
+                };
+            }
+            ButtonPhase::Gap(mut remaining) => {
+                remaining -= time.delta_secs();
+                *phase = if remaining <= 0. {
+                    ButtonPhase::Await {
+                        sound: crate::audio::emit(
+                            &mut commands,
+                            "vox_maxi_robot_await_0",
+                            crate::audio::SoundSource::attached(entity),
+                        ),
+                        elapsed: 0.,
+                        accepted: false,
+                    }
+                } else {
+                    ButtonPhase::Gap(remaining)
+                };
+            }
+            ButtonPhase::Authorized(sound) if !quest.strike_authorized() => {
+                commands.entity(sound).try_despawn();
+                crate::audio::emit(
+                    &mut commands,
+                    "zmb_squest_robot_button_deactivate",
+                    crate::audio::SoundSource::attached(entity),
+                );
+                crate::audio::emit(
+                    &mut commands,
+                    "vox_maxi_robot_deactivated_0",
+                    crate::audio::SoundSource::attached(entity),
+                );
+                *phase = ButtonPhase::Ready;
+            }
+            ButtonPhase::Cooldown(mut remaining) => {
+                remaining -= time.delta_secs();
+                *phase = if remaining <= 0. {
+                    ButtonPhase::Ready
+                } else {
+                    ButtonPhase::Cooldown(remaining)
+                };
+            }
+            _ => {}
+        }
+        // Native playsoundwithnotify stores an unknown duration (0064b3d0);
+        // the server entity tick (00600e30) notifies after 5000ms if it remains
+        // unknown. Rejected/inaudible voices therefore still release the gate.
+        // Accepted voices retain their encoded playback completion above.
+        // Cancelled voices use the unknown-duration path: the native client
+        // duration update is not recovered, so its post-cancellation deadline
+        // cannot yet be reproduced exactly.
+        let syncing = matches!(*phase, ButtonPhase::Sync { .. });
+        if let ButtonPhase::Sync {
+            elapsed, accepted, ..
+        }
+        | ButtonPhase::Await {
+            elapsed, accepted, ..
+        } = &mut *phase
+        {
+            *elapsed += time.delta_secs();
+            if !*accepted && *elapsed >= 5. {
+                *phase = if syncing {
+                    ButtonPhase::Gap(0.5)
+                } else {
+                    ButtonPhase::Ready
+                };
+            }
+        }
+    }
+}
 pub(crate) fn interact(
     mut commands: Commands,
     input: Res<GameInput>,
@@ -349,6 +525,7 @@ pub(crate) fn interact(
     game: Res<crate::assets::GameDefinition>,
     spatial: SpatialQuery,
     targets: Query<(Entity, &Target, &Transform), Without<Player>>,
+    mut buttons: Query<&mut ButtonPhase>,
     mut players: Query<(
         Entity,
         &Player,
@@ -377,7 +554,7 @@ pub(crate) fn interact(
     let forward = Quat::from_euler(EulerRot::YXZ, player.yaw, player.pitch, 0.) * Vec3::NEG_Z;
     let selected = targets
         .iter()
-        .filter(|(_, target, _)| match target {
+        .filter(|(target_entity, target, _)| match target {
             Target::Staff { index, robot } => {
                 quest.stage == QuestStage::PlaceStaffs
                     && !quest
@@ -391,6 +568,9 @@ pub(crate) fn interact(
             }
             Target::Button(i) => {
                 quest.stage == QuestStage::BreakSeal
+                    && buttons
+                        .get(*target_entity)
+                        .is_ok_and(|phase| matches!(phase, ButtonPhase::Ready))
                     && robots
                         .occupancy
                         .is_some_and(|o| o.robot == *i && o.player == owner)
@@ -453,9 +633,40 @@ pub(crate) fn interact(
             }
         }
         Target::Button(_) => {
-            if !robots.triple_active || !quest.authorize_strike() {
-                focus.prompt = "Requires synchronized robot pass".into();
+            let Ok(mut phase) = buttons.get_mut(entity) else {
                 return;
+            };
+            if !matches!(*phase, ButtonPhase::Ready) {
+                return;
+            }
+            if robots.triple_active && quest.authorize_strike() {
+                crate::audio::emit(
+                    &mut commands,
+                    "zmb_squest_robot_button_activate",
+                    crate::audio::SoundSource::attached(entity),
+                );
+                crate::audio::emit(
+                    &mut commands,
+                    "vox_maxi_robot_activated_0",
+                    crate::audio::SoundSource::attached(entity),
+                );
+                *phase = ButtonPhase::Authorized(crate::audio::emit_loop(
+                    &mut commands,
+                    "zmb_squest_robot_button_timer",
+                    crate::audio::SoundSource::attached(entity),
+                ));
+            } else {
+                *phase = ButtonPhase::Cooldown(3.);
+                crate::audio::emit(
+                    &mut commands,
+                    "vox_maxi_robot_abort_0",
+                    crate::audio::SoundSource::attached(entity),
+                );
+                crate::audio::emit(
+                    &mut commands,
+                    "zmb_squest_robot_button_deactivate",
+                    crate::audio::SoundSource::attached(entity),
+                );
             }
         }
     }

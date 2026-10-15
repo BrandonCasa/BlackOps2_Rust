@@ -1,7 +1,6 @@
 use crate::{
     GameState,
     assets::GameDefinition,
-    economy::{PointLedger, TransactionId},
     gameplay::{GameStep, Session, SessionEntity},
     input::GameInput,
     interactions::{InteractionFocus, InteractionRejection},
@@ -61,7 +60,7 @@ enum BoxPhase {
         remaining: f32,
         teddy: bool,
         normal: bool,
-        purchase: TransactionId,
+        refund: u32,
     },
     Reward {
         owner: Entity,
@@ -190,19 +189,19 @@ fn tick(
     time: Res<Time<Fixed>>,
     mut stations: ResMut<Stations>,
     mut session: ResMut<Session>,
-    mut ledger: ResMut<PointLedger>,
     mut digging: ResMut<crate::environment::digging::Digging>,
 ) {
     let dt = time.delta_secs();
     for index in 0..6 {
-        stations.boxes[index] = match stations.boxes[index].clone() {
+        stations.boxes[index] = match std::mem::replace(&mut stations.boxes[index], BoxPhase::Idle)
+        {
             BoxPhase::Rolling {
                 owner,
                 weapon,
                 mut remaining,
                 teddy,
                 normal,
-                purchase,
+                refund,
             } => {
                 remaining -= dt;
                 if remaining > 0. {
@@ -212,10 +211,11 @@ fn tick(
                         remaining,
                         teddy,
                         normal,
-                        purchase,
+                        refund,
                     }
                 } else if teddy {
-                    if ledger.refund(&mut session.points, purchase) {
+                    if refund > 0 {
+                        session.points = session.points.saturating_add(refund);
                         stations.refunds += 1;
                     }
                     BoxPhase::Relocating { remaining: 7. }
@@ -256,7 +256,7 @@ fn tick(
             _ => BoxPhase::Idle,
         };
     }
-    stations.upgrade = match stations.upgrade.clone() {
+    stations.upgrade = match std::mem::replace(&mut stations.upgrade, UpgradePhase::Idle) {
         UpgradePhase::Processing {
             owner,
             weapon,
@@ -383,7 +383,6 @@ pub(crate) fn interact(
     >,
     mut stations: ResMut<Stations>,
     mut focus: ResMut<InteractionFocus>,
-    mut ledger: ResMut<PointLedger>,
     mut session: ResMut<Session>,
 ) {
     if !input.use_held {
@@ -465,106 +464,110 @@ pub(crate) fn interact(
         stations.latched = true;
     }
     match station {
-        Station::Box(index) => match stations.boxes[index].clone() {
-            BoxPhase::Idle => {
-                let powered = definition
-                    .content
-                    .generators
-                    .iter()
-                    .find(|g| g.number as u32 == BOX_GENERATORS[index])
-                    .and_then(|g| generators.sites.get(&g.id))
-                    .is_some_and(|site| site.state == crate::generators::GeneratorState::Active);
-                if !powered {
-                    focus.prompt = "Mystery Box requires its local generator".into();
-                    focus.rejection = Some(InteractionRejection::NoPower);
-                    return;
-                }
-                let price = if sale { 10 } else { 950 };
-                focus.prompt = format!("Press {key} for Mystery Box [Cost: {price}]");
-                if !pressed {
-                    return;
-                }
-                if busy {
-                    focus.rejection = Some(InteractionRejection::Busy);
-                    return;
-                }
-                let candidates = box_candidates(
-                    &definition,
-                    &inventory,
-                    &tactical,
-                    session.round,
-                    beacons.beacon_unlocked,
-                );
-                if candidates.is_empty() {
-                    focus.rejection = Some(InteractionRejection::Unavailable);
-                    return;
-                }
-                let purchase = ledger.command(price);
-                if let Err(error) = ledger.accept(&mut session.points, purchase, || {
-                    Ok::<_, InteractionRejection>(())
-                }) {
-                    focus.rejection = Some(error.into());
-                    return;
-                }
-                let weapon = roll(&candidates, &mut session).expect("nonempty box candidates");
-                let uses = stations.uses;
-                let chance = if uses < 4 {
-                    0
-                } else if stations.moves == 0 && uses >= 8 {
-                    100
-                } else if uses < 8 {
-                    15
-                } else if uses < 13 {
-                    30
-                } else {
-                    50
-                };
-                let teddy = !sale && session.random() % 100 < chance;
-                crate::audio::emit(
-                    &mut commands,
-                    "music_chest",
-                    crate::audio::SoundSource::World(Vec3::from_array(BOX_POSITIONS[index])),
-                );
-                stations.boxes[index] = BoxPhase::Rolling {
-                    owner: player_entity,
-                    weapon,
-                    remaining: 4.,
-                    teddy,
-                    normal: !sale,
-                    purchase: purchase.id,
-                };
-                stations.purchases += 1;
-                focus.accepted += 1;
-            }
-            BoxPhase::Reward {
-                owner,
-                weapon,
-                normal,
-                ..
-            } => {
-                let Some(d) = definition.content.weapons.iter().find(|d| d.id == weapon) else {
-                    return;
-                };
-                focus.prompt = format!("Press {key} to take {}", d.name);
-                if pressed && !take_busy && owner == player_entity {
-                    let accepted = if d.throwable.is_some() {
-                        tactical.receive(d).is_ok()
-                    } else {
-                        inventory.receive(d).is_ok()
-                    };
-                    if accepted {
-                        stations.uses += u32::from(normal);
-                        stations.boxes[index] = BoxPhase::Idle;
-                        stations.collections += 1;
-                        focus.accepted += 1;
-                    } else {
+        Station::Box(index) => {
+            match std::mem::replace(&mut stations.boxes[index], BoxPhase::Idle) {
+                BoxPhase::Idle => {
+                    let powered = definition
+                        .content
+                        .generators
+                        .iter()
+                        .find(|g| g.number as u32 == BOX_GENERATORS[index])
+                        .and_then(|g| generators.sites.get(&g.id))
+                        .is_some_and(|site| {
+                            site.state == crate::generators::GeneratorState::Active
+                        });
+                    if !powered {
+                        focus.prompt = "Mystery Box requires its local generator".into();
+                        focus.rejection = Some(InteractionRejection::NoPower);
+                        return;
+                    }
+                    let price = if sale { 10 } else { 950 };
+                    focus.prompt = format!("Press {key} for Mystery Box [Cost: {price}]");
+                    if !pressed {
+                        return;
+                    }
+                    if busy {
+                        focus.rejection = Some(InteractionRejection::Busy);
+                        return;
+                    }
+                    let candidates = box_candidates(
+                        &definition,
+                        &inventory,
+                        &tactical,
+                        session.round,
+                        beacons.beacon_unlocked,
+                    );
+                    if candidates.is_empty() {
                         focus.rejection = Some(InteractionRejection::Unavailable);
+                        return;
+                    }
+
+                    if let Err(error) =
+                        session.purchase(price, || Ok::<_, InteractionRejection>(()))
+                    {
+                        focus.rejection = Some(error);
+                        return;
+                    }
+                    let weapon = roll(&candidates, &mut session).expect("nonempty box candidates");
+                    let uses = stations.uses;
+                    let chance = if uses < 4 {
+                        0
+                    } else if stations.moves == 0 && uses >= 8 {
+                        100
+                    } else if uses < 8 {
+                        15
+                    } else if uses < 13 {
+                        30
+                    } else {
+                        50
+                    };
+                    let teddy = !sale && session.random() % 100 < chance;
+                    crate::audio::emit(
+                        &mut commands,
+                        "music_chest",
+                        crate::audio::SoundSource::World(Vec3::from_array(BOX_POSITIONS[index])),
+                    );
+                    stations.boxes[index] = BoxPhase::Rolling {
+                        owner: player_entity,
+                        weapon,
+                        remaining: 4.,
+                        teddy,
+                        normal: !sale,
+                        refund: price,
+                    };
+                    stations.purchases += 1;
+                    focus.accepted += 1;
+                }
+                BoxPhase::Reward {
+                    owner,
+                    weapon,
+                    normal,
+                    ..
+                } => {
+                    let Some(d) = definition.content.weapons.iter().find(|d| d.id == weapon) else {
+                        return;
+                    };
+                    focus.prompt = format!("Press {key} to take {}", d.name);
+                    if pressed && !take_busy && owner == player_entity {
+                        let accepted = if d.throwable.is_some() {
+                            tactical.receive(d).is_ok()
+                        } else {
+                            inventory.receive(d).is_ok()
+                        };
+                        if accepted {
+                            stations.uses += u32::from(normal);
+                            stations.boxes[index] = BoxPhase::Idle;
+                            stations.collections += 1;
+                            focus.accepted += 1;
+                        } else {
+                            focus.rejection = Some(InteractionRejection::Unavailable);
+                        }
                     }
                 }
+                BoxPhase::Rolling { .. } => focus.prompt = "Mystery Box rolling".into(),
+                BoxPhase::Relocating { .. } => focus.prompt = "Mystery Box moving".into(),
             }
-            BoxPhase::Rolling { .. } => focus.prompt = "Mystery Box rolling".into(),
-            BoxPhase::Relocating { .. } => focus.prompt = "Mystery Box moving".into(),
-        },
+        }
         Station::PackAPunch => match stations.upgrade.clone() {
             UpgradePhase::Idle => {
                 if generators.active_count() != 6 {
@@ -597,9 +600,8 @@ pub(crate) fn interact(
                 };
                 let old_ammo = current.and_then(|d| inventory.ammo_snapshot(d));
                 let previous = inventory.attachment().to_string();
-                let purchase = ledger.command(price);
-                let result = ledger
-                    .accept(&mut session.points, purchase, || {
+                let result = session
+                    .purchase(price, || {
                         inventory
                             .deposit_active()
                             .map_err(|_| InteractionRejection::Busy)
@@ -653,7 +655,7 @@ pub(crate) fn interact(
                         stations.purchases += 1;
                         focus.accepted += 1;
                     }
-                    Err(error) => focus.rejection = Some(error.into()),
+                    Err(error) => focus.rejection = Some(error),
                 }
             }
             UpgradePhase::Processing { .. } => focus.prompt = "Pack-a-Punch processing".into(),

@@ -1,6 +1,5 @@
 use crate::{
     GameState,
-    animation::{AnimationGraphs, AnimationLayer, AnimationPlayback},
     assets::GameDefinition,
     gameplay::{GameStep, Session, SessionEntity},
     interactions::InteractionRejection,
@@ -193,15 +192,18 @@ impl Generators {
     }
 }
 #[derive(Component)]
+#[require(crate::animation::SceneClips)]
 pub struct GeneratorVisual {
     id: ContentId,
     source: Handle<Gltf>,
-    graph: Option<(Handle<AnimationGraph>, Vec<AnimationNodeIndex>)>,
+    nodes: Option<[Option<AnimationNodeIndex>; 8]>,
+    fluid_joints: Vec<(Entity, Vec3)>,
+    blend_from: [f32; 8],
+    blend_target: [f32; 8],
+    blend_elapsed: [f32; 8],
     sound_state: Option<GeneratorState>,
     sound_clip: usize,
     sound_time: f32,
-    players: Vec<Entity>,
-    recorded_clips: u8,
     pole: Option<Entity>,
     voice_then: Option<(Entity, String)>,
     capture_voice: Option<(Entity, f32)>,
@@ -249,6 +251,10 @@ impl Plugin for GeneratorPlugin {
             assemble.in_set(crate::session::SessionSetup::World),
         )
         .add_observer(visual_ready)
+        .add_systems(
+            PostUpdate,
+            fluid_bind_pose.in_set(crate::animation::AnimationPoseModifiers),
+        )
         .add_systems(
             FixedUpdate,
             defender_intent
@@ -301,7 +307,6 @@ impl Plugin for GeneratorPlugin {
                 .in_set(GameStep::Rewards)
                 .run_if(in_state(GameState::Playing)),
         );
-
     }
 }
 fn defender_intent(
@@ -666,11 +671,7 @@ fn assemble(
         return;
     }
     *generators = default();
-    for d in definition
-        .content
-        .generators
-        .iter()
-    {
+    for d in definition.content.generators.iter() {
         generators.sites.insert(d.id.clone(), default());
         let Some(p) = definition
             .content
@@ -693,18 +694,32 @@ fn assemble(
             SessionEntity,
             GeneratorVisual {
                 id: d.id.clone(),
-                source: server.load(scene.split('#').next().unwrap_or(scene).to_owned()),
-                graph: None,
+                source: server
+                    .load_builder()
+                    .with_settings(|settings: &mut bevy::gltf::GltfLoaderSettings| {
+                        settings.load_animations = false;
+                    })
+                    .load(scene.split('#').next().unwrap_or(scene).to_owned()),
+                nodes: None,
+                fluid_joints: Vec::new(),
+                blend_from: [0.; 8],
+                blend_target: [0.; 8],
+                blend_elapsed: [0.; 8],
                 sound_state: None,
                 sound_clip: usize::MAX,
                 sound_time: -0.001,
-                players: Vec::new(),
-                recorded_clips: 0,
                 pole: None,
                 voice_then: None,
                 capture_voice: None,
             },
-            WorldAssetRoot(server.load(scene.clone())),
+            WorldAssetRoot(
+                server
+                    .load_builder()
+                    .with_settings(|settings: &mut bevy::gltf::GltfLoaderSettings| {
+                        settings.load_animations = false;
+                    })
+                    .load(scene.clone()),
+            ),
             Transform::from_translation(Vec3::from_array(d.model_position))
                 .with_rotation(Quat::from_rotation_y(p.yaw)),
             Visibility::Inherited,
@@ -715,16 +730,41 @@ fn visual_ready(
     event: On<WorldInstanceReady>,
     mut visuals: Query<&mut GeneratorVisual>,
     children: Query<&Children>,
-    players: Query<(), With<AnimationPlayer>>,
     names: Query<&Name>,
+    poses: Query<&Transform>,
 ) {
     let Ok(mut visual) = visuals.get_mut(event.entity) else {
         return;
     };
-    visual.players = children
+    visual.fluid_joints = children
         .iter_descendants(event.entity)
-        .filter(|child| players.contains(*child))
+        .filter_map(|joint| {
+            let name = names.get(joint).ok()?;
+            matches!(
+                name.as_str(),
+                "j_115_vats"
+                    | "j_generator_pole"
+                    | "vat_01_jnt"
+                    | "vat_02_jnt"
+                    | "vat_rotate_01_jnt"
+                    | "vat_rotate_02_jnt"
+            )
+            .then(|| {
+                (
+                    joint,
+                    poses
+                        .get(joint)
+                        .expect("Generator fluid joint bind pose")
+                        .translation,
+                )
+            })
+        })
         .collect();
+    assert_eq!(
+        visual.fluid_joints.len(),
+        6,
+        "Generator source fluid joints"
+    );
     visual.pole = children.iter_descendants(event.entity).find(|child| {
         names
             .get(*child)
@@ -741,11 +781,7 @@ fn tick(
     players: Query<(Entity, &Player, &Transform, &Vitality)>,
 ) {
     let dt = time.delta_secs();
-    for d in definition
-        .content
-        .generators
-        .iter()
-    {
+    for d in definition.content.generators.iter() {
         let Some(p) = definition
             .content
             .placements
@@ -848,11 +884,15 @@ fn presentation(
     time: Res<Time>,
     session: Res<Session>,
     definition: Res<GameDefinition>,
-    mut generators: ResMut<Generators>,
-    gltfs: Res<Assets<Gltf>>,
-    mut graphs: ResMut<Assets<AnimationGraph>>,
-    mut graph_cache: ResMut<AnimationGraphs>,
-    mut visuals: Query<(Entity, &mut GeneratorVisual)>,
+    generators: Res<Generators>,
+    mut assets: crate::animation::ClipAssets,
+    mut visuals: Query<(
+        Entity,
+        &mut GeneratorVisual,
+        &mut crate::animation::SceneClips,
+        &mut AnimationPlayer,
+        &mut AnimationGraphHandle,
+    )>,
     audio: Query<(Entity, &GeneratorAudio)>,
     mut voice_events: MessageReader<crate::audio::PlaybackEvent>,
 ) {
@@ -862,7 +902,7 @@ fn presentation(
         .filter(|event| event.status == crate::audio::PlaybackStatus::Completed)
         .map(|event| event.entity)
         .collect::<BTreeSet<_>>();
-    for (entity, mut visual) in &mut visuals {
+    for (entity, mut visual, mut clips, mut player, mut graph) in &mut visuals {
         let Some(d) = definition
             .content
             .generators
@@ -998,15 +1038,38 @@ fn presentation(
             visual.sound_state = Some(state);
             visual.sound_clip = usize::MAX;
         }
-        if visual.graph.is_none() {
-            let Some(bindings) = graph_cache.scene(&visual.source, &gltfs, &mut graphs) else {
-                continue;
-            };
-            if bindings.ordered.len() != 8 {
-                continue;
-            }
-            visual.graph = Some((bindings.graph.clone(), bindings.ordered.clone()));
-            generators.animated += 1;
+        let fresh = visual.nodes.is_none();
+        if fresh {
+            // Source pump, fluid height, and fluid rotation layers from
+            // zm_tomb_capture_zones.csc; presentation metadata names only the pump clips.
+            let names = [
+                "fxanim_zom_tomb_generator_start_anim",
+                "fxanim_zom_tomb_generator_up_idle_anim",
+                "fxanim_zom_tomb_generator_down_idle_anim",
+                "fxanim_zom_tomb_generator_end_anim",
+                "fxanim_zom_tomb_generator_fluid_up_anim",
+                "fxanim_zom_tomb_generator_fluid_down_anim",
+                "fxanim_zom_tomb_generator_fluid_rotate_up_anim",
+                "fxanim_zom_tomb_generator_fluid_rotate_down_anim",
+            ];
+            let nodes: Option<Vec<_>> = names
+                .into_iter()
+                .map(|name| {
+                    match crate::animation::clip_binding(&definition, &visual.source, name)
+                        .expect("Generator source clip binding")
+                    {
+                        Some(path) => clips
+                            .node(path, &mut graph, &mut assets)
+                            .map(|(node, _)| Some(node)),
+                        None => Some(None),
+                    }
+                })
+                .collect();
+            let Some(nodes) = nodes else { continue };
+            visual.nodes = Some(nodes.try_into().unwrap());
+        }
+        if !clips.ready {
+            continue;
         }
         if let Some(index) = index {
             let previous = if visual.sound_clip != index || elapsed < visual.sound_time {
@@ -1036,37 +1099,87 @@ fn presentation(
             visual.sound_clip = index;
             visual.sound_time = elapsed;
         }
-        let Some((graph, nodes)) = &visual.graph else {
-            continue;
-        };
-        let mut layers = vec![
-            AnimationLayer::new(nodes[4], Some(d.clip_seconds[4]), false).weighted(progress),
-            AnimationLayer::new(nodes[5], Some(d.clip_seconds[5]), false).weighted(1. - progress),
-        ];
-        let mut recorded_clips = visual.recorded_clips | (1 << 4) | (1 << 5);
+        let nodes = visual.nodes.unwrap();
+        let mut samples = [None; 8];
+        samples[4] = Some((d.clip_seconds[4], progress));
+        samples[5] = Some((d.clip_seconds[5], 1. - progress));
         if let Some(index) = index {
-            layers.push(AnimationLayer::new(
-                nodes[index],
-                Some(elapsed),
-                matches!(index, 1 | 2),
-            ));
-            recorded_clips |= 1 << index;
+            samples[index] = Some((elapsed, 1.));
         }
         if let Some((rotation, elapsed)) = rotation {
-            layers.push(AnimationLayer::new(nodes[rotation], Some(elapsed), false));
-            recorded_clips |= 1 << rotation;
+            samples[rotation] = Some((elapsed, 1.));
         }
-        let mut playback = AnimationPlayback::new(graph.clone(), layers);
-        playback.blend_seconds = 0.2;
-        for &child in &visual.players {
-            commands.entity(child).insert(playback.clone());
-        }
-        for clip in 0..8 {
-            if recorded_clips & (1 << clip) != 0 && visual.recorded_clips & (1 << clip) == 0 {
-                generators.playback.insert(format!("{}:{clip}", d.id.0));
+        for (index, node) in nodes.into_iter().enumerate() {
+            let target = samples[index].map_or(0., |(_, weight)| weight);
+            let current = visual.blend_from[index].lerp(
+                visual.blend_target[index],
+                (visual.blend_elapsed[index] / 0.2).min(1.),
+            );
+            if fresh {
+                visual.blend_from[index] = target;
+                visual.blend_target[index] = target;
+                visual.blend_elapsed[index] = 0.2;
+            } else if target != visual.blend_target[index] {
+                visual.blend_from[index] = current;
+                visual.blend_target[index] = target;
+                visual.blend_elapsed[index] = 0.;
+            }
+            visual.blend_elapsed[index] += time.delta_secs();
+            let fraction = (visual.blend_elapsed[index] / 0.2).min(1.);
+            let weight = visual.blend_from[index].lerp(target, fraction);
+            // A source pose with no channels contributes its bind frame below.
+            let Some(node) = node else { continue };
+            if player.animation(node).is_none() && samples[index].is_some() {
+                player.start(node);
+            }
+            let Some(active) = player.animation_mut(node) else {
+                continue;
+            };
+            active
+                .set_repeat(if matches!(index, 1 | 2) {
+                    bevy::animation::RepeatAnimation::Forever
+                } else {
+                    bevy::animation::RepeatAnimation::Never
+                })
+                .set_weight(weight);
+            if let Some((seconds, _)) = samples[index] {
+                active.set_seek_time(seconds).pause();
+            } else if fraction < 1. {
+                active.resume();
+            } else {
+                player.stop(node);
             }
         }
-        visual.recorded_clips = recorded_clips;
+    }
+}
+
+// The fluid-down source pose contains no channels. Bevy blends only present curves,
+// so add its bind contribution to these six translation channels after evaluation.
+fn fluid_bind_pose(
+    visuals: Query<(&GeneratorVisual, &AnimationPlayer)>,
+    mut joints: Query<&mut Transform>,
+) {
+    for (visual, player) in &visuals {
+        let Some(nodes) = visual.nodes else { continue };
+        let bind_weight = visual.blend_from[5].lerp(
+            visual.blend_target[5],
+            (visual.blend_elapsed[5] / 0.2).min(1.),
+        );
+        let animated_weight: f32 = [4, 6, 7]
+            .into_iter()
+            .filter_map(|index| player.animation(nodes[index]?))
+            .map(|active| active.weight())
+            .sum();
+        let total = animated_weight + bind_weight;
+        let fraction = if total > 0. {
+            animated_weight / total
+        } else {
+            0.
+        };
+        for &(joint, bind) in &visual.fluid_joints {
+            let mut pose = joints.get_mut(joint).expect("Bound generator fluid joint");
+            pose.translation = bind.lerp(pose.translation, fraction);
+        }
     }
 }
 

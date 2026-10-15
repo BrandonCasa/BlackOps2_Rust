@@ -639,13 +639,8 @@ fn events(
     {
         if reservation.0.is_none() || reservation.0 == state.owner {
             reservation.0 = state.owner;
-            if let Some(owner) = state.owner {
-                state.active = Some(emit_owned(
-                    &mut commands,
-                    line.alias.clone(),
-                    line.source,
-                    owner,
-                ));
+            if state.owner.is_some() {
+                state.active = Some(emit(&mut commands, line.alias.clone(), line.source));
             }
         }
     }

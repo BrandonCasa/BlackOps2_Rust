@@ -15,7 +15,7 @@ struct Plane {
     node: usize,
 }
 #[derive(Component)]
-struct Pilot {
+pub(crate) struct Pilot {
     node: usize,
 }
 #[derive(Component)]

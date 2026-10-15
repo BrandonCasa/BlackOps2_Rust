@@ -220,7 +220,7 @@ fn project(camera: &Camera, transform: &GlobalTransform, position: Vec3) -> Opti
 }
 
 fn update(
-    time: Res<Time>,
+    (time, session): (Res<Time>, Res<crate::gameplay::Session>),
     state: Res<State<GameState>>,
     input: Res<crate::input::GameInput>,
     game: Option<Res<GameDefinition>>,
@@ -345,9 +345,11 @@ fn update(
             };
         }
     }
-    cache.medals.retain(|index| rituals.eligible(*index));
+    cache
+        .medals
+        .retain(|index| rituals.eligible(*index, &session));
     for index in 0..4 {
-        if rituals.eligible(index) && !cache.medals.contains(&index) {
+        if rituals.eligible(index, &session) && !cache.medals.contains(&index) {
             cache.medals.push(index);
             cache.ages[index] = 0.;
         }

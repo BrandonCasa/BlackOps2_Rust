@@ -59,17 +59,12 @@ impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(crate::movement::platforms::PlatformPlugin);
         app.init_resource::<TickActions>()
-            .init_resource::<crate::movement::physics::PhysicsEvidence>()
-            .init_resource::<crate::movement::MovementEvidence>()
             .add_message::<crate::movement::Landing>()
             .add_systems(
                 OnEnter(GameState::StartingSession),
                 spawn_player.in_set(crate::session::SessionSetup::Player),
             )
-            .add_systems(
-                PreUpdate,
-                look.after(crate::input::collect),
-            )
+            .add_systems(PreUpdate, look.after(crate::input::collect))
             .add_systems(
                 FixedUpdate,
                 remember_translation
@@ -178,6 +173,7 @@ pub(crate) fn look(
 pub(crate) fn move_player(
     mut input: ResMut<GameInput>,
     settings: Res<crate::input::ControlSettings>,
+    controls: Res<crate::input::Actions>,
     mut actions: ResMut<TickActions>,
     definition: Res<GameDefinition>,
     time: Res<Time<Fixed>>,
@@ -210,11 +206,11 @@ pub(crate) fn move_player(
     mut commands: Commands,
     slide: MoveAndSlide,
     mut landings: MessageWriter<crate::movement::Landing>,
-    mut evidence: ResMut<crate::movement::MovementEvidence>,
     surfaces: Query<&crate::movement::physics::SurfaceFlags>,
 ) {
     let prone_edge = std::mem::take(&mut input.prone);
     let (mut jump, fire, melee, reload) = input.take_edges();
+    let jump_command = jump || controls.state(crate::input::Action::Jump).held;
     *actions = TickActions {
         fire,
         melee,
@@ -299,7 +295,6 @@ pub(crate) fn move_player(
         mobility.recovery = m.dive_recovery;
         mobility.since_dive = Some(0.);
         player.velocity = Vec3::ZERO;
-        evidence.record(serde_json::json!({"event":"dive_finished","seconds":time.elapsed_secs_f64(),"recovery":mobility.recovery}));
     }
     let mut requested = mobility.stance;
     let mut launch_dive = false;
@@ -384,14 +379,8 @@ pub(crate) fn move_player(
             commands.entity(entity).insert(collider.clone());
             player.height = desired_height;
             mobility.stance = requested;
-            evidence.record(serde_json::json!({"event":"stance_changed","stance":format!("{requested:?}"),"height":desired_height,"feet":(center.y-desired_height*0.5)}));
         } else {
             stance_blocked = true;
-            if prone_edge || input.crouch {
-                evidence.record(
-                    serde_json::json!({"event":"stance_blocked","requested":format!("{requested:?}")}),
-                );
-            }
         }
     }
     if desired_height == player.height && !stance_blocked {
@@ -486,7 +475,6 @@ pub(crate) fn move_player(
             mobility.dive.as_mut().unwrap().slide_remaining = Some(m.dive_slide);
         }
         mobility.landing_dip = (mobility.fall_speed / 20.).clamp(0., 1.) * m.landing_dip;
-        evidence.record(serde_json::json!({"event":"landed","seconds":time.elapsed_secs_f64(),"height":height,"impact_height":impact_height,"diving":diving,"position":feet.to_array(),"recovery":mobility.recovery,"landing_recovery":mobility.landing_recovery,"impact_scale":impact_scale,"percent":percent,"surface_flags":surface_flags}));
     }
     if launch_dive {
         mobility.dive = Some(crate::movement::Dive {
@@ -497,7 +485,6 @@ pub(crate) fn move_player(
         mobility.airborne = true;
         mobility.peak = feet.y;
         mobility.fall_speed = 0.;
-        evidence.record(serde_json::json!({"event":"dive_started","seconds":time.elapsed_secs_f64(),"feet":feet.to_array(),"sprint_seconds":sprint.continuous_seconds(),"speed":player.velocity.xz().length(),"since_dive":mobility.since_dive}));
     }
     if mobility.busy() {
         *actions = TickActions::default();
@@ -563,6 +550,7 @@ pub(crate) fn move_player(
         dt,
         input.sprint,
         eligible,
+        jump_command,
         tuning.sprint_seconds * duration_scale,
         tuning.sprint_minimum,
         tuning.sprint_recovery_rate,
@@ -746,8 +734,7 @@ pub(crate) fn move_player(
         player.velocity.y -= gravity_step * 0.5;
     }
     player.velocity *= step_scale;
-    
-    
+
     if transform.translation.y < -100. {
         transform.translation =
             Vec3::from_array(definition.spawn) + Vec3::Y * (player.height * 0.5);

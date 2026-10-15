@@ -2,15 +2,18 @@ use bevy::prelude::*;
 use serde::Deserialize;
 use std::path::Path;
 pub(crate) mod actors;
-pub(crate) mod weapons;
 pub(crate) mod audio;
 pub mod content;
 pub(crate) mod navigation;
+pub(crate) mod weapons;
 pub(crate) mod zones;
 pub use content::*;
 #[derive(Resource, Deserialize, Clone)]
 pub struct GameDefinition {
     pub version: u32,
+    #[serde(skip)]
+    pub scene_animations:
+        std::collections::BTreeMap<String, std::collections::BTreeMap<String, Option<String>>>,
     pub scene: String,
     #[serde(default)]
     pub additional_scenes: Vec<String>,
@@ -126,54 +129,88 @@ impl Default for Tuning {
     }
 }
 
+pub(crate) fn read<T: serde::de::DeserializeOwned>(path: &Path) -> T {
+    let bytes =
+        std::fs::read(path).unwrap_or_else(|error| panic!("Read {}: {error}", path.display()));
+    serde_json::from_slice(&bytes)
+        .unwrap_or_else(|error| panic!("Decode {}: {error}", path.display()))
+}
+
 impl GameDefinition {
-    pub fn load_from_root(root: &Path) -> Result<Self, ContentError> {
-        let path = root.join("game.json");
-        let bytes = std::fs::read(&path).map_err(|source| ContentError::Io { path, source })?;
-        let mut definition = Self::decode(&bytes)?;
-        weapons::bind(&mut definition, root).map_err(ContentError::InvalidDefinition)?;
+    pub fn load_from_root(root: &Path) -> Self {
+        let mut definition: Self = read(&root.join("game.json"));
+        weapons::bind(&mut definition, root)
+            .unwrap_or_else(|error| panic!("Weapon bindings: {error}"));
         audio::bind(&mut definition, root);
         match (&definition.entity_metadata, &definition.brush_hulls) {
             (Some(entities), Some(hulls)) => {
-                let read = |name: &str| -> Result<Vec<u8>, ContentError> {
-                    let path = root.join(name);
-                    std::fs::read(&path).map_err(|source| ContentError::Io { path, source })
+                let bytes = |name: &str| {
+                    std::fs::read(root.join(name))
+                        .unwrap_or_else(|error| panic!("Read {name}: {error}"))
                 };
-                let entities = read(entities)?;
-                let hulls = read(hulls)?;
-                let clip = read(&definition.collision_metadata)?;
-                zones::bind(&mut definition, &entities, &clip, &hulls)
-                    .map_err(ContentError::InvalidDefinition)?;
+                let entities = bytes(entities);
+                let hulls = bytes(hulls);
+                let collision = bytes(&definition.collision_metadata);
+                zones::bind(&mut definition, &entities, &collision, &hulls)
+                    .unwrap_or_else(|error| panic!("Zone bindings: {error}"));
             }
             (None, None) => {}
-            _ => {
-                return Err(ContentError::InvalidDefinition(
-                    "External zone binding requires both entity_metadata and brush_hulls".into(),
-                ));
+            _ => panic!("Zone binding requires both entity_metadata and brush_hulls"),
+        }
+        actors::bind(&mut definition, root)
+            .unwrap_or_else(|error| panic!("Actor bindings: {error}"));
+        if let Some(path) = &definition.navigation_metadata {
+            let bytes = std::fs::read(root.join(path))
+                .unwrap_or_else(|error| panic!("Read {path}: {error}"));
+            let zones = navigation::derive_zones(&definition, &bytes, &definition.navigation_zones)
+                .unwrap_or_else(|error| panic!("Navigation zones: {error}"));
+            navigation::bind(&mut definition, &bytes, &zones)
+                .unwrap_or_else(|error| panic!("Navigation graph: {error}"));
+        }
+        #[derive(Deserialize)]
+        struct Scene {
+            scene: String,
+            tracks: Vec<Clip>,
+        }
+        #[derive(Deserialize)]
+        struct Clip {
+            name: String,
+            animation_path: Option<String>,
+        }
+        let scenes: Vec<Scene> = read(&root.join("source-model-clips.json"));
+        definition.scene_animations = scenes
+            .into_iter()
+            .map(|scene| {
+                (
+                    scene.scene,
+                    scene
+                        .tracks
+                        .into_iter()
+                        .map(|clip| (clip.name, clip.animation_path))
+                        .collect(),
+                )
+            })
+            .collect();
+        for animation in &mut definition.content.animations {
+            let Some(scene) = definition
+                .content
+                .presentations
+                .iter()
+                .find(|presentation| presentation.id == animation.skeleton)
+                .and_then(|presentation| presentation.scene.as_deref())
+            else {
+                continue;
+            };
+            let scene = scene.split('#').next().unwrap();
+            let name = animation.id.0.rsplit('.').next().unwrap().to_ascii_lowercase();
+            if let Some(Some(path)) = definition
+                .scene_animations
+                .get(scene)
+                .and_then(|clips| clips.get(&name))
+            {
+                animation.path.clone_from(path);
             }
         }
-        actors::bind(&mut definition, root).map_err(ContentError::InvalidDefinition)?;
-        if let Some(path) = &definition.navigation_metadata {
-            let path = root.join(path);
-            let bytes = std::fs::read(&path).map_err(|source| ContentError::Io { path, source })?;
-            let zones = navigation::derive_zones(&definition, &bytes, &definition.navigation_zones)
-                .map_err(ContentError::InvalidDefinition)?;
-            navigation::bind(&mut definition, &bytes, &zones)
-                .map_err(ContentError::InvalidDefinition)?;
-        }
-        Ok(definition)
-    }
-
-    pub fn load(bytes: &[u8]) -> Result<Self, ContentError> {
-        let definition = Self::decode(bytes)?;
-        Ok(definition)
-    }
-
-    fn decode(bytes: &[u8]) -> Result<Self, ContentError> {
-        serde_json::from_slice(bytes).map_err(|source| ContentError::Json {
-            path: Path::new("game.json").into(),
-            source,
-        })
+        definition
     }
 }
-

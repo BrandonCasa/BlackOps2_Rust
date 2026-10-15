@@ -31,6 +31,7 @@ impl CaptureRewards {
     }
 }
 #[derive(Component)]
+#[require(crate::animation::SceneClips)]
 struct Chest {
     source: Handle<Gltf>,
     origin_tag: Option<Entity>,
@@ -147,14 +148,26 @@ fn setup(
         commands.spawn((
             SessionEntity,
             Chest {
-                source: server.load(scene.split('#').next().unwrap_or(scene).to_owned()),
+                source: server
+                    .load_builder()
+                    .with_settings(|settings: &mut bevy::gltf::GltfLoaderSettings| {
+                        settings.load_animations = false;
+                    })
+                    .load(scene.split('#').next().unwrap_or(scene).to_owned()),
                 origin_tag: None,
                 glow: None,
                 sound: None,
                 glow_ramps: Vec::new(),
             },
             crate::presentation::cues::CueParameters::default(),
-            WorldAssetRoot(server.load(scene.clone())),
+            WorldAssetRoot(
+                server
+                    .load_builder()
+                    .with_settings(|settings: &mut bevy::gltf::GltfLoaderSettings| {
+                        settings.load_animations = false;
+                    })
+                    .load(scene.clone()),
+            ),
             Transform::from_translation(position).with_rotation(Quat::from_rotation_y(reward.yaw)),
         ));
     }
@@ -179,10 +192,14 @@ fn tick(
     mut rewards: ResMut<CaptureRewards>,
     game: Res<GameDefinition>,
     server: Res<AssetServer>,
+    mut assets: crate::animation::ClipAssets,
     mut chests: Query<(
         Entity,
         &mut Chest,
         &mut crate::presentation::cues::CueParameters,
+        &mut crate::animation::SceneClips,
+        &mut AnimationPlayer,
+        &mut AnimationGraphHandle,
     )>,
     mut visuals: Query<&mut Transform, With<Reward>>,
 ) {
@@ -227,7 +244,14 @@ fn tick(
                 .spawn((
                     SessionEntity,
                     Reward,
-                    WorldAssetRoot(server.load(scene.clone())),
+                    WorldAssetRoot(
+                        server
+                            .load_builder()
+                            .with_settings(|settings: &mut bevy::gltf::GltfLoaderSettings| {
+                                settings.load_animations = false;
+                            })
+                            .load(scene.clone()),
+                    ),
                     Transform::from_translation(Vec3::from_array(profile.position))
                         .with_rotation(Quat::from_rotation_y(profile.yaw + std::f32::consts::PI)),
                     Visibility::Inherited,
@@ -277,7 +301,7 @@ fn tick(
         }
     }
     let close = rewards.close_elapsed();
-    for (entity, mut chest, mut inputs) in &mut chests {
+    for (entity, mut chest, mut inputs, mut clips, mut player, mut graph) in &mut chests {
         chest
             .glow_ramps
             .retain_mut(|ramp| ramp.tick(dt, &mut inputs));
@@ -317,15 +341,9 @@ fn tick(
             .map_or(("o_zombie_dlc4_challenge_box_open", elapsed), |elapsed| {
                 ("o_zombie_dlc4_challenge_box_close", elapsed)
             });
-        commands
-            .entity(entity)
-            .insert(crate::animation::NativeAnimation {
-                source: chest.source.clone(),
-                clip: clip.into(),
-                seconds,
-                looping: false,
-                restart: u64::from(close.is_some()),
-            });
+        let path = crate::animation::clip_path(&game, &chest.source, clip)
+            .expect("Challenge chest source clip binding");
+        clips.sample(path, seconds, false, &mut player, &mut graph, &mut assets);
     }
 }
 fn collect(

@@ -86,6 +86,7 @@ struct FootEvent {
     event: String,
 }
 #[derive(Component)]
+#[require(crate::animation::SceneClips)]
 struct Foot {
     robot: usize,
     side: usize,
@@ -107,6 +108,7 @@ struct SafeSpot;
 #[derive(Component)]
 pub(crate) struct Evacuation(usize);
 #[derive(Component)]
+#[require(crate::animation::SceneClips)]
 struct RobotBody {
     index: usize,
     feet: [Option<Entity>; 2],
@@ -225,7 +227,14 @@ fn setup(
                     index: i,
                     feet: [None; 2],
                 },
-                WorldAssetRoot(server.load(scene.clone())),
+                WorldAssetRoot(
+                    server
+                        .load_builder()
+                        .with_settings(|settings: &mut bevy::gltf::GltfLoaderSettings| {
+                            settings.load_animations = false;
+                        })
+                        .load(scene.clone()),
+                ),
                 Transform::from_translation(Vec3::from_array(source::ALIGNMENT[i])),
                 Visibility::Hidden,
                 RigidBody::Kinematic,
@@ -328,9 +337,14 @@ fn ready(
             if let Some(scene) =
                 crate::assets::native_scene(&game, "veh_t6_dlc_zm_robot_foot_hatch_lights")
             {
-                commands
-                    .entity(light)
-                    .insert(WorldAssetRoot(server.load(scene.clone())));
+                commands.entity(light).insert(WorldAssetRoot(
+                    server
+                        .load_builder()
+                        .with_settings(|settings: &mut bevy::gltf::GltfLoaderSettings| {
+                            settings.load_animations = false;
+                        })
+                        .load(scene.clone()),
+                ));
             }
             commands.entity(root).insert((
                 SessionEntity,
@@ -346,7 +360,14 @@ fn ready(
                     fx: None,
                     phase: HatchState::Closed,
                 },
-                WorldAssetRoot(server.load(scene.clone())),
+                WorldAssetRoot(
+                    server
+                        .load_builder()
+                        .with_settings(|settings: &mut bevy::gltf::GltfLoaderSettings| {
+                            settings.load_animations = false;
+                        })
+                        .load(scene.clone()),
+                ),
                 FootSocket(socket),
                 Transform::IDENTITY,
                 Visibility::Inherited,
@@ -432,7 +453,12 @@ fn tick(
     access: Res<crate::access::ZoneAccess>,
     quest: Res<MainQuest>,
     game: Res<GameDefinition>,
-    server: Res<AssetServer>,
+    mut assets: crate::animation::ClipAssets,
+    mut animated: Query<(
+        &mut crate::animation::SceneClips,
+        &mut AnimationPlayer,
+        &mut AnimationGraphHandle,
+    )>,
     bodies: Query<(Entity, &RobotBody)>,
     feet: Query<&Foot>,
     targets: Query<&FootTarget>,
@@ -560,16 +586,17 @@ fn tick(
                 HatchState::Closing(t - dt)
             };
         }
-        commands.entity(robot_entity).insert((
-            Visibility::Inherited,
-            crate::animation::NativeAnimation {
-                source: server.load(animation.path.split('#').next().unwrap().to_string()),
-                clip: name,
-                seconds: p.clock.min(end),
-                looping: false,
-                restart: p.step as u64,
-            },
-        ));
+        commands.entity(robot_entity).insert(Visibility::Inherited);
+        if let Ok((mut clips, mut player, mut graph)) = animated.get_mut(robot_entity) {
+            clips.sample(
+                &animation.path,
+                p.clock.min(end),
+                false,
+                &mut player,
+                &mut graph,
+                &mut assets,
+            );
+        }
         for note in animation
             .notifications
             .iter()
@@ -854,7 +881,12 @@ fn foot_presentation(
     time: Res<Time<Fixed>>,
     robots: Res<Robots>,
     game: Res<GameDefinition>,
-    server: Res<AssetServer>,
+    mut assets: crate::animation::ClipAssets,
+    mut animated: Query<(
+        &mut crate::animation::SceneClips,
+        &mut AnimationPlayer,
+        &mut AnimationGraphHandle,
+    )>,
     mut feet: Query<(Entity, &mut Foot, &GlobalTransform)>,
     targets: Query<(Entity, &FootTarget)>,
     mut lights: Query<&mut Visibility, Without<Foot>>,
@@ -922,19 +954,20 @@ fn foot_presentation(
             .iter()
             .find(|a| a.id.0 == format!("animation.veh_t6_dlc_zm_robot_foot_hatch.{clip}"))
         {
-            commands
-                .entity(entity)
-                .insert(crate::animation::NativeAnimation {
-                    source: server.load(animation.path.split('#').next().unwrap().to_string()),
-                    clip: clip.into(),
-                    seconds: if open && age >= 1. {
-                        (age - 1.) % 0.9333333
+            if let Ok((mut clips, mut player, mut graph)) = animated.get_mut(entity) {
+                clips.sample(
+                    &animation.path,
+                    if open && age >= 1. {
+                        age - 1.
                     } else {
                         age.min(1.)
                     },
-                    looping: open && age >= 1.,
-                    restart: u64::from(open),
-                });
+                    open && age >= 1.,
+                    &mut player,
+                    &mut graph,
+                    &mut assets,
+                );
+            }
         }
         foot.phase = phase;
         let _ = time;

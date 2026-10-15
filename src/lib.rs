@@ -88,7 +88,6 @@ pub enum GameState {
     Paused,
     GameOver,
     Ending,
-
 }
 
 pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
@@ -97,7 +96,6 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
 }
 
 pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
-    let configuration = assets::AssetDirectory::discover(&options.asset_root);
     let (cinematics, playback) = cinematics::Cinematics::begin(&options.asset_root);
     // Reserve stack space for the debug glTF asset-loading task frames.
     bevy::tasks::IoTaskPool::get_or_init(|| {
@@ -118,9 +116,14 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
     let default_plugins = default_plugins.disable::<bevy::log::LogPlugin>();
     app.add_plugins(
         default_plugins
-            .set(AssetPlugin { file_path: asset_root, ..default() })
-            .set(bevy::gltf::GltfPlugin::default()
-                .add_custom_vertex_attribute("SURFACE", assets::ATTRIBUTE_SURFACE))
+            .set(AssetPlugin {
+                file_path: asset_root,
+                ..default()
+            })
+            .set(
+                bevy::gltf::GltfPlugin::default()
+                    .add_custom_vertex_attribute("SURFACE", assets::ATTRIBUTE_SURFACE),
+            )
             .set(bevy::render::RenderPlugin {
                 render_creation: bevy::render::settings::RenderCreation::Automatic(Box::new(
                     bevy::render::settings::WgpuSettings {
@@ -141,10 +144,12 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
                 ..default()
             }),
     )
-    .add_plugins(avian3d::prelude::PhysicsPlugins::new(PostUpdate).with_collision_hooks::<crate::enemies::RagdollCollisionHooks>())
+    .add_plugins(
+        avian3d::prelude::PhysicsPlugins::new(PostUpdate)
+            .with_collision_hooks::<crate::enemies::RagdollCollisionHooks>(),
+    )
     .init_state::<GameState>()
     .insert_resource(Time::<Fixed>::from_hz(60.0))
-    .insert_resource(assets::LoadConfiguration(configuration))
     .add_plugins(animation::GameAnimationPlugin)
     .add_plugins((
         assets::GameAssetsPlugin,
@@ -214,4 +219,3 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
 
     app
 }
-

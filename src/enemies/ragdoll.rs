@@ -41,7 +41,8 @@ pub(super) fn client_scene(state: Res<State<GameState>>) -> bool {
 }
 
 fn client_clock(
-    source: Res<crate::presentation::cues::CueClock>,
+    source: Res<crate::session::SessionClock>,
+    time: Res<Time<Virtual>>,
     state: Res<State<GameState>>,
     mut clock: ResMut<ClientPhysicsClock>,
     mut physics: ResMut<Time<Physics>>,
@@ -57,7 +58,7 @@ fn client_clock(
             | GameState::Ending
     );
     let delta = clock.advance(
-        source.render_milliseconds(),
+        Some(source.milliseconds(&time)),
         active,
         **state == GameState::Paused,
     );
@@ -148,6 +149,10 @@ struct PhysicalRagdoll {
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<ClientPhysicsClock>()
+        .add_systems(
+            OnEnter(GameState::StartingSession),
+            |mut clock: ResMut<ClientPhysicsClock>| *clock = default(),
+        )
         .add_message::<RagdollExplosion>()
         .add_message::<RagdollBullet>()
         .add_systems(PostUpdate, client_clock.in_set(PhysicsSystems::First))
@@ -518,14 +523,16 @@ fn begin(
                 let joint = fragments
                     .iter()
                     .find_map(|fragment| fragment.sockets.get(&bone.joint))?;
-                poses
-                    .get(*joint)
-                    .ok()
-                    .map(|pose| Transform::from_matrix(pose.to_matrix() * Mat4::from_scale_rotation_translation(
-                        Vec3::splat(1. / crate::assets::SOURCE_UNIT_METERS),
-                        Quat::from_rotation_x(std::f32::consts::FRAC_PI_2),
-                        Vec3::ZERO,
-                    )))
+                poses.get(*joint).ok().map(|pose| {
+                    Transform::from_matrix(
+                        pose.to_matrix()
+                            * Mat4::from_scale_rotation_translation(
+                                Vec3::splat(1. / crate::assets::SOURCE_UNIT_METERS),
+                                Quat::from_rotation_x(std::f32::consts::FRAC_PI_2),
+                                Vec3::ZERO,
+                            ),
+                    )
+                })
             })
             .collect::<Vec<_>>();
         if snapshot.iter().take(3).any(Option::is_none) {
@@ -812,7 +819,9 @@ fn apply_pose(
             ) else {
                 continue;
             };
-            let current = Transform::from_matrix(source_frame * animated_parent.inverse() * animated_bone * source_frame.inverse());
+            let current = Transform::from_matrix(
+                source_frame * animated_parent.inverse() * animated_bone * source_frame.inverse(),
+            );
             let base = Transform::from_matrix(Mat4::from_cols_array(&bone.base));
             let factor = if current.translation.length() <= 400. * 0.0254 {
                 (ragdoll.seconds / bone.seconds).clamp(0., 1.)
@@ -853,7 +862,10 @@ fn apply_pose(
                 };
                 cursor = parent.parent();
             }
-            writes.push((entity, Transform::from_matrix(ancestor.inverse() * world * source_frame)));
+            writes.push((
+                entity,
+                Transform::from_matrix(ancestor.inverse() * world * source_frame),
+            ));
         }
     }
     for (entity, pose) in writes {

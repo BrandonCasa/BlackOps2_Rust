@@ -30,6 +30,9 @@ pub struct Session {
     pub pending: u32,
     pub points: u32,
     pub score: u32,
+    pub spent: u64,
+    pub headshots: u32,
+    pub challenge_headshots: u32,
     pub downs: u32,
     pub spawn_timer: Timer,
     pub intermission: Option<Timer>,
@@ -47,6 +50,9 @@ impl Default for Session {
             pending: 6,
             points: 500,
             score: 500,
+            spent: 0,
+            headshots: 0,
+            challenge_headshots: 0,
             downs: 0,
             spawn_timer: Timer::from_seconds(1., TimerMode::Once),
             intermission: None,
@@ -137,7 +143,7 @@ pub(crate) fn combat(
     mut session: ResMut<Session>,
     mut players: Query<(
         Entity,
-        &Player,
+        &mut Player,
         &Transform,
         &mut WeaponInventory,
         &crate::equipment::GrenadeInventory,
@@ -173,7 +179,7 @@ pub(crate) fn combat(
     let dt = time.delta_secs();
     let Ok((
         entity,
-        player,
+        mut player,
         transform,
         mut inventory,
         grenades,
@@ -381,6 +387,22 @@ pub(crate) fn combat(
         });
         if !melee && firing_evidence.shots.len() < 128 {
             firing_evidence.shots.push(serde_json::json!({"weapon":weapon_id.0,"seconds":time.elapsed_secs_f64(),"pellets":pellets,"copies":copies,"rays":pellets*copies,"spread":spread,"ads":inventory.ads,"prone":player.prone,"crouched":player.crouched,"speed":player.velocity.xz().length(),"interval_scale":inventory.firing.interval_scale,"hip_spread_scale":inventory.firing.hip_spread_scale}));
+        }
+        if !melee
+            && let Some(weapon) = weapon
+            && weapon.mechanics.delivery == crate::origins::content::WeaponDelivery::Projectile
+            && weapon.mechanics.weapon_class.as_deref() != Some("grenade")
+            && !matches!(
+                weapon.mechanics.fire,
+                crate::origins::content::FirePattern::Automatic
+            )
+            && inventory
+                .active()
+                .is_some_and(|held| held.definition == weapon.id)
+        {
+            // Native missile recoil uses the unspread forward vector, once per emitted shot.
+            let recoil = -*direction * (64. * 0.0254);
+            player.velocity += recoil.with_y(recoil.y.min(0.));
         }
         for ray in 0..pellets * copies {
             let pellet = ray / copies;

@@ -1,7 +1,4 @@
-use crate::{
-    assets::GameDefinition,
-    origins::content::WeaponId,
-};
+use crate::{assets::GameDefinition, origins::content::WeaponId};
 use bevy::prelude::*;
 #[derive(Component)]
 pub(crate) struct WeaponMaterialContext(pub WeaponId);
@@ -9,12 +6,11 @@ pub(crate) struct WeaponMaterialContext(pub WeaponId);
 struct Applied(String);
 #[derive(Component)]
 pub(crate) struct CamoTexture {
-    path: String,
     image: Handle<Image>,
 }
 
 pub(super) fn install(app: &mut App) {
-    app.add_systems(Update, (apply, check_dependencies).chain());
+    app.add_systems(Update, apply);
 }
 fn apply(
     mut commands: Commands,
@@ -53,36 +49,13 @@ fn apply(
         commands.entity(entity).insert((
             MeshMaterial3d(materials.add(material)),
             Applied(texture.clone()),
-            CamoTexture {
-                path: texture.clone(),
-                image,
-            },
+            CamoTexture { image },
         ));
     }
 }
 
-pub(crate) fn assets_ready(
-    server: &AssetServer,
-    textures: &Query<&CamoTexture>,
-) -> Result<bool, String> {
-    let mut ready = true;
-    for texture in textures {
-        match server.get_load_state(texture.image.id()) {
-            Some(bevy::asset::LoadState::Failed(error)) => {
-                return Err(format!("Required camo texture {}: {error}", texture.path));
-            }
-            Some(bevy::asset::LoadState::Loaded) => {}
-            _ => ready = false,
-        }
-    }
-    Ok(ready)
-}
-fn check_dependencies(
-    server: Res<AssetServer>,
-    textures: Query<&CamoTexture>,
-
-) {
-    if let Err(error) = assets_ready(&server, &textures) {
-        panic!("{}", error);
-    }
+pub(crate) fn assets_ready(server: &AssetServer, textures: &Query<&CamoTexture>) -> bool {
+    textures
+        .iter()
+        .all(|texture| server.is_loaded_with_dependencies(texture.image.id()))
 }

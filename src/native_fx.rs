@@ -1,10 +1,6 @@
 //! Origins source-authored presentation using stock Bevy assets and materials.
 mod visuals;
-use crate::{
-    GameState,
-    assets::GameDefinition,
-    gameplay::SessionEntity,
-};
+use crate::{GameState, assets::GameDefinition, gameplay::SessionEntity};
 use bevy::{asset::RecursiveDependencyLoadState, math::Affine2, prelude::*};
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -244,9 +240,8 @@ impl Plugin for NativeFxPlugin {
         );
     }
 }
-fn load_catalog(mut commands: Commands) {
-    let catalog: Catalog = serde_json::from_str(include_str!("../gameplay/origins/fx_catalog.json"))
-        .expect("load source FX catalog");
+fn load_catalog(mut commands: Commands, options: Res<crate::assets::LaunchOptions>) {
+    let catalog: Catalog = crate::origins::read(&options.asset_root.join("fx_catalog.json"));
     commands.insert_resource(catalog);
     commands.insert_resource(CloudPoints::native_initial_state());
 }
@@ -341,7 +336,9 @@ fn spawn(
             continue;
         }
         let Some(effect) = catalog.effects.get(&emitter.name) else {
-            panic!("{}", format!(
+            panic!(
+                "{}",
+                format!(
                     "Required source effect definition missing: {}",
                     emitter.name
                 ),
@@ -442,7 +439,9 @@ fn spawn(
                     if let Some(name) = visual.and_then(|v| v.effect.as_ref()) {
                         emit(&mut commands, name, pose);
                     } else {
-                        panic!("{}", format!("Source runner has no effect: {}", emitter.name),
+                        panic!(
+                            "{}",
+                            format!("Source runner has no effect: {}", emitter.name),
                         );
                     }
                     continue;
@@ -500,7 +499,9 @@ fn spawn(
                     visuals::light(&mut commands, particle_entity);
                 } else if e.kind == 7 {
                     let Some(model) = visual.and_then(|v| v.model.as_ref()) else {
-                        panic!("{}", format!("Source model effect has no model: {}", emitter.name),
+                        panic!(
+                            "{}",
+                            format!("Source model effect has no model: {}", emitter.name),
                         );
                     };
                     match visuals::model(&mut commands, &server, particle_entity, model) {
@@ -520,14 +521,18 @@ fn spawn(
                         }
                     });
                     let Some(name) = name else {
-                        panic!("{}", format!(
+                        panic!(
+                            "{}",
+                            format!(
                                 "Source effect type {} has no visual: {}",
                                 e.kind, emitter.name
                             ),
                         );
                     };
                     let Some(source) = catalog.materials.get(name.trim_start_matches(',')) else {
-                        panic!("{}", format!("Required source effect material missing: {name}"),
+                        panic!(
+                            "{}",
+                            format!("Required source effect material missing: {name}"),
                         );
                     };
                     let image = server.load(source.image.clone());
@@ -542,7 +547,9 @@ fn spawn(
                             "mask" => AlphaMode::Mask(match source.alpha_cutoff {
                                 Some(value) => value,
                                 None => {
-                                    panic!("{}", format!(
+                                    panic!(
+                                        "{}",
+                                        format!(
                                             "Source masked FX material has no alpha cutoff: {name}"
                                         ),
                                     );
@@ -550,7 +557,9 @@ fn spawn(
                             }),
                             "opaque" => AlphaMode::Opaque,
                             other => {
-                                panic!("{}", format!("Unsupported source effect alpha mode: {other}"),
+                                panic!(
+                                    "{}",
+                                    format!("Unsupported source effect alpha mode: {other}"),
                                 );
                             }
                         },
@@ -568,7 +577,9 @@ fn spawn(
                         particle.material = Some(handle.clone());
                         let mesh = if e.kind == 5 {
                             let Some(trail) = &e.trail else {
-                                panic!("{}", format!(
+                                panic!(
+                                    "{}",
+                                    format!(
                                         "Required source trail geometry missing: {}",
                                         emitter.name
                                     ),
@@ -851,7 +862,9 @@ fn animate(
         };
         match state {
             Some(RecursiveDependencyLoadState::Failed(error)) => {
-                panic!("{}", format!("Required source effect dependency failed: {error}"),
+                panic!(
+                    "{}",
+                    format!("Required source effect dependency failed: {error}"),
                 );
             }
             Some(RecursiveDependencyLoadState::Loaded) => {}
@@ -923,8 +936,7 @@ fn animate(
         }
         if let Some(child) = &e.effect_emitted {
             if p.emit_step <= 0. {
-                panic!("{}", "Source emitted effect has invalid distance interval",
-                );
+                panic!("{}", "Source emitted effect has invalid distance interval",);
             }
             let mut distance = pose.translation.distance(p.emitted_at);
             while distance >= p.emit_step {
@@ -998,8 +1010,7 @@ fn animate(
         }
         if e.kind == 6 {
             let Some(density) = e.cloud_density else {
-                panic!("{}", "Source cloud has no density range",
-                );
+                panic!("{}", "Source cloud has no density range",);
             };
             let count = integer_range(density, &catalog, p.seed, 23).clamp(1., 1024.) as usize;
             let selection = channel(&catalog, p.seed, 23).to_bits() & 0xffff;

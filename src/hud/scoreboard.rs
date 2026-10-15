@@ -371,7 +371,6 @@ fn update(
     state: Res<State<GameState>>,
     input: Res<crate::input::GameInput>,
     session: Res<crate::gameplay::Session>,
-    history: Res<crate::damage::CombatHistory>,
     (crafting, parts): (
         Res<crate::crafting::Crafting>,
         Res<crate::environment::parts::Parts>,
@@ -413,7 +412,7 @@ fn update(
             .to_string(),
             Field::Kills => session.kills.to_string(),
             Field::Downs => session.downs.to_string(),
-            Field::Headshots => history.headshot_kills.to_string(),
+            Field::Headshots => session.headshots.to_string(),
             Field::GameOver => {
                 if **state == GameState::GameOver {
                     format!("GAME OVER\nYou Survived {} Rounds", session.round)

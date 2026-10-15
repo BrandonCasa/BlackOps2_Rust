@@ -110,8 +110,6 @@ pub(crate) fn reset(world: &mut World) {
     world.resource_mut::<Messages<RemoteRevive>>().clear();
     world.insert_resource(crate::player_health::HealthEvidence::default());
     world.insert_resource(crate::perks::PerkEvidence::default());
-    world.insert_resource(crate::movement::MovementEvidence::default());
-    world.insert_resource(crate::movement::physics::PhysicsEvidence::default());
 }
 pub struct SoloRevivePlugin;
 impl Plugin for SoloRevivePlugin {

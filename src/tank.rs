@@ -1,7 +1,6 @@
 use crate::{
     GameState,
     assets::GameDefinition,
-    economy::PointLedger,
     environment::support::DamageEmitter,
     gameplay::{GameStep, Session, SessionEntity},
     input::GameInput,
@@ -1115,7 +1114,6 @@ pub(crate) fn interact(
         Has<crate::perks::PerkDrinking>,
     )>,
     mut focus: ResMut<InteractionFocus>,
-    mut ledger: ResMut<PointLedger>,
     mut session: ResMut<Session>,
 ) {
     if !input.use_held {
@@ -1203,11 +1201,9 @@ pub(crate) fn interact(
             focus.rejection = Some(InteractionRejection::Busy);
             return;
         }
-        let purchase = ledger.command(price);
-        if let Err(error) = ledger.accept(&mut session.points, purchase, || {
-            Ok::<_, InteractionRejection>(())
-        }) {
-            focus.rejection = Some(error.into());
+
+        if let Err(error) = session.purchase(price, || Ok::<_, InteractionRejection>(())) {
+            focus.rejection = Some(error);
             return;
         }
         tank.phase = TankPhase::Moving;
