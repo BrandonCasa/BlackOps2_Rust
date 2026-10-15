@@ -333,15 +333,18 @@ pub(crate) fn object_constants(
         Option<&mut NativeWorldObject>,
     )>,
     mut commands: Commands,
+    mut previous_eye: Local<Option<Vec3>>,
 ) {
     let Ok(camera) = camera.single() else {
         return;
     };
     let inverse_frame = source_frame().inverse();
     let eye = inverse_frame.transform_point3(camera.translation());
+    let eye_changed = *previous_eye != Some(eye);
+    *previous_eye = Some(eye);
     let to_eye = Mat4::from_translation(-eye) * inverse_frame;
     for (entity, transform, lighting, object) in &mut surfaces {
-        if !camera.is_changed() && !transform.is_changed() && object.is_some() {
+        if !eye_changed && !transform.is_changed() && object.is_some() {
             continue;
         }
         let matrix = to_eye * transform.to_matrix();
