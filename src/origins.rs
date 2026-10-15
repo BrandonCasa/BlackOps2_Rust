@@ -27,12 +27,6 @@ pub struct GameDefinition {
     #[serde(default)]
     pub navigation_zones: std::collections::BTreeMap<u16, ZoneId>,
     #[serde(default)]
-    pub effects: std::collections::BTreeMap<String, String>,
-    #[serde(default)]
-    pub effect_lifetimes: std::collections::BTreeMap<String, f32>,
-    #[serde(default)]
-    pub looping_effects: std::collections::BTreeSet<String>,
-    #[serde(default)]
     pub camos: std::collections::BTreeMap<String, String>,
     pub spawn: [f32; 3],
     pub yaw: f32,
@@ -261,7 +255,6 @@ impl GameDefinition {
             .chain(std::iter::once(&self.collision_scene))
             .chain(std::iter::once(&self.collision_metadata))
             .chain(std::iter::once(&self.world_metadata))
-            .chain(self.effects.values())
             .chain(self.camos.values())
         {
             validate_asset_path(path)?;
@@ -274,21 +267,6 @@ impl GameDefinition {
             {
                 return Err(ContentError::InvalidPath(path.clone()));
             }
-        }
-        if self.effect_lifetimes.iter().any(|(name, seconds)| {
-            !self.effects.contains_key(name) || !seconds.is_finite() || *seconds <= 0.
-        }) {
-            return Err(ContentError::InvalidDefinition(
-                "Effect lifetimes require an effect binding and finite positive source seconds"
-                    .into(),
-            ));
-        }
-        if self.looping_effects.iter().any(|name| {
-            !self.effects.contains_key(name) || self.effect_lifetimes.contains_key(name)
-        }) || self.effects.keys().any(|name| {
-            !self.effect_lifetimes.contains_key(name) && !self.looping_effects.contains(name)
-        }) {
-            return Err(ContentError::InvalidDefinition("Every effect requires either finite source timing or an explicit looping classification".into()));
         }
         let values = [
             self.tuning.walk_speed,

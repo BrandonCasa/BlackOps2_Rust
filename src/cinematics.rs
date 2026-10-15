@@ -4,7 +4,10 @@ use crate::{
 };
 use bevy::prelude::*;
 use std::collections::BTreeMap;
-const BUFFER: usize = 8;
+// Bounded to 48 decoded frames (about 169 MiB at source 1280x720 RGBA).
+// A reserve absorbs IO/decode bursts while the full map is loading.
+const BUFFER: usize = 48;
+const RESUME_BUFFER: usize = 24;
 
 /// Bind an authored ordinary PNG directory to the existing sequence player.
 pub(crate) fn bind_frames(
@@ -69,6 +72,8 @@ struct SequencePlayback {
     sound: Option<Entity>,
     started: bool,
     audio_ready: bool,
+    buffering: bool,
+    audio_paused: bool,
     failed: bool,
 }
 #[derive(Component)]
@@ -119,6 +124,7 @@ fn prepare(
         duration: frames.len() as f32 / rate,
         frames,
         rate,
+        buffering: true,
         audio: sequence
             .audio
             .as_ref()
@@ -251,7 +257,10 @@ fn step(
         playback.failed = true;
         return true;
     }
-    let end = (index + 2).min(playback.frames.len());
+    // After an underrun, refill a useful reserve before resuming rather than
+    // alternating play/pause for each newly decoded PNG.
+    let end = (index + if playback.buffering { RESUME_BUFFER } else { 1 })
+        .min(playback.frames.len());
     let ready = (index..end).all(|i| {
         playback
             .ready
@@ -259,13 +268,11 @@ fn step(
             .is_some_and(|handle| images.contains(handle.id()))
     });
     if !ready {
-        if let Some(sound) = playback.sound {
-            commands
-                .entity(sound)
-                .try_insert(CinematicAudioPaused(true));
-        }
+        playback.buffering = true;
+        set_audio_paused(commands, playback, true);
         return false;
     }
+    playback.buffering = false;
     if !playback.started {
         playback.started = true;
         if let Some(alias) = &playback.audio {
@@ -276,36 +283,44 @@ fn step(
             );
             commands.entity(sound).insert(CinematicAudioPaused(false));
             playback.sound = Some(sound);
+            playback.audio_paused = false;
         } else {
             playback.audio_ready = true;
         }
     }
     for mut frame in frames.iter_mut() {
-        frame.image = playback.ready[&index].clone();
+        let image = &playback.ready[&index];
+        if frame.image.id() != image.id() {
+            frame.image = image.clone();
+        }
     }
-    if let Some(sound) = playback.sound {
-        commands
-            .entity(sound)
-            .try_insert(CinematicAudioPaused(false));
-    }
+    set_audio_paused(commands, playback, false);
     if playback.audio_ready {
         let next = playback.elapsed + dt;
         let next_index = ((next * playback.rate) as usize).min(playback.frames.len() - 1);
-        preload(playback, server, next_index);
         if playback
             .ready
             .get(&next_index)
             .is_some_and(|handle| images.contains(handle.id()))
         {
             playback.elapsed = next;
-        } else if let Some(sound) = playback.sound {
-            commands
-                .entity(sound)
-                .try_insert(CinematicAudioPaused(true));
+        } else {
+            playback.buffering = true;
+            set_audio_paused(commands, playback, true);
         }
     }
     playback.elapsed >= playback.duration
 }
+fn set_audio_paused(commands: &mut Commands, playback: &mut SequencePlayback, paused: bool) {
+    if playback.audio_paused == paused {
+        return;
+    }
+    playback.audio_paused = paused;
+    if let Some(sound) = playback.sound {
+        commands.entity(sound).try_insert(CinematicAudioPaused(paused));
+    }
+}
+
 fn advance(
     mut commands: Commands,
     time: Res<Time>,
@@ -316,6 +331,7 @@ fn advance(
     mut frames: Query<&mut ImageNode, With<CinematicFrame>>,
     mut events: MessageReader<PlaybackEvent>,
     mut next: ResMut<NextState<GameState>>,
+    mut failure: ResMut<crate::assets::LoadFailure>,
 ) {
     if keys.just_pressed(KeyCode::Escape)
         || keys.just_pressed(KeyCode::Space)
@@ -332,7 +348,12 @@ fn advance(
         if let Some(sound) = playback.0.sound.take() {
             commands.entity(sound).try_despawn();
         }
-        next.set(GameState::GameOver);
+        if playback.0.failed {
+            failure.0 = "Ending cinematic media could not be read".into();
+            next.set(GameState::LoadError);
+        } else {
+            next.set(GameState::GameOver);
+        }
     }
 }
 fn close(
@@ -344,6 +365,8 @@ fn close(
     for entity in &roots {
         commands.entity(entity).try_despawn();
     }
+    loading.sequence.ready.clear();
+    ending.0.ready.clear();
     for sound in [loading.sequence.sound.take(), ending.0.sound.take()]
         .into_iter()
         .flatten()
@@ -408,6 +431,7 @@ fn loading_advance(
         )
     {
         playback.done = true;
+        playback.sequence.ready.clear();
         for root in &roots {
             commands.entity(root).try_despawn();
         }

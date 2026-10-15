@@ -2897270,12 +2897270,19 @@
       }
     },
     "absent": [
+      "amb_ember_burn",
+      "amb_magma_splat_lrg",
+      "beam_fx",
+      "dst_electronics_elc_md",
       "fly_wpn_shoulder",
+      "pfx_fire_fuel_sm",
       "prj_bulletspray_impact_flesh_extra",
       "wpn_python_fire_decay",
       "wpn_rgunmk2_fire_act_npc",
       "wpn_rgunmk2_fire_rear_plr",
-      "wpn_rgunmk2_flux_l_plr"
+      "wpn_rgunmk2_flux_l_plr",
+      "zmb_electric_zombie_oneshot",
+      "zmb_rand_perk_sparks_bot"
     ]
   },
   "sounds": [
@@ -3054278,6 +3054285,7 @@
   ],
   "sources": [
     "Recovered researchmaster game.json audio bindings/timelines/surfaces; fresh OAT globals/ducks/reverbs; external raw alias fields; zm_tomb_amb.csc room/context meanings. Source-absent secondary aliases use existing explicit absent semantics.",
-    "OAT leaves MP40 duck @71194503 unresolved (1897481475). Existing engine semantics omit only unavailable duck profiles; no replacement profile invented."
+    "OAT leaves MP40 duck @71194503 unresolved (1897481475). Existing engine semantics omit only unavailable duck profiles; no replacement profile invented.",
+    "FX optional sound lookup: all seven extra names absent in fresh loaded OAT alias banks; native 0082ee90/0082ef50 return null, 00836280 branches to no-op 008ad070 and returns -1. Preserve native no-play behavior; do not bind by WAV basename."
   ]
 }
