@@ -1,0 +1,566 @@
+//! Source scene attachments, reciprocal-depth resolve and final display transfer.
+use super::native_effect::NativeEffectView;
+use bevy::{
+    asset::{RenderAssetUsages, embedded_asset, load_embedded_asset},
+    camera::{CameraOutputMode, CameraUpdateSystems},
+    core_pipeline::{
+        Core3dSystems, FullscreenShader,
+        core_3d::{main_opaque_pass_3d, main_transparent_pass_3d, prepare_core_3d_depth_textures},
+        schedule::Core3d,
+        tonemapping::Tonemapping,
+        upscaling::upscaling,
+    },
+    ecs::query::QueryItem,
+    prelude::*,
+    render::{
+        Render, RenderApp, RenderSystems,
+        camera::ExtractedCamera,
+        extract_component::{ExtractComponent, ExtractComponentPlugin},
+        render_asset::RenderAssets,
+        render_resource::*,
+        renderer::{RenderContext, RenderDevice, ViewQuery},
+        sync_component::SyncComponent,
+        texture::{DepthStencilAttachment, GpuImage, TextureCache},
+        view::{ExtractedView, ViewDepthStencilTexture, ViewTarget, prepare_view_targets},
+    },
+    shader::ShaderDefVal,
+};
+
+/// Native 00428840 chooses D32_FLOAT_S8X24_UINT. All native scene pipelines
+/// sharing this attachment must use this format and reverse-Z comparisons.
+pub const NATIVE_DEPTH_FORMAT: TextureFormat = TextureFormat::Depth32FloatStencil8;
+
+/// Camera owner marker, also present in the render world. The plugin maintains
+/// its ordinary floatZ Image through NativeEffectView.
+#[derive(Component, Clone, Copy)]
+pub struct NativeRenderView;
+
+#[derive(Component)]
+pub struct NativeDepthImage(AssetId<Image>);
+
+impl SyncComponent<RenderApp> for NativeRenderView {
+    type Target = (
+        Self,
+        NativeDepthImage,
+        NativeDepthAttachment,
+        PreparedNativeFrame,
+    );
+}
+
+impl ExtractComponent<RenderApp> for NativeRenderView {
+    type QueryData = Option<&'static NativeEffectView>;
+    type QueryFilter = With<NativeRenderView>;
+    type Out = (Self, NativeDepthImage);
+
+    fn extract_component(input: QueryItem<'_, '_, Self::QueryData>) -> Option<Self::Out> {
+        input.map(|input| (Self, NativeDepthImage(input.float_z.id())))
+    }
+}
+
+pub struct NativeFramePlugin;
+
+impl Plugin for NativeFramePlugin {
+    fn build(&self, app: &mut App) {
+        app.add_plugins(ExtractComponentPlugin::<NativeRenderView>::default())
+            .add_systems(PostUpdate, maintain_float_z.after(CameraUpdateSystems));
+        embedded_asset!(app, "depth_resolve.wesl");
+        embedded_asset!(app, "scene_output.wesl");
+        let depth_shader = load_embedded_asset!(app, "depth_resolve.wesl");
+        let output_shader = load_embedded_asset!(app, "scene_output.wesl");
+        let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
+            return;
+        };
+        render_app
+            .insert_resource(NativeFramePipeline::new(depth_shader, output_shader))
+            .init_resource::<SpecializedRenderPipelines<NativeFramePipeline>>()
+            .add_systems(
+                Render,
+                (
+                    source_scene_format
+                        .before(prepare_view_targets)
+                        .in_set(RenderSystems::PrepareViews),
+                    prepare_source_depth
+                        .after(prepare_core_3d_depth_textures)
+                        .in_set(RenderSystems::PrepareResources),
+                    prepare_frame_groups.in_set(RenderSystems::PrepareBindGroups),
+                ),
+            )
+            .add_systems(
+                Core3d,
+                (
+                    resolve_float_z
+                        .after(main_opaque_pass_3d)
+                        .before(main_transparent_pass_3d)
+                        .in_set(Core3dSystems::MainPass),
+                    output_scene
+                        .after(Core3dSystems::PostProcess)
+                        .after(upscaling),
+                ),
+            );
+    }
+}
+
+fn source_float_z_sampler() -> SamplerDescriptor<'static> {
+    // Native sampler byte0x61 (0043d110 /00432ba0): point, ClampU/V, WrapW,
+    // bias0. Source floatZ has one mip, so valid WGPU LOD bounds0..0 retain all
+    // reads despite the native descriptor's unbounded LOD range.
+    SamplerDescriptor {
+        label: Some("T6 floatZ code sampler 0x61"),
+        address_mode_u: AddressMode::ClampToEdge,
+        address_mode_v: AddressMode::ClampToEdge,
+        address_mode_w: AddressMode::Repeat,
+        mag_filter: FilterMode::Nearest,
+        min_filter: FilterMode::Nearest,
+        mipmap_filter: MipmapFilterMode::Nearest,
+        lod_min_clamp: 0.0,
+        lod_max_clamp: 0.0,
+        compare: None,
+        anisotropy_clamp: 1,
+        border_color: None,
+    }
+}
+
+fn maintain_float_z(
+    mut commands: Commands,
+    mut images: ResMut<Assets<Image>>,
+    mut cameras: Query<
+        (
+            Entity,
+            &mut Camera,
+            &Projection,
+            &mut Tonemapping,
+            Option<&mut NativeEffectView>,
+        ),
+        With<NativeRenderView>,
+    >,
+) {
+    for (entity, mut camera, projection, mut tone, input) in &mut cameras {
+        // The native final output pass owns presentation of encoded scene RGB.
+        if !matches!(camera.output_mode, CameraOutputMode::Skip) {
+            camera.output_mode = CameraOutputMode::Skip;
+        }
+        if *tone != Tonemapping::None {
+            *tone = Tonemapping::None;
+        }
+        let Some(size) = camera
+            .physical_target_size()
+            .filter(|size| size.x > 0 && size.y > 0)
+        else {
+            continue;
+        };
+        let Projection::Perspective(projection) = projection else {
+            panic!("native Origins scene requires the recovered perspective projection");
+        };
+        let near = projection.near / crate::assets::SOURCE_UNIT_METERS;
+        let z_near = Vec4::new(near, 0.0, 0.0, 0.0);
+        let render_target_size = Vec4::new(
+            size.x as f32,
+            size.y as f32,
+            1.0 / size.x as f32,
+            1.0 / size.y as f32,
+        );
+        let extent = Extent3d {
+            width: size.x,
+            height: size.y,
+            depth_or_array_layers: 1,
+        };
+        if let Some(mut input) = input {
+            let image = images
+                .get(input.float_z.id())
+                .expect("owned native floatZ Image");
+            assert!(
+                image.texture_descriptor.format == TextureFormat::R32Float
+                    && image.texture_descriptor.mip_level_count == 1
+                    && image.texture_descriptor.sample_count == 1,
+                "native floatZ requires a one-level single-sample R32_FLOAT Image"
+            );
+            if image.texture_descriptor.size != extent {
+                images
+                    .get_mut(input.float_z.id())
+                    .expect("owned native floatZ Image")
+                    .resize(extent);
+            }
+            if input.z_near != z_near || input.render_target_size != render_target_size {
+                input.z_near = z_near;
+                input.render_target_size = render_target_size;
+            }
+        } else {
+            let mut image = Image::new_uninit(
+                extent,
+                TextureDimension::D2,
+                TextureFormat::R32Float,
+                RenderAssetUsages::default(),
+            );
+            image.texture_descriptor.label = Some("native resolved floatZ");
+            image.texture_descriptor.usage =
+                TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING;
+            let float_z = images.add(image);
+            commands.entity(entity).insert(NativeEffectView {
+                float_z,
+                float_z_sampler: source_float_z_sampler(),
+                z_near,
+                render_target_size,
+            });
+        }
+    }
+}
+
+fn source_scene_format(mut views: Query<&mut ExtractedView, With<NativeRenderView>>) {
+    for mut view in &mut views {
+        // Native004540a0 explicitly maps the typeless $scene texture to RGBA8
+        // UNORM for rendering. Keep both encoded blending and8-bit storage.
+        view.target_format = TextureFormat::Rgba8Unorm;
+    }
+}
+
+#[derive(Component)]
+pub struct NativeDepthAttachment {
+    size: Extent3d,
+    samples: u32,
+    attachment: DepthStencilAttachment,
+}
+
+fn prepare_source_depth(
+    mut commands: Commands,
+    device: Res<RenderDevice>,
+    mut cache: ResMut<TextureCache>,
+    views: Query<
+        (
+            Entity,
+            &ExtractedCamera,
+            &Msaa,
+            Option<&NativeDepthAttachment>,
+        ),
+        With<NativeRenderView>,
+    >,
+) {
+    assert!(
+        device
+            .features()
+            .contains(WgpuFeatures::DEPTH32FLOAT_STENCIL8),
+        "native scene rendering requires DEPTH32FLOAT_STENCIL8"
+    );
+    for (entity, camera, msaa, previous) in &views {
+        let Some(size) = camera.physical_target_size else {
+            continue;
+        };
+        let size = Extent3d {
+            width: size.x,
+            height: size.y,
+            depth_or_array_layers: 1,
+        };
+        if let Some(previous) =
+            previous.filter(|previous| previous.size == size && previous.samples == msaa.samples())
+        {
+            // Retain views and bind groups across frames. The stock preparation
+            // inserts its own depth component, so restore this native attachment.
+            previous.attachment.prepare_for_new_frame();
+            commands.entity(entity).insert(ViewDepthStencilTexture {
+                attachment: previous.attachment.clone(),
+            });
+            continue;
+        }
+        let texture = cache.get(
+            &device,
+            TextureDescriptor {
+                label: Some("native reverse-Z depth and stencil"),
+                size,
+                mip_level_count: 1,
+                sample_count: msaa.samples(),
+                dimension: TextureDimension::D2,
+                format: NATIVE_DEPTH_FORMAT,
+                usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            },
+        );
+        let depth = ViewDepthStencilTexture::new(texture, Some(0.0), Some(0));
+        let attachment = depth.attachment.clone();
+        commands.entity(entity).insert((
+            depth,
+            NativeDepthAttachment {
+                size,
+                samples: msaa.samples(),
+                attachment,
+            },
+        ));
+    }
+}
+
+#[derive(Resource)]
+struct NativeFramePipeline {
+    depth_shader: Handle<Shader>,
+    output_shader: Handle<Shader>,
+    depth_layouts: [BindGroupLayoutDescriptor; 2],
+    output_layout: BindGroupLayoutDescriptor,
+    fullscreen: Option<FullscreenShader>,
+}
+
+impl NativeFramePipeline {
+    fn new(depth_shader: Handle<Shader>, output_shader: Handle<Shader>) -> Self {
+        Self {
+            depth_shader,
+            output_shader,
+            depth_layouts: [false, true].map(|multisampled| {
+                BindGroupLayoutDescriptor::new(
+                    "native depth resolve",
+                    &[BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: ShaderStages::FRAGMENT,
+                        ty: BindingType::Texture {
+                            sample_type: TextureSampleType::Depth,
+                            view_dimension: TextureViewDimension::D2,
+                            multisampled,
+                        },
+                        count: None,
+                    }],
+                )
+            }),
+            output_layout: BindGroupLayoutDescriptor::new(
+                "native encoded scene output",
+                &[BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStages::FRAGMENT,
+                    ty: BindingType::Texture {
+                        sample_type: TextureSampleType::Float { filterable: false },
+                        view_dimension: TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                }],
+            ),
+            fullscreen: None,
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+enum NativeFrameKey {
+    Depth { multisampled: bool },
+    Output { format: TextureFormat },
+}
+
+impl SpecializedRenderPipeline for NativeFramePipeline {
+    type Key = NativeFrameKey;
+
+    fn specialize(&self, key: Self::Key) -> RenderPipelineDescriptor {
+        let (layout, shader, entry, format, shader_defs) = match key {
+            NativeFrameKey::Depth { multisampled } => (
+                &self.depth_layouts[usize::from(multisampled)],
+                &self.depth_shader,
+                "fragment",
+                TextureFormat::R32Float,
+                vec![ShaderDefVal::Bool("MULTISAMPLED".into(), multisampled)],
+            ),
+            NativeFrameKey::Output { format } => (
+                &self.output_layout,
+                &self.output_shader,
+                if format.is_srgb() {
+                    "fragment_srgb"
+                } else {
+                    "fragment"
+                },
+                format,
+                vec![],
+            ),
+        };
+        RenderPipelineDescriptor {
+            label: Some("native frame transfer".into()),
+            layout: vec![layout.clone()],
+            vertex: self
+                .fullscreen
+                .as_ref()
+                .expect("native fullscreen pipeline initialized")
+                .to_vertex_state(),
+            fragment: Some(FragmentState {
+                shader: shader.clone(),
+                entry_point: Some(entry.into()),
+                shader_defs,
+                targets: vec![Some(ColorTargetState {
+                    format,
+                    blend: None,
+                    write_mask: ColorWrites::ALL,
+                })],
+                ..default()
+            }),
+            ..default()
+        }
+    }
+}
+
+#[derive(Component)]
+pub struct PreparedNativeFrame {
+    depth_source: TextureViewId,
+    depth_target: TextureViewId,
+    depth_bind_group: BindGroup,
+    depth_pipeline: CachedRenderPipelineId,
+    output_pipeline: CachedRenderPipelineId,
+    output_groups: [(TextureViewId, BindGroup); 2],
+}
+
+fn prepare_frame_groups(
+    mut commands: Commands,
+    device: Res<RenderDevice>,
+    cache: Res<PipelineCache>,
+    fullscreen: Res<FullscreenShader>,
+    mut pipeline: ResMut<NativeFramePipeline>,
+    mut variants: ResMut<SpecializedRenderPipelines<NativeFramePipeline>>,
+    images: Res<RenderAssets<GpuImage>>,
+    views: Query<
+        (
+            Entity,
+            &NativeDepthImage,
+            &ViewDepthStencilTexture,
+            &ViewTarget,
+            Option<&PreparedNativeFrame>,
+        ),
+        With<NativeRenderView>,
+    >,
+) {
+    if pipeline.fullscreen.is_none() {
+        pipeline.fullscreen = Some(fullscreen.clone());
+    }
+    for (entity, float_z, depth, target, previous) in &views {
+        let (Some(image), Some(output_format)) =
+            (images.get(float_z.0), target.out_texture_view_format())
+        else {
+            continue;
+        };
+        assert!(
+            depth.texture().size() == image.texture_descriptor.size,
+            "native floatZ must match the full-resolution source depth texture"
+        );
+        let depth_view = depth
+            .attachment
+            .depth_stencil_views()
+            .depth_only_view()
+            .expect("native scene depth aspect");
+        let multisampled = depth.texture().sample_count() > 1;
+        let depth_pipeline =
+            variants.specialize(&cache, &pipeline, NativeFrameKey::Depth { multisampled });
+        let output_pipeline = variants.specialize(
+            &cache,
+            &pipeline,
+            NativeFrameKey::Output {
+                format: output_format,
+            },
+        );
+        let views = [target.main_texture_view(), target.main_texture_other_view()];
+        if previous.is_some_and(|previous| {
+            previous.depth_source == depth_view.id()
+                && previous.depth_target == image.texture_view.id()
+                && previous.depth_pipeline == depth_pipeline
+                && previous.output_pipeline == output_pipeline
+                && views.iter().all(|view| {
+                    previous
+                        .output_groups
+                        .iter()
+                        .any(|(id, _)| *id == view.id())
+                })
+        }) {
+            continue;
+        }
+        let depth_bind_group = device.create_bind_group(
+            "native floatZ resolve",
+            &cache.get_bind_group_layout(&pipeline.depth_layouts[usize::from(multisampled)]),
+            &BindGroupEntries::single(depth_view),
+        );
+        let output_groups = views.map(|view| {
+            (
+                view.id(),
+                device.create_bind_group(
+                    "native encoded scene",
+                    &cache.get_bind_group_layout(&pipeline.output_layout),
+                    &BindGroupEntries::single(view),
+                ),
+            )
+        });
+        commands.entity(entity).insert(PreparedNativeFrame {
+            depth_source: depth_view.id(),
+            depth_target: image.texture_view.id(),
+            depth_bind_group,
+            depth_pipeline,
+            output_pipeline,
+            output_groups,
+        });
+    }
+}
+
+fn resolve_float_z(
+    view: ViewQuery<(&NativeDepthImage, &PreparedNativeFrame), With<NativeRenderView>>,
+    images: Res<RenderAssets<GpuImage>>,
+    cache: Res<PipelineCache>,
+    mut ctx: RenderContext,
+) {
+    let (float_z, prepared) = view.into_inner();
+    let (Some(image), Some(pipeline)) = (
+        images.get(float_z.0),
+        cache.get_render_pipeline(prepared.depth_pipeline),
+    ) else {
+        return;
+    };
+    let attachments = [Some(RenderPassColorAttachment {
+        view: &image.texture_view,
+        depth_slice: None,
+        resolve_target: None,
+        ops: Operations {
+            load: LoadOp::Clear(Default::default()),
+            store: StoreOp::Store,
+        },
+    })];
+    let mut pass = ctx
+        .command_encoder()
+        .begin_render_pass(&RenderPassDescriptor {
+            label: Some("T6 reciprocal-depth resolve"),
+            color_attachments: &attachments,
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+    pass.set_pipeline(pipeline);
+    pass.set_bind_group(0, &prepared.depth_bind_group, &[]);
+    pass.draw(0..3, 0..1);
+}
+
+fn output_scene(
+    view: ViewQuery<(&ViewTarget, &ExtractedCamera, &PreparedNativeFrame), With<NativeRenderView>>,
+    cache: Res<PipelineCache>,
+    mut ctx: RenderContext,
+) {
+    let (target, camera, prepared) = view.into_inner();
+    let Some(pipeline) = cache.get_render_pipeline(prepared.output_pipeline) else {
+        return;
+    };
+    let Some((_, bind_group)) = prepared
+        .output_groups
+        .iter()
+        .find(|(id, _)| *id == target.main_texture_view().id())
+    else {
+        return;
+    };
+    let Some(attachment) = target.out_texture_color_attachment(None) else {
+        return;
+    };
+    let attachments = [Some(attachment)];
+    let mut pass = ctx
+        .command_encoder()
+        .begin_render_pass(&RenderPassDescriptor {
+            label: Some("T6 encoded scene output"),
+            color_attachments: &attachments,
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+    if let Some(viewport) = &camera.viewport {
+        pass.set_scissor_rect(
+            viewport.physical_position.x,
+            viewport.physical_position.y,
+            viewport.physical_size.x,
+            viewport.physical_size.y,
+        );
+    }
+    pass.set_pipeline(pipeline);
+    pass.set_bind_group(0, bind_group, &[]);
+    pass.draw(0..3, 0..1);
+}

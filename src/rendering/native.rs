@@ -2,7 +2,7 @@
 use bevy::{
     asset::{RenderAssetUsages, embedded_asset, load_embedded_asset},
     camera::visibility::{self, VisibilityClass},
-    core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Opaque3d, Opaque3dBatchSetKey, Opaque3dBinKey},
+    core_pipeline::core_3d::{Opaque3d, Opaque3dBatchSetKey, Opaque3dBinKey},
     ecs::{
         query::{QueryItem, ROQueryItem},
         system::{SystemParamItem, lifetimeless::SRes},
@@ -49,10 +49,10 @@ pub struct NativeWorldGeometry {
     pub indices: Vec<u8>,
 }
 
-struct PreparedNativeGeometry {
-    primary: Buffer,
+pub(crate) struct PreparedNativeGeometry {
+    pub(crate) primary: Buffer,
     auxiliary: Option<Buffer>,
-    indices: Buffer,
+    pub(crate) indices: Buffer,
 }
 
 impl RenderAsset for PreparedNativeGeometry {
@@ -169,6 +169,13 @@ pub struct NativeWorldLayerTextures {
     pub normal_sampler: SamplerDescriptor<'static>,
 }
 
+#[derive(Clone)]
+pub struct NativeWorldColorLayerTextures {
+    pub base: NativeWorldTextures,
+    pub color_map: Handle<Image>,
+    pub color_sampler: SamplerDescriptor<'static>,
+}
+
 /// Diffuse-only LIT consumes no reflection probe or reflection coefficients.
 #[derive(Clone)]
 pub struct NativeWorldDiffuseTextures {
@@ -203,6 +210,9 @@ pub enum NativeWorldMaterial {
         specular_sampler: SamplerDescriptor<'static>,
     },
     GeometricSpecular(NativeWorldGeometricSpecularTextures),
+    ColorMultiply(NativeWorldColorLayerTextures),
+    ColorBlend(NativeWorldColorLayerTextures),
+    ColorAdd(NativeWorldColorLayerTextures),
     Layered {
         base: NativeWorldTextures,
         layer: NativeWorldLayerTextures,
@@ -224,6 +234,10 @@ pub enum NativeWorldMaterial {
 impl NativeWorldMaterial {
     pub(crate) fn images(&self) -> impl Iterator<Item = &Handle<Image>> {
         self.textures().map(|(_, image, _)| image)
+    }
+
+    pub(crate) fn auxiliary_stride(&self) -> Option<u64> {
+        self.family().auxiliary_stride()
     }
 
     /// The material's actual GPU inputs, with the same bindings used by the
@@ -271,6 +285,11 @@ impl NativeWorldMaterial {
                 None,
                 None,
             ],
+            Self::ColorMultiply(layer) | Self::ColorBlend(layer) | Self::ColorAdd(layer) => {
+                let mut bindings = base_bindings(&layer.base);
+                bindings[4] = Some((8, &layer.color_map, &layer.color_sampler));
+                bindings
+            }
             Self::Layered { base, layer } | Self::RevealLayered { base, layer, .. } => {
                 let mut bindings = base_bindings(base);
                 bindings[4] = Some((8, &layer.color_map, &layer.color_sampler));
@@ -300,6 +319,9 @@ impl NativeWorldMaterial {
             Self::Diffuse(_) => NativeWorldFamily::Diffuse,
             Self::NormalSpecular { .. } => NativeWorldFamily::NormalSpecular,
             Self::GeometricSpecular(_) => NativeWorldFamily::GeometricSpecular,
+            Self::ColorMultiply(_) => NativeWorldFamily::ColorMultiply,
+            Self::ColorBlend(_) => NativeWorldFamily::ColorBlend,
+            Self::ColorAdd(_) => NativeWorldFamily::ColorAdd,
             Self::Layered { .. } => NativeWorldFamily::Layered,
             Self::RevealLayered { .. } => NativeWorldFamily::RevealLayered,
             Self::RevealSpecularLayered { .. } => NativeWorldFamily::RevealSpecularLayered,
@@ -313,17 +335,21 @@ enum NativeWorldFamily {
     Diffuse,
     NormalSpecular,
     GeometricSpecular,
+    ColorMultiply,
+    ColorBlend,
+    ColorAdd,
     Layered,
     RevealLayered,
     RevealSpecularLayered,
 }
 
 impl NativeWorldFamily {
-    fn uses_auxiliary(self) -> bool {
-        matches!(
-            self,
-            Self::Layered | Self::RevealLayered | Self::RevealSpecularLayered
-        )
+    fn auxiliary_stride(self) -> Option<u64> {
+        match self {
+            Self::ColorMultiply | Self::ColorBlend | Self::ColorAdd => Some(4),
+            Self::Layered | Self::RevealLayered | Self::RevealSpecularLayered => Some(8),
+            _ => None,
+        }
     }
 }
 
@@ -408,17 +434,25 @@ impl Plugin for NativeWorldPlugin {
         load_shader_library!(app, "native_world.wesl");
         load_shader_library!(app, "native_world_layers.wesl");
         load_shader_library!(app, "native_world_plain.wesl");
+        load_shader_library!(app, "native_world_color_layers.wesl");
         embedded_asset!(app, "native_entry.wesl");
         embedded_asset!(app, "native_layer_entry.wesl");
         embedded_asset!(app, "native_plain_entry.wesl");
+        embedded_asset!(app, "native_color_layer_entry.wesl");
         let shader = load_embedded_asset!(app, "native_entry.wesl");
         let layer_shader = load_embedded_asset!(app, "native_layer_entry.wesl");
         let plain_shader = load_embedded_asset!(app, "native_plain_entry.wesl");
+        let color_layer_shader = load_embedded_asset!(app, "native_color_layer_entry.wesl");
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
         render_app
-            .insert_resource(NativePipeline::new(shader, layer_shader, plain_shader))
+            .insert_resource(NativePipeline::new(
+                shader,
+                layer_shader,
+                plain_shader,
+                color_layer_shader,
+            ))
             .insert_resource(GpuPreprocessingSupport {
                 max_supported_mode: GpuPreprocessingMode::None,
             })
@@ -441,11 +475,12 @@ struct NativePipeline {
     shader: Handle<Shader>,
     layer_shader: Handle<Shader>,
     plain_shader: Handle<Shader>,
+    color_layer_shader: Handle<Shader>,
     scene_layout: BindGroupLayoutDescriptor,
     object_layout: BindGroupLayoutDescriptor,
     material_layout: BindGroupLayoutDescriptor,
     diffuse_material_layout: BindGroupLayoutDescriptor,
-    normal_specular_material_layout: BindGroupLayoutDescriptor,
+    extra_texture_material_layout: BindGroupLayoutDescriptor,
     geometric_specular_material_layout: BindGroupLayoutDescriptor,
     layer_material_layout: BindGroupLayoutDescriptor,
     reveal_material_layout: BindGroupLayoutDescriptor,
@@ -457,6 +492,7 @@ impl NativePipeline {
         shader: Handle<Shader>,
         layer_shader: Handle<Shader>,
         plain_shader: Handle<Shader>,
+        color_layer_shader: Handle<Shader>,
     ) -> Self {
         let mut entries = BindGroupLayoutEntries::sequential(
             ShaderStages::FRAGMENT,
@@ -483,10 +519,8 @@ impl NativePipeline {
                 (9, sampler(SamplerBindingType::Filtering)),
             ),
         ));
-        let normal_specular_material_layout = BindGroupLayoutDescriptor::new(
-            "native normal specular world textures",
-            &specular_entries,
-        );
+        let extra_texture_material_layout =
+            BindGroupLayoutDescriptor::new("native world with extra texture", &specular_entries);
         // This source program has no normal texture. Keep its actual bindings
         // without allocating a replacement texture for the unused 2/3 slots.
         specular_entries.retain(|entry| entry.binding != 2 && entry.binding != 3);
@@ -531,6 +565,7 @@ impl NativePipeline {
             shader,
             layer_shader,
             plain_shader,
+            color_layer_shader,
             scene_layout: BindGroupLayoutDescriptor::new(
                 "native world scene",
                 &BindGroupLayoutEntries::single(
@@ -547,7 +582,7 @@ impl NativePipeline {
             ),
             material_layout,
             diffuse_material_layout,
-            normal_specular_material_layout,
+            extra_texture_material_layout,
             geometric_specular_material_layout,
             layer_material_layout,
             reveal_material_layout,
@@ -559,7 +594,10 @@ impl NativePipeline {
         match family {
             NativeWorldFamily::Lightmapped => &self.material_layout,
             NativeWorldFamily::Diffuse => &self.diffuse_material_layout,
-            NativeWorldFamily::NormalSpecular => &self.normal_specular_material_layout,
+            NativeWorldFamily::NormalSpecular
+            | NativeWorldFamily::ColorMultiply
+            | NativeWorldFamily::ColorBlend
+            | NativeWorldFamily::ColorAdd => &self.extra_texture_material_layout,
             NativeWorldFamily::GeometricSpecular => &self.geometric_specular_material_layout,
             NativeWorldFamily::Layered => &self.layer_material_layout,
             NativeWorldFamily::RevealLayered => &self.reveal_material_layout,
@@ -622,22 +660,23 @@ impl SpecializedRenderPipeline for NativePipeline {
                 .retain(|attribute| attribute.shader_location != 4);
         }
         let mut buffers = vec![vertex_layout];
-        if key.family.uses_auxiliary() {
+        if let Some(stride) = key.family.auxiliary_stride() {
+            let mut attributes = vec![VertexAttribute {
+                format: VertexFormat::Float16x2,
+                offset: 0,
+                shader_location: 6,
+            }];
+            if stride == 8 {
+                attributes.push(VertexAttribute {
+                    format: VertexFormat::Unorm8x4,
+                    offset: 4,
+                    shader_location: 7,
+                });
+            }
             buffers.push(VertexBufferLayout {
-                array_stride: 8,
+                array_stride: stride,
                 step_mode: VertexStepMode::Vertex,
-                attributes: vec![
-                    VertexAttribute {
-                        format: VertexFormat::Float16x2,
-                        offset: 0,
-                        shader_location: 6,
-                    },
-                    VertexAttribute {
-                        format: VertexFormat::Unorm8x4,
-                        offset: 4,
-                        shader_location: 7,
-                    },
-                ],
+                attributes,
             });
         }
         let (shader, vertex) = match key.family {
@@ -647,6 +686,9 @@ impl SpecializedRenderPipeline for NativePipeline {
             NativeWorldFamily::GeometricSpecular => {
                 (&self.plain_shader, "vertex_geometric_specular")
             }
+            NativeWorldFamily::ColorMultiply
+            | NativeWorldFamily::ColorBlend
+            | NativeWorldFamily::ColorAdd => (&self.color_layer_shader, "vertex"),
             NativeWorldFamily::Layered
             | NativeWorldFamily::RevealLayered
             | NativeWorldFamily::RevealSpecularLayered => (&self.layer_shader, "vertex"),
@@ -658,6 +700,12 @@ impl SpecializedRenderPipeline for NativePipeline {
             (NativeWorldFamily::NormalSpecular, true) => "fragment_specular_srgb",
             (NativeWorldFamily::GeometricSpecular, false) => "fragment_geometric_specular",
             (NativeWorldFamily::GeometricSpecular, true) => "fragment_geometric_specular_srgb",
+            (NativeWorldFamily::ColorMultiply, false) => "fragment_multiply",
+            (NativeWorldFamily::ColorMultiply, true) => "fragment_multiply_srgb",
+            (NativeWorldFamily::ColorBlend, false) => "fragment_blend",
+            (NativeWorldFamily::ColorBlend, true) => "fragment_blend_srgb",
+            (NativeWorldFamily::ColorAdd, false) => "fragment_add",
+            (NativeWorldFamily::ColorAdd, true) => "fragment_add_srgb",
             (NativeWorldFamily::RevealLayered, false) => "fragment_reveal",
             (NativeWorldFamily::RevealLayered, true) => "fragment_reveal_srgb",
             (NativeWorldFamily::RevealSpecularLayered, false) => "fragment_reveal_specular",
@@ -695,7 +743,7 @@ impl SpecializedRenderPipeline for NativePipeline {
                 ..default()
             },
             depth_stencil: Some(DepthStencilState {
-                format: CORE_3D_DEPTH_FORMAT,
+                format: super::frame::NATIVE_DEPTH_FORMAT,
                 depth_write_enabled: Some(key.state.depth_write),
                 depth_compare: Some(key.state.depth_compare),
                 stencil: default(),
@@ -957,7 +1005,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawNativeWorld {
         pass.set_bind_group(1, object_group, &[object.index()]);
         pass.set_bind_group(2, &material.bind_group, &[]);
         pass.set_vertex_buffer(0, geometry.primary.slice(surface.primary_byte_offset..));
-        if material.family.uses_auxiliary() {
+        if material.family.auxiliary_stride().is_some() {
             let auxiliary = geometry
                 .auxiliary
                 .as_ref()

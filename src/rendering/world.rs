@@ -34,6 +34,8 @@ struct Surface {
     lightmap_index: usize,
     reflection_probe_index: usize,
     bounds: [[f32; 3]; 2],
+    #[serde(skip)]
+    vertex_reach: u64,
 }
 
 #[derive(Deserialize)]
@@ -63,7 +65,7 @@ pub(crate) struct LoadedWorld {
 }
 
 impl WorldDrawDefinition {
-    pub(crate) fn load(self, root: &Path) -> LoadedWorld {
+    pub(crate) fn load(mut self, root: &Path) -> LoadedWorld {
         let read = |path: &str| {
             std::fs::read(root.join(path))
                 .unwrap_or_else(|error| panic!("Read original world stream {path}: {error}"))
@@ -75,7 +77,7 @@ impl WorldDrawDefinition {
         };
         assert_eq!(geometry.indices.len(), self.index_count * 2);
         let mut materials = BTreeMap::new();
-        for surface in &self.surfaces {
+        for surface in &mut self.surfaces {
             materials
                 .entry(surface.material_file.clone())
                 .or_insert_with(|| {
@@ -90,6 +92,7 @@ impl WorldDrawDefinition {
                 .map(|bytes| u16::from_le_bytes([bytes[0], bytes[1]]) as u64)
                 .max();
             if let Some(max_vertex) = max_vertex {
+                surface.vertex_reach = max_vertex + 1;
                 assert!(
                     surface.vertex_data_offset0 + (max_vertex + 1) * 36
                         <= geometry.primary.len() as u64,
@@ -228,6 +231,7 @@ impl LoadedWorld {
                 Name::new("Origins original world"),
             ))
             .id();
+        let auxiliary_len = self.geometry.auxiliary.len() as u64;
         let geometry = geometries.add(self.geometry);
         let frame = Transform::from_matrix(source_frame());
         let mut brush_owners = BTreeMap::new();
@@ -296,6 +300,18 @@ impl LoadedWorld {
                     surface.reflection_probe_index,
                 );
                 let (material, state) = &bound[&key];
+                if let Some(stride) = materials
+                    .get(material)
+                    .expect("bound original world material")
+                    .auxiliary_stride()
+                {
+                    assert!(
+                        surface.vertex_data_offset1 + surface.vertex_reach * stride
+                            <= auxiliary_len,
+                        "Original auxiliary vertex range for {}",
+                        surface.material
+                    );
+                }
                 let sh = &world.reflection_probes[surface.reflection_probe_index].lighting_sh;
                 commands.spawn((
                     ChildOf(owner),

@@ -13,8 +13,9 @@ use bevy::{
 use serde::Deserialize;
 
 use super::native::{
-    NativeWorldDiffuseTextures, NativeWorldGeometricSpecularTextures, NativeWorldLayerTextures,
-    NativeWorldMaterial, NativeWorldState, NativeWorldTextures,
+    NativeWorldColorLayerTextures, NativeWorldDiffuseTextures,
+    NativeWorldGeometricSpecularTextures, NativeWorldLayerTextures, NativeWorldMaterial,
+    NativeWorldState, NativeWorldTextures,
 };
 
 #[derive(Deserialize)]
@@ -112,6 +113,9 @@ impl MaterialDefinition {
                     | "wpc_lit_sm_r0c0n0_80fe30wz"
                     | "wpc_lit_sm_r0c0n0s0_1zzj1138"
                     | "wpc_lit_sm_r0c0s0_qfqz7850"
+                    | "lit_sm_r0c0n0x0_m1c1"
+                    | "lit_sm_r0c0n0x0_b1c1"
+                    | "lit_sm_r0c0n0x0_a1c1"
                     | "lit_sm_r0c0n0x0_b1c1n1"
                     | "lit_sm_r0c0n0x0_b1c1n1v1"
                     | "lit_sm_r0c0n0x0_b1c1n1s1v1"
@@ -185,6 +189,23 @@ impl MaterialDefinition {
                 ));
             }
             let (color_map, color_sampler) = self.texture(server, "colorMap1", "colorMap")?;
+            if matches!(
+                family,
+                "lit_sm_r0c0n0x0_m1c1" | "lit_sm_r0c0n0x0_b1c1" | "lit_sm_r0c0n0x0_a1c1"
+            ) {
+                let layer = NativeWorldColorLayerTextures {
+                    base,
+                    color_map,
+                    color_sampler,
+                };
+                let material = match family {
+                    "lit_sm_r0c0n0x0_m1c1" => NativeWorldMaterial::ColorMultiply(layer),
+                    "lit_sm_r0c0n0x0_b1c1" => NativeWorldMaterial::ColorBlend(layer),
+                    "lit_sm_r0c0n0x0_a1c1" => NativeWorldMaterial::ColorAdd(layer),
+                    _ => unreachable!("selected original color-layer family"),
+                };
+                return Ok((material, state));
+            }
             let (normal_map, normal_sampler) = self.texture(server, "normalMap1", "normalMap")?;
             let layer = NativeWorldLayerTextures {
                 color_map,
@@ -259,11 +280,14 @@ impl MaterialDefinition {
                 "Add this material's original stencil state to the native pipeline".to_owned(),
             );
         }
+        // Original D3D table00c5e228 translates the logical material depth
+        // states to [Always, Greater, Equal, GreaterEqual]. The native camera
+        // uses reverse Z and R's 00425750 clear sets depth to zero.
         let depth_compare = match state.depth_test.as_str() {
             "always" => CompareFunction::Always,
-            "less" => CompareFunction::Less,
+            "less" => CompareFunction::Greater,
             "equal" => CompareFunction::Equal,
-            "less_equal" => CompareFunction::LessEqual,
+            "less_equal" => CompareFunction::GreaterEqual,
             other => {
                 return Err(format!(
                     "Add original depthTest {other} to the native pipeline"

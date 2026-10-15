@@ -106,6 +106,11 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
             .build()
     });
     let mut app = App::new();
+    let mut render_settings = bevy::render::settings::WgpuSettings {
+        backends: Some(bevy::render::settings::Backends::VULKAN),
+        ..default()
+    };
+    render_settings.features |= bevy::render::settings::WgpuFeatures::DEPTH32FLOAT_STENCIL8;
     app.insert_resource(cinematics)
         .insert_resource(playback)
         .insert_resource(bevy::winit::WinitSettings::continuous());
@@ -126,10 +131,7 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
             )
             .set(bevy::render::RenderPlugin {
                 render_creation: bevy::render::settings::RenderCreation::Automatic(Box::new(
-                    bevy::render::settings::WgpuSettings {
-                        backends: Some(bevy::render::settings::Backends::VULKAN),
-                        ..default()
-                    },
+                    render_settings,
                 )),
                 ..default()
             })

@@ -3,7 +3,7 @@ use super::native::NativeWorldScene;
 use bevy::{
     asset::{RenderAssetUsages, embedded_asset, load_embedded_asset},
     camera::visibility::{self, VisibilityClass},
-    core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Transparent3d, TransparentSortingInfo3d},
+    core_pipeline::core_3d::{Transparent3d, TransparentSortingInfo3d},
     ecs::{
         query::{QueryItem, ROQueryItem},
         system::{SystemParamItem, lifetimeless::SRes},
@@ -110,9 +110,7 @@ pub struct NativeEffectTransform {
     pub world_rows: [Vec4; 4],
 }
 
-/// Preserve required source stencil operations for materials that use them.
-/// The stock Core3d depth-only attachment cannot execute these materials; they
-/// require a stencil-capable source pass before they can be submitted.
+/// Source stencil operations share the native scene's depth/stencil attachment.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NativeEffectStencil {
     pub front: StencilFaceState,
@@ -388,10 +386,6 @@ impl SpecializedRenderPipeline for EffectPipeline {
             !key.target.is_srgb(),
             "native zfeather requires encoded RGB blending in a non-sRGB main attachment"
         );
-        assert!(
-            key.state.stencil.is_none() || CORE_3D_DEPTH_FORMAT.has_stencil_aspect(),
-            "native zfeather stencil material requires a stencil-capable source pass"
-        );
         let stencil = key
             .state
             .stencil
@@ -463,9 +457,9 @@ impl SpecializedRenderPipeline for EffectPipeline {
                 ..default()
             },
             depth_stencil: Some(DepthStencilState {
-                format: CORE_3D_DEPTH_FORMAT,
+                format: super::frame::NATIVE_DEPTH_FORMAT,
                 depth_write_enabled: Some(false),
-                depth_compare: Some(CompareFunction::LessEqual),
+                depth_compare: Some(CompareFunction::GreaterEqual),
                 stencil,
                 bias: default(),
             }),

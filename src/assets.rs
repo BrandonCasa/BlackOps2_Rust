@@ -470,6 +470,10 @@ struct WorldMetadata {
     fog: crate::rendering::fog::WorldFogDefinition,
     #[serde(flatten)]
     draws: crate::rendering::world::WorldDrawDefinition,
+    #[serde(rename = "lightGridCoefficientsFile")]
+    light_grid_coefficients_file: String,
+    #[serde(rename = "lightGridCoefficientCount")]
+    light_grid_coefficient_count: usize,
 }
 #[derive(serde::Deserialize)]
 struct StaticProp {
@@ -534,6 +538,7 @@ struct DefinitionTask(
         StaticProps,
         crate::rendering::fog::WorldFogDefinition,
         crate::rendering::world::LoadedWorld,
+        crate::rendering::model_lighting::ModelLightingSource,
     )>,
 );
 
@@ -554,6 +559,7 @@ pub(crate) fn begin_load(
     }
     commands.remove_resource::<WorldBrushes>();
     commands.remove_resource::<crate::rendering::fog::WorldFogDefinition>();
+    commands.remove_resource::<crate::rendering::model_lighting::ModelLightingSource>();
     commands.remove_resource::<DefinitionTask>();
     let root = options.asset_root.clone();
     let task = bevy::tasks::IoTaskPool::get().spawn(async move {
@@ -567,6 +573,21 @@ pub(crate) fn begin_load(
             .unwrap_or_else(|error| panic!("Collision metadata {}: {error}", volumes.display()));
         let metadata: WorldMetadata = crate::origins::read(&root.join(&definition.world_metadata));
         metadata.fog.validate();
+        let coefficient_path = root.join(&metadata.light_grid_coefficients_file);
+        let coefficient_bytes = std::fs::read(&coefficient_path).unwrap_or_else(|error| {
+            panic!(
+                "Read original model lighting {}: {error}",
+                coefficient_path.display()
+            )
+        });
+        assert_eq!(
+            coefficient_bytes.len(),
+            metadata.light_grid_coefficient_count * 54,
+            "Original model-lighting coefficient count"
+        );
+        let lighting = crate::rendering::model_lighting::ModelLightingSource(std::sync::Arc::new(
+            crate::rendering::lighting::LightingCoefficients::from_bytes(&coefficient_bytes),
+        ));
         let mut props = Vec::new();
         for prop in metadata.static_models {
             let transform = prop.transform();
@@ -582,6 +603,7 @@ pub(crate) fn begin_load(
             props,
             metadata.fog,
             metadata.draws.load(&root),
+            lighting,
         )
     });
     commands.insert_resource(DefinitionTask(task));
@@ -601,9 +623,10 @@ fn poll_definition(
         return;
     };
     commands.remove_resource::<DefinitionTask>();
-    let (definition, brushes, props, fog, draws) = definition;
+    let (definition, brushes, props, fog, draws, lighting) = definition;
     commands.insert_resource(brushes);
     commands.insert_resource(fog);
+    commands.insert_resource(lighting);
     draws.spawn(
         &mut commands,
         &server,

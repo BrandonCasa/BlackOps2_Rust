@@ -1,9 +1,13 @@
 use crate::{GameState, assets::GameDefinition, player::Player};
 use bevy::prelude::*;
 pub(crate) mod fog;
+pub(crate) mod frame;
+pub(crate) mod lighting;
 pub(crate) mod material;
+pub(crate) mod model_lighting;
 pub mod native;
 pub(crate) mod native_effect;
+pub(crate) mod native_model;
 pub(crate) mod world;
 pub(crate) const BASE_FOV_DEGREES: f32 = 55.;
 #[derive(Component)]
@@ -11,29 +15,37 @@ pub struct GameCamera;
 pub struct GameRenderingPlugin;
 impl Plugin for GameRenderingPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins((native::NativeWorldPlugin, native_effect::NativeEffectPlugin))
-            .add_systems(Startup, setup)
-            .add_systems(Update, camera_follow)
-            .add_systems(
-                PostUpdate,
-                (source_camera_constants, world::object_constants)
-                    .after(bevy::camera::CameraUpdateSystems)
-                    .after(bevy::transform::TransformSystems::Propagate),
-            );
+        app.add_plugins((
+            frame::NativeFramePlugin,
+            native::NativeWorldPlugin,
+            native_effect::NativeEffectPlugin,
+            model_lighting::ModelLightingPlugin,
+            native_model::NativeModelPlugin,
+        ))
+        .add_systems(Startup, setup)
+        .add_systems(Update, camera_follow)
+        .add_systems(
+            PostUpdate,
+            (source_camera_constants, world::object_constants)
+                .after(bevy::camera::CameraUpdateSystems)
+                .after(bevy::transform::TransformSystems::Propagate),
+        );
     }
 }
 pub(crate) fn setup(mut commands: Commands) {
     commands.spawn((
         Camera3d {
-            depth_load_op: bevy::camera::Camera3dDepthLoadOp::Clear(1.),
+            depth_load_op: bevy::camera::Camera3dDepthLoadOp::Clear(0.),
             ..default()
         },
         fog::CameraFog::default(),
+        frame::NativeRenderView,
         GameCamera,
         bevy::camera::visibility::RenderLayers::from_layers(&[0, 1]),
         Projection::Perspective(PerspectiveProjection {
             fov: BASE_FOV_DEGREES.to_radians(),
-            near: 0.01,
+            // Native r_znear defaults to four inches (0041ad50 / 0074b550).
+            near: 4. * crate::assets::SOURCE_UNIT_METERS,
             ..default()
         }),
         Transform::from_xyz(0., 2., 0.),
@@ -63,10 +75,13 @@ fn source_camera_constants(
     for (entity, camera, transform, mut fog) in &mut cameras {
         let (_, rotation, eye) = transform.to_scale_rotation_translation();
         let projection = camera.clip_from_view() * Mat4::from_quat(rotation.inverse()) * basis;
-        let mut rows = std::array::from_fn(|i| projection.row(i));
-        // Bevy uses reversed Z. The recovered source states use LessEqual and
-        // clear depth 1, so reverse clip Z once at this projection boundary.
-        rows[2] = rows[3] - rows[2];
+        // Native 00425750 clears depth to zero. Its depth-state table maps the
+        // material's logical less/less_equal names to Greater/GreaterEqual.
+        // Keep Bevy's reverse-Z projection in the same source convention.
+        // Homogeneous clip W is also a source shader input: feathered particles
+        // use it as positive view depth in inches. Cancel the boundary's metre
+        // scale on every row, preserving NDC and the original clip-Z = zNear.
+        let rows = std::array::from_fn(|i| projection.row(i) / crate::assets::SOURCE_UNIT_METERS);
         let mut scene = native::NativeWorldScene {
             view_projection_rows: rows,
             fog_color: Vec4::ZERO,
