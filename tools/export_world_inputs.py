@@ -12,13 +12,30 @@ walk = backends.for_fastfile(str(zone)).walk(str(zone))
 walk.check()
 asset, = walk.by_type("gfxworld")
 world = asset.record
-surfaces, _, _ = gfxworld.convert(world)
+surfaces, _, indices = gfxworld.convert(world)
 data = gfxworld.manifest(asset, surfaces, world["draw.vertexCount"])
+
+# Original GPU formats already exist in wgpu. Keep the packed streams intact;
+# the generic shell exporter discards tangents and generated-material inputs.
+assets = root / "target/assets"
+for stream in (0, 1):
+    source = world[f"draw.vd{stream}.data"]
+    packed = bytes(source.bytes()) if source is not None else b""
+    assert len(packed) == world[f"draw.vertexDataSize{stream}"], f"World stream {stream} size"
+    name = f"{asset.name}.gfxworld_vd{stream}.bin"
+    destination = assets / name
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(packed)
+    data[f"vertexDataFile{stream}"] = name
+(assets / data["indexFile"]).write_bytes(indices)
 
 # Keep the source surface order: material alone is not a complete draw binding.
 for output, source in zip(data["surfaces"], world["dpvs.surfaces"], strict=True):
     output["reflectionProbeIndex"] = source["reflectionProbeIndex"]
     output["primaryLightIndex"] = source["primaryLightIndex"]
+    output["vertexDataOffset0"] = source["tris.vertexDataOffset0"]
+    output["vertexDataOffset1"] = source["tris.vertexDataOffset1"]
+    output["bounds"] = [list(source.unpack("<3f", f"bounds[{i}]")) for i in (0, 1)]
 data["reflectionProbes"] = [
     {
         "origin": list(probe.unpack("<3f", "origin")),
