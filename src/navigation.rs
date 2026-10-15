@@ -739,8 +739,7 @@ fn refresh(
                             let delta = nodes[to].point - nodes[from].point;
                             let ready = nodes[from].ready
                                 && nodes[to].ready
-                                && (native
-                                    || !matches!(source.traversal, Traversal::Walk)
+                                && (!matches!(source.traversal, Traversal::Walk)
                                     || walking_edge(
                                         &query,
                                         &slide,

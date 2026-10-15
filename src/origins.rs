@@ -184,9 +184,9 @@ impl GameDefinition {
 
     fn decode(bytes: &[u8]) -> Result<Self, ContentError> {
         let path = Path::new("game.json");
-        if bytes.len() > 32 * 1024 * 1024 {
+        if bytes.len() > 128 * 1024 * 1024 {
             return Err(ContentError::InvalidDefinition(
-                "Gameplay definition exceeds 32 MiB.".into(),
+                "Gameplay definition exceeds 128 MiB.".into(),
             ));
         }
         let header: serde_json::Value =
