@@ -68,7 +68,7 @@ pub(crate) fn bind(
             ));
         }
         let [x, y, z] = node.origin;
-        let position = [x / 39.37, z / 39.37, -y / 39.37];
+        let position = [x * 0.0254, z * 0.0254, -y * 0.0254];
         if position.iter().any(|value| !value.is_finite()) {
             return Err(format!(
                 "Native node {} has a nonfinite position",
@@ -98,7 +98,7 @@ pub(crate) fn bind(
                 from: ContentId(format!("node.native.{}", node.index)),
                 to: ContentId(format!("node.native.{}", link.target)),
                 traversal: Traversal::Walk,
-                cost: Some(link.distance / 39.37),
+                cost: Some(link.distance * 0.0254),
                 connection: previous.and_then(|value| value.connection.clone()),
                 blockers: previous.map_or_else(Vec::new, |value| value.blockers.clone()),
                 source_animation: None,
@@ -114,12 +114,13 @@ pub(crate) fn bind(
                     || native.end.index != link.target
                     || native.flags != link.flags
                     || native.disconnect_count != link.disconnect_count
-                    || (native.cost - link.distance / 39.37).abs() > 0.0001
+                    || (native.cost - link.distance * 0.0254).abs() > 0.0001
                 {
                     return Err(format!(
                         "Authored negotiation {id} disagrees with external native link"
                     ));
                 }
+                row.cost = Some(native.cost);
                 row.traversal = source.traversal;
                 row.source_animation = source.source_animation.clone();
                 row.negotiation = Some(native.clone());
@@ -195,7 +196,7 @@ pub(crate) fn derive_zones(
             continue;
         }
         let [x, y, z] = node.origin;
-        let position = Vec3::new(x, z, -y) / 39.37;
+        let position = Vec3::new(x, z, -y) * 0.0254;
         if !position.is_finite() {
             return Err(format!(
                 "Native node {} has nonfinite source coordinates",
