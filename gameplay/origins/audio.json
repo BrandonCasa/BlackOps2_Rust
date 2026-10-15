@@ -3061852,6 +3061852,30 @@
       "distance_min": 7.62,
       "distance": 25.4,
       "looping": false
+    },
+    {
+      "id": "sound.generator.capture",
+      "path": "sound/zmb/level/zm_tomb/zone/v2/ring_loop_v2.LL50.pc.snd.wav",
+      "volume": 0.05622941037251569,
+      "pitch": [
+        1.0,
+        1.0
+      ],
+      "distance_min": 7.62,
+      "distance": 19.05,
+      "looping": true
+    },
+    {
+      "id": "sound.generator.active",
+      "path": "sound/zmb/level/zm_tomb/zone/vat_loop.LL50.pc.snd.wav",
+      "volume": 0.008912359131385607,
+      "pitch": [
+        1.0,
+        1.0
+      ],
+      "distance_min": 5.08,
+      "distance": 12.7,
+      "looping": true
     }
   ],
   "sources": [
