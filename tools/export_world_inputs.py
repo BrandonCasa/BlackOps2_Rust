@@ -6,10 +6,11 @@ from pathlib import Path
 root, external, zone = map(Path, sys.argv[1:])
 sys.path.insert(0, str(external))
 from scripts.cod import backends
-from scripts.cod.t6.dumpers import gfxworld
+from scripts.cod.t6.dumpers import gfxworld, material
 
 walk = backends.for_fastfile(str(zone)).walk(str(zone))
 walk.check()
+material.write(walk, str(root / "target/assets"))
 asset, = walk.by_type("gfxworld")
 world = asset.record
 surfaces, _, indices = gfxworld.convert(world)
