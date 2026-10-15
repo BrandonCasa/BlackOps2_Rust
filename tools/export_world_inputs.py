@@ -7,6 +7,7 @@ root, external, zone = map(Path, sys.argv[1:])
 sys.path.insert(0, str(external))
 from scripts.cod import backends
 from scripts.cod.t6.dumpers import gfxworld, material
+from scripts.cod.materials import material_file_stem
 
 walk = backends.for_fastfile(str(zone)).walk(str(zone))
 walk.check()
@@ -32,6 +33,7 @@ for stream in (0, 1):
 
 # Keep the source surface order: material alone is not a complete draw binding.
 for output, source in zip(data["surfaces"], world["dpvs.surfaces"], strict=True):
+    output["materialFile"] = "materials/" + material_file_stem(output["material"]) + ".json"
     output["reflectionProbeIndex"] = source["reflectionProbeIndex"]
     output["primaryLightIndex"] = source["primaryLightIndex"]
     output["vertexDataOffset0"] = source["tris.vertexDataOffset0"]
@@ -46,6 +48,20 @@ data["reflectionProbes"] = [
     }
     for probe in world["draw.reflectionProbes"]
 ]
+
+# Static-model lighting uses placement-selected SH coefficients. The placement's
+# lightingSH/lightingHandle fields are runtime scratch, initialized on demand.
+coefficients = world["lightGrid.coeffs"]
+coefficient_bytes = bytes(coefficients.bytes()) if coefficients is not None else b""
+assert len(coefficient_bytes) == world["lightGrid.coeffCount"] * 54
+coefficient_name = f"{asset.name}.lightgrid_coeffs.bin"
+(assets / coefficient_name).write_bytes(coefficient_bytes)
+data["lightGridCoefficientsFile"] = coefficient_name
+data["lightGridCoefficientCount"] = world["lightGrid.coeffCount"]
+for output, source in zip(data["staticModels"], world["dpvs.smodelDrawInsts"], strict=True):
+    output["colorsIndex"] = source["colorsIndex"]
+    output["visibility"] = source["visibility"] & 255
+    output["reflectionProbeIndex"] = source["reflectionProbeIndex"] & 255
 
 
 def fog(record):

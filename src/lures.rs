@@ -9,7 +9,7 @@ use crate::{
 };
 use avian3d::prelude::*;
 use bevy::{prelude::*, world_serialization::WorldInstanceReady};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 #[derive(Clone, serde::Deserialize)]
 pub struct LureDefinition {
     pub range: f32,
@@ -57,12 +57,9 @@ impl LureRig {
         }
     }
 }
-#[derive(Resource, Default)]
-struct EquipmentMaterials(HashMap<AssetId<StandardMaterial>, Handle<StandardMaterial>>);
 pub fn install(app: &mut App) {
     app.init_resource::<Attractions>()
         .init_resource::<LureEvidence>()
-        .init_resource::<EquipmentMaterials>()
         .add_observer(ready)
         .add_systems(
             FixedUpdate,
@@ -189,36 +186,11 @@ fn assign(
     evidence.maximum_attached = evidence.maximum_attached.max(next.len());
     attractions.0 = next;
 }
-fn ready(
-    event: On<WorldInstanceReady>,
-    mut commands: Commands,
-    mut cache: ResMut<EquipmentMaterials>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    meshes: Query<&MeshMaterial3d<StandardMaterial>>,
-    mut rigs: Query<&mut LureRig>,
-    children: Query<&Children>,
-) {
+fn ready(event: On<WorldInstanceReady>, mut rigs: Query<&mut LureRig>) {
     let Ok(mut rig) = rigs.get_mut(event.entity) else {
         return;
     };
     rig.ready = true;
-    for entity in children.iter_descendants(event.entity) {
-        let Ok(material) = meshes.get(entity) else {
-            continue;
-        };
-        let handle = if let Some(handle) = cache.0.get(&material.0.id()) {
-            handle.clone()
-        } else {
-            let Some(source) = materials.get(&material.0) else {
-                continue;
-            };
-            let source = source.clone();
-            let handle = materials.add(source);
-            cache.0.insert(material.0.id(), handle.clone());
-            handle
-        };
-        commands.entity(entity).insert(MeshMaterial3d(handle));
-    }
 }
 fn animate(
     state: Res<State<GameState>>,

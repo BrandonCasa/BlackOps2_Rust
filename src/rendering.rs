@@ -1,19 +1,33 @@
 use crate::{GameState, assets::GameDefinition, player::Player};
 use bevy::prelude::*;
+pub(crate) mod fog;
+pub(crate) mod material;
+pub mod native;
+pub(crate) mod world;
 pub(crate) const BASE_FOV_DEGREES: f32 = 55.;
 #[derive(Component)]
 pub struct GameCamera;
 pub struct GameRenderingPlugin;
 impl Plugin for GameRenderingPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, setup)
-            .add_systems(Update, camera_follow);
+        app.add_plugins(native::NativeWorldPlugin)
+            .add_systems(Startup, setup)
+            .add_systems(Update, camera_follow)
+            .add_systems(
+                PostUpdate,
+                (source_camera_constants, world::object_constants)
+                    .after(bevy::camera::CameraUpdateSystems)
+                    .after(bevy::transform::TransformSystems::Propagate),
+            );
     }
 }
 pub(crate) fn setup(mut commands: Commands) {
     commands.spawn((
-        Camera3d::default(),
-        bevy::pbr::DistanceFog::default(),
+        Camera3d {
+            depth_load_op: bevy::camera::Camera3dDepthLoadOp::Clear(1.),
+            ..default()
+        },
+        fog::CameraFog::default(),
         GameCamera,
         bevy::camera::visibility::RenderLayers::from_layers(&[0, 1]),
         Projection::Perspective(PerspectiveProjection {
@@ -25,12 +39,53 @@ pub(crate) fn setup(mut commands: Commands) {
         bevy::audio::SpatialListener::new(0.2),
         Name::new("Origins camera"),
     ));
-    commands.spawn((
-        DirectionalLight::default(),
-        bevy::camera::visibility::RenderLayers::from_layers(&[0, 1]),
-        Transform::from_rotation(Quat::from_euler(EulerRot::XYZ, -0.8, -0.5, 0.)),
-        Name::new("Sunlight"),
-    ));
+}
+
+fn source_camera_constants(
+    mut commands: Commands,
+    world: Option<Res<fog::WorldFogDefinition>>,
+    weather: Res<crate::environment::weather::Weather>,
+    clock: Option<Res<crate::session::SessionClock>>,
+    time: Res<Time<Virtual>>,
+    mut cameras: Query<(Entity, &Camera, &GlobalTransform, &mut fog::CameraFog), With<GameCamera>>,
+) {
+    let (Some(world), Some(clock)) = (world, clock) else {
+        return;
+    };
+    let bank = match weather.presented {
+        crate::environment::weather::WeatherKind::Clear => 1,
+        crate::environment::weather::WeatherKind::Rain => 2,
+        crate::environment::weather::WeatherKind::Snow => 4,
+    };
+    // Native eye-relative inches -> Bevy eye-relative Y-up metres.
+    let basis = world::source_frame();
+    for (entity, camera, transform, mut fog) in &mut cameras {
+        let (_, rotation, eye) = transform.to_scale_rotation_translation();
+        let projection = camera.clip_from_view() * Mat4::from_quat(rotation.inverse()) * basis;
+        let mut rows = std::array::from_fn(|i| projection.row(i));
+        // Bevy uses reversed Z. The recovered source states use LessEqual and
+        // clear depth 1, so reverse clip Z once at this projection boundary.
+        rows[2] = rows[3] - rows[2];
+        let mut scene = native::NativeWorldScene {
+            view_projection_rows: rows,
+            fog_color: Vec4::ZERO,
+            fog_consts: Vec4::ZERO,
+            fog_consts2: Vec4::ZERO,
+            sun_fog_dir: Vec4::ZERO,
+            sun_fog_color: Vec4::ZERO,
+            sun_fog: Vec4::ZERO,
+            hdr_control0: Vec4::ZERO,
+        };
+        fog.write_scene(
+            &world,
+            Vec3::new(eye.x, -eye.z, eye.y) / crate::assets::SOURCE_UNIT_METERS,
+            bank,
+            clock.milliseconds(&time),
+            clock.is_changed() || world.is_changed(),
+            &mut scene,
+        );
+        commands.entity(entity).insert(scene);
+    }
 }
 fn camera_follow(
     players: Query<

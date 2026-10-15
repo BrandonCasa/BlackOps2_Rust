@@ -1,7 +1,4 @@
-use std::{
-    ffi::OsString,
-    path::PathBuf,
-};
+use std::{ffi::OsString, path::PathBuf};
 
 use avian3d::prelude::*;
 use bevy::{
@@ -83,9 +80,7 @@ impl LaunchOptions {
 
 pub use crate::origins::{GameDefinition, Tuning};
 #[derive(Component)]
-pub(crate) struct MapRoot {
-    collision: bool,
-}
+pub(crate) struct MapRoot;
 #[derive(Component)]
 pub struct WorldCollider;
 #[derive(Component, Clone, Copy)]
@@ -471,6 +466,10 @@ pub(crate) struct StaticPropRoot;
 struct WorldMetadata {
     #[serde(rename = "staticModels")]
     static_models: Vec<StaticProp>,
+    #[serde(flatten)]
+    fog: crate::rendering::fog::WorldFogDefinition,
+    #[serde(flatten)]
+    draws: crate::rendering::world::WorldDrawDefinition,
 }
 #[derive(serde::Deserialize)]
 struct StaticProp {
@@ -528,17 +527,33 @@ impl Plugin for GameAssetsPlugin {
 
 type StaticProps = Vec<(String, String, Transform)>;
 #[derive(Resource)]
-struct DefinitionTask(bevy::tasks::Task<(GameDefinition, WorldBrushes, StaticProps)>);
+struct DefinitionTask(
+    bevy::tasks::Task<(
+        GameDefinition,
+        WorldBrushes,
+        StaticProps,
+        crate::rendering::fog::WorldFogDefinition,
+        crate::rendering::world::LoadedWorld,
+    )>,
+);
 
 pub(crate) fn begin_load(
     mut commands: Commands,
     options: Res<LaunchOptions>,
-    roots: Query<Entity, Or<(With<MapRoot>, With<StaticPropRoot>)>>,
+    roots: Query<
+        Entity,
+        Or<(
+            With<MapRoot>,
+            With<StaticPropRoot>,
+            With<crate::rendering::world::NativeWorldRoot>,
+        )>,
+    >,
 ) {
     for root in &roots {
         commands.entity(root).despawn();
     }
     commands.remove_resource::<WorldBrushes>();
+    commands.remove_resource::<crate::rendering::fog::WorldFogDefinition>();
     commands.remove_resource::<DefinitionTask>();
     let root = options.asset_root.clone();
     let task = bevy::tasks::IoTaskPool::get().spawn(async move {
@@ -551,6 +566,7 @@ pub(crate) fn begin_load(
         let brushes = WorldBrushes::load(&bytes)
             .unwrap_or_else(|error| panic!("Collision metadata {}: {error}", volumes.display()));
         let metadata: WorldMetadata = crate::origins::read(&root.join(&definition.world_metadata));
+        metadata.fog.validate();
         let mut props = Vec::new();
         for prop in metadata.static_models {
             let transform = prop.transform();
@@ -560,7 +576,13 @@ pub(crate) fn begin_load(
             let path = format!("model_export/{}_lod0.glb", prop.model);
             props.push((path, prop.model, transform));
         }
-        (definition, brushes, props)
+        (
+            definition,
+            brushes,
+            props,
+            metadata.fog,
+            metadata.draws.load(&root),
+        )
     });
     commands.insert_resource(DefinitionTask(task));
 }
@@ -569,6 +591,8 @@ fn poll_definition(
     mut commands: Commands,
     pending: Option<ResMut<DefinitionTask>>,
     server: Res<AssetServer>,
+    mut geometries: ResMut<Assets<crate::rendering::native::NativeWorldGeometry>>,
+    mut materials: ResMut<Assets<crate::rendering::native::NativeWorldMaterial>>,
 ) {
     let Some(mut pending) = pending else {
         return;
@@ -577,40 +601,34 @@ fn poll_definition(
         return;
     };
     commands.remove_resource::<DefinitionTask>();
-    let (definition, brushes, props) = definition;
+    let (definition, brushes, props, fog, draws) = definition;
     commands.insert_resource(brushes);
-    for (path, collision) in std::iter::once((&definition.scene, false))
-        .chain(std::iter::once((&definition.collision_scene, true)))
-        .chain(
-            definition
-                .additional_scenes
-                .iter()
-                .map(|path| (path, false)),
-        )
-    {
-        let handle: Handle<WorldAsset> = server.load_builder()
-            .with_settings(move |settings: &mut bevy::gltf::GltfLoaderSettings| {
-                settings.load_animations = false;
-                settings.load_meshes = if collision {
-                    bevy::asset::RenderAssetUsages::MAIN_WORLD
-                } else {
-                    bevy::asset::RenderAssetUsages::RENDER_WORLD
-                };
-                settings.load_materials = bevy::asset::RenderAssetUsages::RENDER_WORLD;
-            }).load(path.clone());
-        commands.spawn((
-            WorldAssetRoot(handle.clone()),
-            MapRoot { collision },
-            Visibility::Hidden,
-        ));
-    }
+    commands.insert_resource(fog);
+    draws.spawn(
+        &mut commands,
+        &server,
+        &mut geometries,
+        &mut materials,
+        &definition,
+    );
+    let handle: Handle<WorldAsset> = server
+        .load_builder()
+        .with_settings(|settings: &mut bevy::gltf::GltfLoaderSettings| {
+            settings.load_animations = false;
+            settings.load_meshes = bevy::asset::RenderAssetUsages::MAIN_WORLD;
+            settings.load_materials = bevy::asset::RenderAssetUsages::empty();
+        })
+        .load(definition.collision_scene.clone());
+    commands.spawn((WorldAssetRoot(handle), MapRoot, Visibility::Hidden));
     for (path, model, transform) in props {
-        let handle: Handle<WorldAsset> = server.load_builder()
+        let handle: Handle<WorldAsset> = server
+            .load_builder()
             .with_settings(|settings: &mut bevy::gltf::GltfLoaderSettings| {
                 settings.load_animations = false;
                 settings.load_meshes = bevy::asset::RenderAssetUsages::RENDER_WORLD;
                 settings.load_materials = bevy::asset::RenderAssetUsages::RENDER_WORLD;
-            }).load(format!("{path}#Scene0"));
+            })
+            .load(format!("{path}#Scene0"));
         commands.spawn((
             WorldAssetRoot(handle),
             StaticPropRoot,
@@ -633,184 +651,132 @@ pub(crate) fn native_scene<'a>(game: &'a GameDefinition, model: &str) -> Option<
 
 fn scene_ready(
     event: On<WorldInstanceReady>,
-    roots: Query<&MapRoot>,
+    roots: Query<(), With<MapRoot>>,
     children: Query<&Children>,
     parents: Query<&ChildOf>,
     mesh_entities: Query<&Mesh3d>,
     extras: Query<&bevy::gltf::GltfExtras>,
-    definition: Res<GameDefinition>,
     meshes: Res<Assets<Mesh>>,
     mut commands: Commands,
 ) {
-    let Ok(root) = roots.get(event.entity) else {
+    let Ok(()) = roots.get(event.entity) else {
         return;
     };
     let mut colliders = 0;
-    if !root.collision {
-        let mut owners = std::collections::HashMap::new();
-        for entity in children.iter_descendants(event.entity) {
-            let Ok(extra) = extras.get(entity) else {
-                continue;
-            };
-            let Ok(metadata) = serde_json::from_str::<serde_json::Value>(&extra.value) else {
-                panic!("Invalid scene extras on {entity:?}");
-            };
-            let Some(part) = metadata["part"].as_str() else {
-                continue;
-            };
-            let Some(source) = definition.environment.brush_entities.iter().find(|source| {
-                source
-                    .source
-                    .get("model")
-                    .is_some_and(|model| model == part)
-            }) else {
-                panic!("Exported brush part {part} has no gameplay owner");
-            };
-            let owner = *owners.entry(part.to_owned()).or_insert_with(|| {
-                let owner = commands
-                    .spawn((
-                        ChildOf(event.entity),
-                        source.transform(),
-                        Visibility::default(),
-                        Name::new(source.id.clone()),
-                    ))
-                    .id();
-                crate::environment::brushes::bind(
-                    &mut commands,
-                    owner,
-                    source,
-                    source.visual_meshes,
-                    definition
-                        .environment
-                        .ownership
-                        .iter()
-                        .find(|item| item.id == source.id),
-                );
-                owner
-            });
-            // External parts are already placed in world coordinates. Keep that
-            // placement while giving gameplay an ordinary movable scene pivot.
-            commands.entity(entity).insert(Transform::from_matrix(
-                source.transform().to_matrix().inverse(),
-            ));
-            commands.entity(owner).add_child(entity);
-        }
-    } else {
-        for entity in children.iter_descendants(event.entity) {
-            let Ok(mesh) = mesh_entities.get(entity) else {
-                continue;
-            };
-            let mut ancestor = entity;
-            let metadata = loop {
-                if let Ok(extra) = extras.get(ancestor) {
-                    match serde_json::from_str::<serde_json::Value>(&extra.value) {
-                        Ok(value) if value.get("group").is_some() => break Some(value),
-                        Err(error) => {
-                            panic!("Invalid collision extras on {ancestor:?}: {error}");
-                        }
-                        _ => {}
+    for entity in children.iter_descendants(event.entity) {
+        let Ok(mesh) = mesh_entities.get(entity) else {
+            continue;
+        };
+        let mut ancestor = entity;
+        let metadata = loop {
+            if let Ok(extra) = extras.get(ancestor) {
+                match serde_json::from_str::<serde_json::Value>(&extra.value) {
+                    Ok(value) if value.get("group").is_some() => break Some(value),
+                    Err(error) => {
+                        panic!("Invalid collision extras on {ancestor:?}: {error}");
                     }
+                    _ => {}
                 }
-                let Ok(parent) = parents.get(ancestor) else {
-                    break None;
-                };
-                ancestor = parent.parent();
-                if ancestor == event.entity {
-                    break None;
-                }
-            };
-            let Some(metadata) = metadata else {
-                panic!("Collision mesh {entity:?} has no exported group metadata");
-            };
-            if metadata.get("part").is_some() {
-                // The visible part's gameplay owner supplies its moving collider.
-                continue;
             }
-            let contents = metadata["contents"]
-                .as_str()
-                .and_then(|bits| u32::from_str_radix(bits.trim_start_matches("0x"), 16).ok())
-                .or_else(|| {
-                    metadata["contents"]
-                        .as_u64()
-                        .and_then(|bits| u32::try_from(bits).ok())
-                })
-                .or_else(|| (metadata["group"] == "soup").then_some(1));
-            let Some(contents) = contents else {
-                panic!(
-                    "Collision group {:?} has no source contents",
-                    metadata["group"]
-                );
+            let Ok(parent) = parents.get(ancestor) else {
+                break None;
             };
-            let groups = match meshes
-                .get(&mesh.0)
-                .ok_or_else(|| "Required collision mesh asset is missing".to_owned())
-                .and_then(world_surface_colliders)
-            {
-                Ok(groups) => groups,
-                Err(error) => {
-                    panic!("Collision mesh {:?}: {error}", mesh.0.path());
-                }
-            };
-            let source_flags = match metadata.get("surface_flags") {
-                None => 0,
-                Some(value) => match value
+            ancestor = parent.parent();
+            if ancestor == event.entity {
+                break None;
+            }
+        };
+        let Some(metadata) = metadata else {
+            panic!("Collision mesh {entity:?} has no exported group metadata");
+        };
+        if metadata.get("part").is_some() {
+            // The visible part's gameplay owner supplies its moving collider.
+            continue;
+        }
+        let contents = metadata["contents"]
+            .as_str()
+            .and_then(|bits| u32::from_str_radix(bits.trim_start_matches("0x"), 16).ok())
+            .or_else(|| {
+                metadata["contents"]
                     .as_u64()
                     .and_then(|bits| u32::try_from(bits).ok())
-                    .or_else(|| {
-                        value.as_str().and_then(|bits| {
-                            u32::from_str_radix(bits.trim_start_matches("0x"), 16).ok()
-                        })
-                    }) {
-                    Some(bits) => bits,
-                    None => {
-                        panic!(
-                            "Collision mesh {:?} has invalid exported surface_flags",
-                            mesh.0.path()
-                        );
-                    }
-                },
-            };
-            if let Some(error) = groups
-                .iter()
-                .find_map(|(surface, _)| native_surface_type(*surface).err())
-            {
-                panic!("{}", error);
+            })
+            .or_else(|| (metadata["group"] == "soup").then_some(1));
+        let Some(contents) = contents else {
+            panic!(
+                "Collision group {:?} has no source contents",
+                metadata["group"]
+            );
+        };
+        let groups = match meshes
+            .get(&mesh.0)
+            .ok_or_else(|| "Required collision mesh asset is missing".to_owned())
+            .and_then(world_surface_colliders)
+        {
+            Ok(groups) => groups,
+            Err(error) => {
+                panic!("Collision mesh {:?}: {error}", mesh.0.path());
             }
-            // Keep the original mesh as the scene pivot; its children contain
-            // disjoint original triangle groups, so there is no duplicate collider.
-            commands.entity(entity).remove::<(
-                Collider,
-                RigidBody,
-                WorldCollider,
-                WorldContents,
-                WorldTerrain,
-                CollisionLayers,
-            )>();
-            for (surface, collider) in groups {
-                let mut child = commands.spawn((
-                    ChildOf(entity),
-                    Transform::default(),
-                    Visibility::default(),
-                    Name::new(format!("Collision surface {}", ENGINE_SURFACES[surface])),
-                    RigidBody::Static,
-                    collider,
-                    WorldCollider,
-                    WorldContents(contents),
-                    world_collision_layers(contents),
-                    crate::audio::SurfaceSound(ENGINE_SURFACES[surface].to_owned()),
-                    crate::movement::physics::SurfaceFlags(
-                        (source_flags & !(0x3f << 20))
-                            | (native_surface_type(surface).expect("surface type validated") << 20),
-                    ),
-                ));
-                if metadata["group"] == "soup" {
-                    child.insert(WorldTerrain);
+        };
+        let source_flags = match metadata.get("surface_flags") {
+            None => 0,
+            Some(value) => match value
+                .as_u64()
+                .and_then(|bits| u32::try_from(bits).ok())
+                .or_else(|| {
+                    value.as_str().and_then(|bits| {
+                        u32::from_str_radix(bits.trim_start_matches("0x"), 16).ok()
+                    })
+                }) {
+                Some(bits) => bits,
+                None => {
+                    panic!(
+                        "Collision mesh {:?} has invalid exported surface_flags",
+                        mesh.0.path()
+                    );
                 }
-                colliders += 1;
+            },
+        };
+        if let Some(error) = groups
+            .iter()
+            .find_map(|(surface, _)| native_surface_type(*surface).err())
+        {
+            panic!("{}", error);
+        }
+        // Keep the original mesh as the scene pivot; its children contain
+        // disjoint original triangle groups, so there is no duplicate collider.
+        commands.entity(entity).remove::<(
+            Collider,
+            RigidBody,
+            WorldCollider,
+            WorldContents,
+            WorldTerrain,
+            CollisionLayers,
+        )>();
+        for (surface, collider) in groups {
+            let mut child = commands.spawn((
+                ChildOf(entity),
+                Transform::default(),
+                Visibility::default(),
+                Name::new(format!("Collision surface {}", ENGINE_SURFACES[surface])),
+                RigidBody::Static,
+                collider,
+                WorldCollider,
+                WorldContents(contents),
+                world_collision_layers(contents),
+                crate::audio::SurfaceSound(ENGINE_SURFACES[surface].to_owned()),
+                crate::movement::physics::SurfaceFlags(
+                    (source_flags & !(0x3f << 20))
+                        | (native_surface_type(surface).expect("surface type validated") << 20),
+                ),
+            ));
+            if metadata["group"] == "soup" {
+                child.insert(WorldTerrain);
             }
+            colliders += 1;
         }
     }
-    if root.collision && colliders == 0 {
+    if colliders == 0 {
         panic!("Required collision scene contains no usable collision meshes");
     }
 }
@@ -834,9 +800,14 @@ fn finish_load(
     >,
     spawner: Res<WorldInstanceSpawner>,
     server: Res<AssetServer>,
+    native_worlds: Query<(Entity, &crate::rendering::world::NativeWorldRoot)>,
     mut next: ResMut<NextState<GameState>>,
 ) {
     if roots.is_empty()
+        || native_worlds.is_empty()
+        || native_worlds
+            .iter()
+            .any(|(_, world)| !world.images_ready(&server))
         || roots.iter().any(|(_, scene, instance, _)| {
             !instance.is_some_and(|instance| spawner.instance_is_ready(**instance))
                 || !server.is_loaded_with_dependencies(scene.0.id())
@@ -845,9 +816,12 @@ fn finish_load(
         return;
     }
     for (entity, _, _, root) in &roots {
-        if !root.is_some_and(|root| root.collision) {
+        if root.is_none() {
             commands.entity(entity).insert(Visibility::Inherited);
         }
+    }
+    for (entity, _) in &native_worlds {
+        commands.entity(entity).insert(Visibility::Inherited);
     }
     next.set(GameState::StartingSession);
 }

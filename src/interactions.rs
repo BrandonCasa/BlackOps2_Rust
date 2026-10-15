@@ -10,8 +10,6 @@ use crate::{
 };
 use avian3d::prelude::*;
 use bevy::prelude::*;
-use bevy::world_serialization::WorldInstanceReady;
-use std::collections::HashMap;
 
 #[derive(Component)]
 pub struct Usable {
@@ -48,12 +46,9 @@ pub enum InteractionRejection {
     Duplicate,
 }
 pub struct InteractionPlugin;
-#[derive(Resource, Default)]
-struct WallMaterials(HashMap<AssetId<StandardMaterial>, Handle<StandardMaterial>>);
 impl Plugin for InteractionPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<InteractionFocus>()
-            .init_resource::<WallMaterials>()
             .add_systems(
                 OnEnter(GameState::StartingSession),
                 assemble.in_set(crate::session::SessionSetup::World),
@@ -66,7 +61,6 @@ impl Plugin for InteractionPlugin {
                     .before(GameStep::Rewards)
                     .run_if(in_state(GameState::Playing)),
             )
-            .add_observer(wall_ready)
             .add_systems(
                 FixedUpdate,
                 interact
@@ -224,43 +218,6 @@ fn assemble(
                     crate::presentation::camo::WeaponMaterialContext(weapon.clone()),
                 ));
             }
-        }
-    }
-}
-fn wall_ready(
-    event: On<WorldInstanceReady>,
-    mut commands: Commands,
-    walls: Query<
-        (),
-        Or<(
-            With<Usable>,
-            With<crate::access::DoorProp>,
-            With<crate::barriers::BoardVisual>,
-            With<crate::generators::GeneratorVisual>,
-        )>,
-    >,
-    children: Query<&Children>,
-    meshes: Query<&MeshMaterial3d<StandardMaterial>, With<Mesh3d>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut cache: ResMut<WallMaterials>,
-) {
-    if !walls.contains(event.entity) {
-        return;
-    }
-    for entity in children.iter_descendants(event.entity) {
-        if let Ok(material) = meshes.get(entity) {
-            let handle = if let Some(handle) = cache.0.get(&material.0.id()) {
-                handle.clone()
-            } else {
-                let Some(source) = materials.get(&material.0) else {
-                    continue;
-                };
-                let source = source.clone();
-                let handle = materials.add(source);
-                cache.0.insert(material.0.id(), handle.clone());
-                handle
-            };
-            commands.entity(entity).insert(MeshMaterial3d(handle));
         }
     }
 }
