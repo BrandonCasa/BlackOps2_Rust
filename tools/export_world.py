@@ -3,6 +3,7 @@ import os
 import json
 import shutil
 import sys
+import subprocess
 from pathlib import Path
 root = Path(sys.argv[1])
 sys.path.insert(0, sys.argv[2])
@@ -40,6 +41,8 @@ print("Material bindings", len(mapped), "of", len(used), "source textures missin
 if missing:
     raise SystemExit("Required world source images are missing: " + ", ".join(missing))
 shell.export_shell(str(manifest_path), str(root / "target/assets/world.glb"), str(root / "target/assets/decals.glb"), str(textures), mapped, bounddecal, bounddrop, boundstates, placements, lightmap_uv=None)
+subprocess.run(["node", str(root / "tools/compact_world.mjs"),
+                str(root / "target/assets/world.glb"), str(root / "target/assets/decals.glb")], check=True)
 print("DONE no baking; missing source images", missing, flush=True)
 
 # Existing upstream hull exporter returns local Y-up metre vertices without placement.
