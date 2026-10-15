@@ -232,7 +232,10 @@ struct Particle {
 pub(crate) struct NativeFxPlugin;
 impl Plugin for NativeFxPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(OnEnter(GameState::Loading), load_catalog);
+        app.add_systems(
+            OnEnter(GameState::Loading),
+            load_catalog.after(crate::assets::begin_load),
+        );
         app.add_systems(
             Update,
             (follow_source_attachments, spawn, animate)
@@ -252,6 +255,9 @@ fn load_catalog(
                 || catalog
                     .random_table
                     .iter()
+                    // Channels -6..23 and native seeds 0..478 address 0..507.
+                    // The exported tail includes adjacent non-random constants.
+                    .take(508)
                     .any(|value| !value.is_finite() || !(0. ..=1.).contains(value))
             {
                 fail(
@@ -318,6 +324,7 @@ fn integer_range(range: Range, catalog: &Catalog, seed: u64, offset: i32) -> f32
 }
 
 fn fail(failure: &mut LoadFailure, next: &mut NextState<GameState>, text: String) {
+    error!("Unable to load Origins: {text}");
     failure.0 = text;
     next.set(GameState::LoadError);
 }

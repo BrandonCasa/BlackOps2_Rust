@@ -117,7 +117,7 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
     let flythrough = options.flythrough;
     app.insert_resource(options);
     let default_plugins = DefaultPlugins.build();
-    #[cfg(not(debug_assertions))]
+    #[cfg(all(not(debug_assertions), not(feature = "dev-tools")))]
     let default_plugins = default_plugins.disable::<bevy::log::LogPlugin>();
     app.add_plugins(
         default_plugins
