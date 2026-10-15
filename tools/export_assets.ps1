@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([switch]$SkipOat)
+param([switch]$SkipOat, [switch]$GameplayOnly)
 $ErrorActionPreference = 'Stop'
 $checkout = Split-Path $PSScriptRoot -Parent
 $steam = Join-Path ${env:ProgramFiles(x86)} 'Steam/steamapps/common/Call of Duty Black Ops II'
@@ -16,6 +16,7 @@ if (!(Test-Path -LiteralPath (Join-Path $zone 'zm_tomb.ff'))) { throw 'Authorize
 $authoredGame = Join-Path $checkout 'gameplay/origins/game.json'
 if (!(Test-Path -LiteralPath $authoredGame)) { throw 'Tracked game-owned gameplay/origins/game.json is missing.' }
 Copy-Item -LiteralPath $authoredGame -Destination (Join-Path $assets 'game.json') -Force
+if ($GameplayOnly) { return }
 
 
 # Unmodified, pinned upstream tools; all downloads and private dependencies stay in target.
