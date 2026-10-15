@@ -7,11 +7,10 @@ from pathlib import Path
 import subprocess
 import traceback
 
-from test_support import Client, write_report
+from test_support import Client, capture, wait_for_slot, write_report
 from test_atmosphere import observe, settled
 from test_brp import require
-from test_lantern_shadows import wait_for_slot
-from test_weapon_materials import capture, wait_materials
+from test_weapon_materials import wait_materials
 
 
 def main():

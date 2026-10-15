@@ -41,10 +41,6 @@ pub(super) fn lookup(family: &str) -> Option<CharacterRecipe> {
 }
 
 impl CharacterRecipe {
-    pub(super) fn index(self) -> usize {
-        4
-    }
-
     fn canopy(self) -> bool {
         matches!(self, Self::Canopy | Self::CanopyShadow | Self::CanopyBlend)
     }
@@ -91,120 +87,87 @@ impl CharacterRecipe {
     }
 
     fn programs(self, sun: bool) -> (&'static str, &'static str) {
-        match (self, sun) {
-            (Self::ClothRevealEmissive, false) => (
-                "pimp_shader_sw4_3d_phong_emissive_alcatraz_b7d697d7.hlsl",
-                "pimp_shader_sw4_3d_char_cloth_reveal2_emissive_b6a2f4cb.hlsl",
-            ),
-            (Self::ClothRevealEmissive, true) => (
-                "pimp_shader_sw4_3d_phong_emissive_alcatraz_7c70ecc.hlsl",
-                "pimp_shader_sw4_3d_char_cloth_reveal2_emissive_e4428e9e.hlsl",
-            ),
-            (Self::ClothRevealEmissiveMask, false) => (
-                "pimp_shader_sw4_3d_phong_emissive_alcatraz_b7d697d7.hlsl",
-                "pimp_shader_sw4_3d_char_cloth_reveal2_emissive_ae63e624.hlsl",
-            ),
-            (Self::ClothRevealEmissiveMask, true) => (
-                "pimp_shader_sw4_3d_phong_emissive_alcatraz_7c70ecc.hlsl",
-                "pimp_shader_sw4_3d_char_cloth_reveal2_emissive_fc839c71.hlsl",
-            ),
-            (Self::SkinMask, false) => (
-                "pimp_shader_sw4_3d_phong_emissive_alcatraz_b7d697d7.hlsl",
-                "pimp_shader_sw4_3d_char_skin_bfafae7f.hlsl",
-            ),
-            (Self::SkinMask, true) => (
-                "pimp_shader_sw4_3d_phong_emissive_alcatraz_7c70ecc.hlsl",
-                "pimp_shader_sw4_3d_char_skin_1399c375.hlsl",
-            ),
-            (Self::Hair, false) => (
-                "pimp_shader_sw4_3d_phong_emissive_alcatraz_b7d697d7.hlsl",
-                "pimp_shader_sw4_3d_char_hair_910a9f03.hlsl",
-            ),
-            (Self::Hair, true) => (
-                "pimp_shader_sw4_3d_phong_emissive_alcatraz_7c70ecc.hlsl",
-                "pimp_shader_sw4_3d_char_hair_3d3cf209.hlsl",
-            ),
-            (Self::ClothReveal, false) => (
-                "pimp_shader_sw4_3d_phong_emissive_alcatraz_b7d697d7.hlsl",
-                "pimp_shader_sw4_3d_char_cloth_reveal2_35345000.hlsl",
-            ),
-            (Self::ClothReveal, true) => (
-                "pimp_shader_sw4_3d_phong_emissive_alcatraz_7c70ecc.hlsl",
-                "pimp_shader_sw4_3d_char_cloth_reveal2_4e992e09.hlsl",
-            ),
-            (Self::ClothRevealMask, false) => (
-                "pimp_shader_sw4_3d_phong_emissive_alcatraz_b7d697d7.hlsl",
-                "pimp_shader_sw4_3d_char_cloth_reveal2_e0e8d5d3.hlsl",
-            ),
-            (Self::ClothRevealMask, true) => (
-                "pimp_shader_sw4_3d_phong_emissive_alcatraz_7c70ecc.hlsl",
-                "pimp_shader_sw4_3d_char_cloth_reveal2_9b45abda.hlsl",
-            ),
-            (Self::Cloth, false) => (
-                "pimp_shader_sw4_3d_phong_emissive_alcatraz_b7d697d7.hlsl",
-                "pimp_shader_sw4_3d_char_cloth_49ec0efa.hlsl",
-            ),
-            (Self::Cloth, true) => (
-                "pimp_shader_sw4_3d_phong_emissive_alcatraz_7c70ecc.hlsl",
-                "pimp_shader_sw4_3d_char_cloth_a995d189.hlsl",
-            ),
-            (Self::Skin, false) => (
-                "pimp_shader_sw4_3d_phong_emissive_alcatraz_b7d697d7.hlsl",
-                "pimp_shader_sw4_3d_char_skin_7f1d600.hlsl",
-            ),
-            (Self::Skin, true) => (
-                "pimp_shader_sw4_3d_phong_emissive_alcatraz_7c70ecc.hlsl",
-                "pimp_shader_sw4_3d_char_skin_abc7bb0a.hlsl",
-            ),
-            (Self::Cornea, false) => (
+        let vertex = match self {
+            Self::Cornea => [
                 "pimp_shader_sw4_3d_char_eye_cornea_bac46018.hlsl",
-                "pimp_shader_sw4_3d_char_eye_cornea_566a2eb6.hlsl",
-            ),
-            (Self::Cornea, true) => (
                 "pimp_shader_sw4_3d_char_eye_cornea_7b908494.hlsl",
-                "pimp_shader_sw4_3d_char_eye_cornea_9371bd55.hlsl",
-            ),
-            (Self::Optic, false) => (
+            ],
+            Self::Optic | Self::Transparent => [
                 "pimp_shader_sw4_3d_viewmodel_transparent_1a1ccc66.hlsl",
-                "pimp_shader_sw4_3d_optic_lens_9511e3ca.hlsl",
-            ),
-            (Self::Optic, true) => (
                 "pimp_shader_sw4_3d_viewmodel_transparent_7a381d58.hlsl",
-                "pimp_shader_sw4_3d_optic_lens_75683cb9.hlsl",
-            ),
-            (Self::Transparent, false) => (
-                "pimp_shader_sw4_3d_viewmodel_transparent_1a1ccc66.hlsl",
-                "pimp_shader_sw4_3d_viewmodel_transparent_d3851d22.hlsl",
-            ),
-            (Self::Transparent, true) => (
-                "pimp_shader_sw4_3d_viewmodel_transparent_7a381d58.hlsl",
-                "pimp_shader_sw4_3d_viewmodel_transparent_c58fadfb.hlsl",
-            ),
-            (Self::Canopy, false) => (
+            ],
+            Self::Canopy => [
                 "pimp_shader_treecanopy_b6c201c.hlsl",
-                "pimp_shader_treecanopy_ccc7fb2e.hlsl",
-            ),
-            (Self::Canopy, true) => (
                 "pimp_shader_treecanopy_510833f2.hlsl",
-                "pimp_shader_treecanopy_ccc7fb2e.hlsl",
-            ),
-            (Self::CanopyShadow, false) => (
+            ],
+            Self::CanopyShadow | Self::CanopyBlend => [
                 "pimp_shader_treecanopy_b6c201c.hlsl",
-                "pimp_shader_treecanopy_ccc7fb2e.hlsl",
-            ),
-            (Self::CanopyShadow, true) => (
                 "pimp_shader_treecanopy_f01e2cc8.hlsl",
+            ],
+            _ => [
+                "pimp_shader_sw4_3d_phong_emissive_alcatraz_b7d697d7.hlsl",
+                "pimp_shader_sw4_3d_phong_emissive_alcatraz_7c70ecc.hlsl",
+            ],
+        }[sun as usize];
+        let pixel = match self {
+            Self::ClothRevealEmissive => [
+                "pimp_shader_sw4_3d_char_cloth_reveal2_emissive_b6a2f4cb.hlsl",
+                "pimp_shader_sw4_3d_char_cloth_reveal2_emissive_e4428e9e.hlsl",
+            ],
+            Self::ClothRevealEmissiveMask => [
+                "pimp_shader_sw4_3d_char_cloth_reveal2_emissive_ae63e624.hlsl",
+                "pimp_shader_sw4_3d_char_cloth_reveal2_emissive_fc839c71.hlsl",
+            ],
+            Self::SkinMask => [
+                "pimp_shader_sw4_3d_char_skin_bfafae7f.hlsl",
+                "pimp_shader_sw4_3d_char_skin_1399c375.hlsl",
+            ],
+            Self::Hair => [
+                "pimp_shader_sw4_3d_char_hair_910a9f03.hlsl",
+                "pimp_shader_sw4_3d_char_hair_3d3cf209.hlsl",
+            ],
+            Self::ClothReveal => [
+                "pimp_shader_sw4_3d_char_cloth_reveal2_35345000.hlsl",
+                "pimp_shader_sw4_3d_char_cloth_reveal2_4e992e09.hlsl",
+            ],
+            Self::ClothRevealMask => [
+                "pimp_shader_sw4_3d_char_cloth_reveal2_e0e8d5d3.hlsl",
+                "pimp_shader_sw4_3d_char_cloth_reveal2_9b45abda.hlsl",
+            ],
+            Self::Cloth => [
+                "pimp_shader_sw4_3d_char_cloth_49ec0efa.hlsl",
+                "pimp_shader_sw4_3d_char_cloth_a995d189.hlsl",
+            ],
+            Self::Skin => [
+                "pimp_shader_sw4_3d_char_skin_7f1d600.hlsl",
+                "pimp_shader_sw4_3d_char_skin_abc7bb0a.hlsl",
+            ],
+            Self::Cornea => [
+                "pimp_shader_sw4_3d_char_eye_cornea_566a2eb6.hlsl",
+                "pimp_shader_sw4_3d_char_eye_cornea_9371bd55.hlsl",
+            ],
+            Self::Optic => [
+                "pimp_shader_sw4_3d_optic_lens_9511e3ca.hlsl",
+                "pimp_shader_sw4_3d_optic_lens_75683cb9.hlsl",
+            ],
+            Self::Transparent => [
+                "pimp_shader_sw4_3d_viewmodel_transparent_d3851d22.hlsl",
+                "pimp_shader_sw4_3d_viewmodel_transparent_c58fadfb.hlsl",
+            ],
+            Self::Canopy => [
+                "pimp_shader_treecanopy_ccc7fb2e.hlsl",
+                "pimp_shader_treecanopy_ccc7fb2e.hlsl",
+            ],
+            Self::CanopyShadow => [
+                "pimp_shader_treecanopy_ccc7fb2e.hlsl",
                 "pimp_shader_treecanopy_37b5f7fa.hlsl",
-            ),
-            (Self::CanopyBlend, false) => (
-                "pimp_shader_treecanopy_b6c201c.hlsl",
+            ],
+            Self::CanopyBlend => [
                 "pimp_shader_treecanopy_d0a663d0.hlsl",
-            ),
-            (Self::CanopyBlend, true) => (
-                "pimp_shader_treecanopy_f01e2cc8.hlsl",
                 "pimp_shader_treecanopy_2bd46f04.hlsl",
-            ),
-        }
+            ],
+        }[sun as usize];
+        (vertex, pixel)
     }
 
     fn textures(self) -> Vec<(u32, u64, &'static str)> {
@@ -382,11 +345,7 @@ impl CharacterRecipe {
                 if active
                     .iter()
                     .filter(|argument| {
-                        argument["value"] == hash
-                            && argument["type"] == kind
-                            && argument["buffer"] == buffer
-                            && argument["location"] == location
-                            && argument["size"] == size
+                        contract::argument(argument, [kind, hash as u64, buffer, location, size])
                     })
                     .count()
                     != 1
@@ -398,13 +357,7 @@ impl CharacterRecipe {
             if self.charred()
                 && arguments
                     .iter()
-                    .filter(|argument| {
-                        argument["type"] == 5
-                            && argument["value"] == 16777385_u32
-                            && argument["buffer"] == 1
-                            && argument["location"] == 368
-                            && argument["size"] == 16
-                    })
+                    .filter(|argument| contract::argument(argument, [5, 16777385, 1, 368, 16]))
                     .count()
                     != 1
             {
@@ -416,13 +369,7 @@ impl CharacterRecipe {
             if self.reveal()
                 && arguments
                     .iter()
-                    .filter(|argument| {
-                        argument["type"] == 5
-                            && argument["value"] == 16777388_u32
-                            && argument["buffer"] == 1
-                            && argument["location"] == 416
-                            && argument["size"] == 16
-                    })
+                    .filter(|argument| contract::argument(argument, [5, 16777388, 1, 416, 16]))
                     .count()
                     != 1
             {
@@ -1097,7 +1044,6 @@ fn combine_specular(
     }
     Ok(output)
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;

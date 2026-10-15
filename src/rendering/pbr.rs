@@ -12,162 +12,40 @@ use std::collections::HashMap;
 
 const SHADOW_ONLY_LAYER: usize = 31;
 
-#[derive(Clone, bevy::render::render_resource::ShaderType)]
-struct WaterControls {
-    domains: [Vec4; 4],
-    slope: Vec4,
-    color_normal: Vec4,
-    color_surface: Vec4,
-    fresnel: Vec4,
-    time: Vec4,
-}
-
-#[derive(Asset, bevy::render::render_resource::AsBindGroup, TypePath, Clone)]
-pub(super) struct WaterExtension {
-    #[uniform(100)]
-    controls: WaterControls,
-    #[texture(101)]
-    #[sampler(102)]
-    #[dependency]
-    low: Handle<Image>,
-    #[texture(103)]
-    #[sampler(104)]
-    #[dependency]
-    high: Handle<Image>,
-}
-
-impl bevy::pbr::MaterialExtension for WaterExtension {
-    fn fragment_shader() -> bevy::shader::ShaderRef {
-        "embedded://origins/rendering/water.wesl".into()
-    }
-    fn enable_prepass() -> bool {
-        false
-    }
-    fn enable_shadows() -> bool {
-        false
-    }
-    fn enable_oit() -> bool {
-        false
-    }
-}
-
-type WaterMaterial = bevy::pbr::ExtendedMaterial<StandardMaterial, WaterExtension>;
-
 pub(super) fn install(app: &mut App) {
     super::hybrid::install(app);
-    bevy::shader::load_shader_library!(app, "water.wesl");
-    app.add_plugins(MaterialPlugin::<WaterMaterial>::default())
-        .add_systems(PostUpdate, advance_water.after(super::MaterialAnimation));
+    app.add_systems(PreUpdate, parse_metadata);
 }
 
-fn advance_water(
-    clock: Res<super::opaque::NativeClock>,
-    mut materials: ResMut<Assets<WaterMaterial>>,
+#[derive(Component)]
+pub(super) struct SurfaceMetadata(pub serde_json::Value);
+
+pub(super) fn parse_metadata(
+    mut commands: Commands,
+    changed: Query<(Entity, &GltfMaterialExtras), Changed<GltfMaterialExtras>>,
+    mut removed: RemovedComponents<GltfMaterialExtras>,
+    mut failure: ResMut<crate::assets::LoadFailure>,
+    mut next: ResMut<NextState<crate::GameState>>,
 ) {
-    let Some(milliseconds) = clock.render_milliseconds() else {
-        return;
-    };
-    let Ok(time) = super::opaque::game_time(milliseconds, 0.) else {
-        return;
-    };
-    for (_, material) in materials.iter_mut() {
-        material.extension.controls.time = Vec4::from_array(time);
-    }
-}
-
-fn water_controls(
-    surface: &serde_json::Value,
-) -> Result<Option<(WaterControls, [PreparedTexture; 2])>, String> {
-    let water = &surface["source_water"];
-    if water.is_null() {
-        return Ok(None);
-    }
-    #[derive(Deserialize)]
-    struct Layer {
-        uri: String,
-        sampler: u8,
-        position_scale: f32,
-        velocity: [f32; 2],
-        slope_decode: [f32; 2],
-        coordinates: String,
-        normal_space: String,
-    }
-    let layers: [Layer; 4] = serde_json::from_value(water["layers"].clone())
-        .map_err(|error| format!("Invalid native water layers: {error}"))?;
-    if water["consumer"] != "native_world_normals_and_palette_shared_pbr"
-        || surface["native"]["technique_set"] != "wpc_cod7water_we876z2f"
-        || water["game_time_code"] != 25
-        || water["game_time_component"] != 3
-        || layers.iter().any(|layer| {
-            layer.sampler != 20
-                || layer.coordinates != "source_position_xy"
-                || layer.normal_space != "source_world_xy"
-                || !layer.position_scale.is_finite()
-                || !layer
-                    .velocity
-                    .iter()
-                    .chain(layer.slope_decode.iter())
-                    .all(|value| value.is_finite())
-        })
-        || layers[0].uri != layers[1].uri
-        || layers[2].uri != layers[3].uri
-        || layers[0].slope_decode != layers[1].slope_decode
-        || layers[2].slope_decode != layers[3].slope_decode
-        || !textures(&surface["channels"])?.iter().any(|texture| {
-            texture.role == "normal"
-                && texture.uri == layers[0].uri
-                && texture.color_space == "linear"
-                && texture.sampler == 20
-        })
-    {
-        return Err("Unsupported native water domains or time binding".into());
-    }
-    for layer in &layers {
-        crate::origins::validate_asset_path(&layer.uri).map_err(|error| error.to_string())?;
-    }
-    let vector = |name: &str| -> Result<Vec4, String> {
-        let value: [f32; 4] = serde_json::from_value(water[name].clone())
-            .map_err(|error| format!("Invalid native water {name}: {error}"))?;
-        if value.iter().any(|value| !value.is_finite()) {
-            return Err(format!("Non-finite native water {name}"));
+    for entity in removed.read() {
+        if changed.get(entity).is_err() {
+            if let Ok(mut entity) = commands.get_entity(entity) {
+                entity.remove::<SurfaceMetadata>();
+            }
         }
-        Ok(Vec4::from_array(value))
-    };
-    let textures = [0, 2].map(|index| PreparedTexture {
-        uri: layers[index].uri.clone(),
-        role: if index == 0 {
-            "water_low"
-        } else {
-            "water_high"
+    }
+    for (entity, extras) in &changed {
+        match serde_json::from_str(&extras.value) {
+            Ok(value) => {
+                commands.entity(entity).insert(SurfaceMetadata(value));
+            }
+            Err(error) => {
+                failure.0 = format!("Invalid material metadata: {error}");
+                next.set(crate::GameState::LoadError);
+                return;
+            }
         }
-        .into(),
-        layer: 0,
-        color_space: "linear".into(),
-        sampler: layers[index].sampler,
-    });
-    Ok(Some((
-        WaterControls {
-            domains: std::array::from_fn(|index| {
-                Vec4::new(
-                    layers[index].position_scale,
-                    layers[index].velocity[0],
-                    layers[index].velocity[1],
-                    0.,
-                )
-            }),
-            slope: Vec4::new(
-                layers[0].slope_decode[0],
-                layers[0].slope_decode[1],
-                layers[2].slope_decode[0],
-                layers[2].slope_decode[1],
-            ),
-            color_normal: vector("color_normal")?,
-            color_surface: vector("color_surface")?,
-            fresnel: vector("control0")?,
-            time: Vec4::ZERO,
-        },
-        textures,
-    )))
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -182,6 +60,32 @@ pub(super) struct PreparedTexture {
 
 #[derive(Component)]
 pub(crate) struct PbrReady;
+
+pub(super) fn textures_ready<'a>(
+    server: &AssetServer,
+    images: impl IntoIterator<Item = &'a Handle<Image>>,
+) -> Result<bool, String> {
+    let mut ready = true;
+    for image in images {
+        if let Some(LoadState::Failed(error)) = server.get_load_state(image.id()) {
+            return Err(format!("Material texture {:?}: {error}", image.path()));
+        }
+        ready &= server.is_loaded_with_dependencies(image.id());
+    }
+    Ok(ready)
+}
+
+pub(super) fn apply_channels(
+    material: &mut StandardMaterial,
+    channel: impl Fn(&str) -> Option<Handle<Image>>,
+) {
+    material.base_color_texture = channel("color");
+    material.normal_map_texture = channel("normal");
+    material.metallic_roughness_texture = channel("response");
+    material.occlusion_texture = channel("occlusion").or_else(|| channel("response"));
+    material.emissive_texture = channel("emissive");
+    material.specular_tint_texture = channel("reflectance").or_else(|| channel("specular_gloss"));
+}
 
 pub(super) fn textures(value: &serde_json::Value) -> Result<Vec<PreparedTexture>, String> {
     let textures: Vec<PreparedTexture> = serde_json::from_value(value.clone())
@@ -221,11 +125,9 @@ pub(crate) fn validate(surface: &serde_json::Value) -> Result<(), String> {
     }
     textures(&surface["channels"])?;
     super::hybrid::validate(surface)?;
-    water_controls(surface)?;
     if surface["source_script_layers"]["consumer"] == "native_live_layers" {
         return Err("Native animated material has no static ray average".into());
     }
-    super::animated_surfaces::validate(surface)?;
     if !surface["source_shadow_only"].is_null() {
         let shadow = &surface["source_shadow_only"];
         if surface["native"]["technique_set"] != "wpc_shadowcaster_wj6w5j60"
@@ -281,7 +183,7 @@ pub(super) fn uv_transform(factors: &serde_json::Value) -> Result<bevy::math::Af
 
 pub(super) fn refresh(
     mut commands: Commands,
-    surfaces: Query<Entity, (With<PbrReady>, Changed<GltfMaterialExtras>)>,
+    surfaces: Query<Entity, (With<PbrReady>, Changed<SurfaceMetadata>)>,
 ) {
     for entity in &surfaces {
         let mut entity = commands.entity(entity);
@@ -310,7 +212,7 @@ pub(super) fn prepare_image_dimensions(
             if image.texture_descriptor.dimension == TextureDimension::D1 && image.height() == 1 {
                 image.texture_descriptor.dimension = TextureDimension::D2;
             }
-            retain_texture_mips(image, 4096);
+            retain_texture_mips(image, 2048);
         }
     }
 }
@@ -411,17 +313,11 @@ type PreparedHandles = HashMap<AssetId<StandardMaterial>, Vec<(PreparedTexture, 
 pub(super) fn prepare(
     mut commands: Commands,
     entities: Query<
-        (
-            Entity,
-            &MeshMaterial3d<StandardMaterial>,
-            &GltfMaterialExtras,
-        ),
+        (Entity, &MeshMaterial3d<StandardMaterial>, &SurfaceMetadata),
         (Without<PbrReady>, Without<crate::assets::WorldCollider>),
     >,
     server: Res<AssetServer>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut water_materials: ResMut<Assets<WaterMaterial>>,
-    mut water_cache: Local<HashMap<AssetId<StandardMaterial>, Handle<WaterMaterial>>>,
     mut pending: Local<PreparedHandles>,
     mut failure: ResMut<crate::assets::LoadFailure>,
     mut next: ResMut<NextState<crate::GameState>>,
@@ -429,18 +325,9 @@ pub(super) fn prepare(
 ) {
     if library.as_ref().is_some_and(|library| library.is_added()) {
         pending.clear();
-        water_cache.clear();
     }
     for (entity, handle, extras) in &entities {
-        let value: serde_json::Value = match serde_json::from_str(&extras.value) {
-            Ok(value) => value,
-            Err(error) => {
-                failure.0 = format!("Invalid standard material metadata: {error}");
-                next.set(crate::GameState::LoadError);
-                return;
-            }
-        };
-        let surface = &value["surface"];
+        let surface = &extras.0["surface"];
         if surface.is_null() {
             commands.entity(entity).insert(PbrReady);
             continue;
@@ -450,18 +337,8 @@ pub(super) fn prepare(
             next.set(crate::GameState::LoadError);
             return;
         }
-        if surface["source_smoke"]["consumer"] == "native_layers_vertex_time_depth_forward"
-            || surface["source_embers"]["consumer"] == "native_layers_vertex_time_shared_pbr"
-        {
-            continue;
-        }
-        let water = water_controls(surface).expect("Validated native water controls");
         let channels = pending.entry(handle.0.id()).or_insert_with(|| {
-            let mut textures = textures(&surface["channels"]).unwrap();
-            if let Some((_, inputs)) = &water {
-                textures.extend(inputs.iter().cloned());
-            }
-            textures
+            textures(&surface["channels"]).unwrap()
                 .into_iter()
                 .map(|texture| {
                     let image = load(&server, &texture);
@@ -469,18 +346,14 @@ pub(super) fn prepare(
                 })
                 .collect()
         });
-        for (texture, image) in channels.iter() {
-            if let Some(LoadState::Failed(error)) = server.get_load_state(image.id()) {
-                failure.0 = format!("Standard material texture {}: {error}", texture.uri);
+        match textures_ready(&server, channels.iter().map(|(_, image)| image)) {
+            Ok(true) => {}
+            Ok(false) => continue,
+            Err(error) => {
+                failure.0 = error;
                 next.set(crate::GameState::LoadError);
                 return;
             }
-        }
-        if channels
-            .iter()
-            .any(|(_, image)| !server.is_loaded_with_dependencies(image.id()))
-        {
-            continue;
         }
         let Some(mut material) = materials.get_mut(&handle.0) else {
             continue;
@@ -491,13 +364,7 @@ pub(super) fn prepare(
                 .find(|(texture, _)| texture.role == role && texture.layer == 0)
                 .map(|(_, h)| h.clone())
         };
-        material.base_color_texture = channel("color");
-        material.normal_map_texture = channel("normal");
-        material.metallic_roughness_texture = channel("response");
-        material.occlusion_texture = channel("occlusion").or_else(|| channel("response"));
-        material.emissive_texture = channel("emissive");
-        material.specular_tint_texture =
-            channel("reflectance").or_else(|| channel("specular_gloss"));
+        apply_channels(&mut material, channel);
         material.flip_normal_map_y = false;
         material.clearcoat = 0.;
         if material.metallic_roughness_texture.is_some() {
@@ -534,41 +401,12 @@ pub(super) fn prepare(
             commands.entity(entity).insert((
                 bevy::camera::visibility::RenderLayers::layer(SHADOW_ONLY_LAYER),
                 Visibility::Inherited,
-                super::SurfaceReady,
             ));
         } else if state["visible"].as_bool() == Some(false) {
             commands.entity(entity).insert(Visibility::Hidden);
         }
         if super::shadows::excludes_caster(surface) || surface["bake"]["script_layers"] == true {
             commands.entity(entity).insert(bevy::light::NotShadowCaster);
-        }
-        if let Some((controls, _)) = water {
-            let water = water_cache
-                .entry(handle.0.id())
-                .or_insert_with(|| {
-                    let mut base = material.clone();
-                    base.normal_map_texture = None;
-                    base.opaque_render_method = bevy::material::OpaqueRendererMethod::Forward;
-                    water_materials.add(bevy::pbr::ExtendedMaterial {
-                        base,
-                        extension: WaterExtension {
-                            controls,
-                            low: channel("water_low").unwrap(),
-                            high: channel("water_high").unwrap(),
-                        },
-                    })
-                })
-                .clone();
-            commands
-                .entity(entity)
-                .remove::<MeshMaterial3d<StandardMaterial>>()
-                .insert((
-                    MeshMaterial3d(water),
-                    super::SurfaceReady,
-                    super::opaque::StandardReady,
-                    Visibility::Inherited,
-                    bevy::light::NotShadowCaster,
-                ));
         }
         if let Some(ref mut library) = library {
             if let Err(error) = super::opaque::register_prepared(library, surface, channels) {
@@ -660,5 +498,133 @@ mod tests {
         ] {
             assert!(uv_transform(&json!({"uv_transform":values})).is_err());
         }
+    }
+    #[test]
+    #[ignore = "requires the installed locked Bevy shader sources"]
+    fn remaining_shaders_compose_with_locked_bevy() {
+        use bevy::asset::AssetId;
+        use bevy::shader::{
+            Shader, ShaderCache, ShaderCacheError, ShaderCacheSource, ShaderDefVal,
+        };
+        use std::path::Path;
+        fn install(
+            cache: &mut ShaderCache<(), ()>,
+            root: &Path,
+            directory: &Path,
+            crate_name: &str,
+            index: &mut u128,
+        ) {
+            for item in std::fs::read_dir(directory).unwrap() {
+                let path = item.unwrap().path();
+                if path.is_dir() {
+                    install(cache, root, &path, crate_name, index);
+                } else if path
+                    .extension()
+                    .is_some_and(|extension| extension == "wesl")
+                {
+                    *index += 1;
+                    let relative = path
+                        .strip_prefix(root)
+                        .unwrap()
+                        .to_string_lossy()
+                        .replace('\\', "/");
+                    cache.set_shader(
+                        AssetId::Uuid {
+                            uuid: bevy::asset::uuid::Uuid::from_u128(*index),
+                        },
+                        Shader::from_wesl(
+                            std::fs::read_to_string(&path).unwrap(),
+                            format!("embedded://{crate_name}/{relative}"),
+                        ),
+                    );
+                }
+            }
+        }
+        let mut cache = ShaderCache::new((), |_, source, _| {
+            let ShaderCacheSource::Wgsl(source) = source else {
+                panic!("Expected composed WGSL");
+            };
+            let module = wgpu::naga::front::wgsl::parse_str(&source).map_err(|error| {
+                ShaderCacheError::CreateShaderModule(error.emit_to_string(&source))
+            })?;
+            wgpu::naga::valid::Validator::new(
+                wgpu::naga::valid::ValidationFlags::all(),
+                wgpu::naga::valid::Capabilities::all(),
+            )
+            .validate(&module)
+            .map_err(|error| ShaderCacheError::CreateShaderModule(format!("{error:#?}")))?;
+            Ok(())
+        });
+        let home = std::env::var_os("CARGO_HOME")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| {
+                std::path::PathBuf::from(
+                    std::env::var_os("USERPROFILE")
+                        .or_else(|| std::env::var_os("HOME"))
+                        .unwrap(),
+                )
+                .join(".cargo")
+            });
+        let registries = std::fs::read_dir(home.join("registry/src"))
+            .unwrap()
+            .map(|item| item.unwrap().path())
+            .collect::<Vec<_>>();
+        let mut index = 0;
+        for name in ["bevy_pbr", "bevy_render", "bevy_core_pipeline"] {
+            let path = registries
+                .iter()
+                .map(|root| root.join(format!("{name}-0.20.0/src")))
+                .find(|root| root.is_dir())
+                .unwrap();
+            install(&mut cache, &path, &path, name, &mut index);
+        }
+        let definitions = [
+            ShaderDefVal::UInt(
+                "MATERIAL_BIND_GROUP".into(),
+                bevy::pbr::MATERIAL_BIND_GROUP_INDEX as u32,
+            ),
+            ShaderDefVal::UInt(
+                "MAX_DIRECTIONAL_LIGHTS".into(),
+                bevy::pbr::MAX_DIRECTIONAL_LIGHTS as u32,
+            ),
+            ShaderDefVal::UInt(
+                "MAX_CASCADES_PER_LIGHT".into(),
+                bevy::pbr::MAX_CASCADES_PER_LIGHT as u32,
+            ),
+            ShaderDefVal::UInt("MAX_RECT_LIGHTS".into(), bevy::pbr::MAX_RECT_LIGHTS as u32),
+            ShaderDefVal::UInt("PER_OBJECT_BUFFER_BATCH_SIZE".into(), 1),
+            ShaderDefVal::Bool("VERTEX_POSITIONS".into(), true),
+            ShaderDefVal::Bool("VERTEX_OUTPUT_INSTANCE_INDEX".into(), true),
+            ShaderDefVal::Bool("VERTEX_UVS_A".into(), true),
+            ShaderDefVal::Bool("VERTEX_COLORS".into(), true),
+            ShaderDefVal::Bool("VERTEX_NORMALS".into(), true),
+            ShaderDefVal::Bool("VERTEX_TANGENTS".into(), true),
+            ShaderDefVal::Bool("DEPTH_PREPASS".into(), true),
+            ShaderDefVal::Bool("VIEW_PROJECTION_PERSPECTIVE".into(), true),
+        ];
+        let hybrid = AssetId::Uuid {
+            uuid: bevy::asset::uuid::Uuid::from_u128(index + 3),
+        };
+        cache.set_shader(
+            hybrid,
+            Shader::from_wesl(
+                include_str!("hybrid.wesl"),
+                "embedded://origins/rendering/hybrid.wesl",
+            ),
+        );
+        let mut hybrid_definitions = definitions.to_vec();
+        hybrid_definitions.push(ShaderDefVal::Bool("VERTEX_UVS_B".into(), true));
+        cache.get(2, hybrid, &hybrid_definitions).unwrap();
+        let flare = AssetId::Uuid {
+            uuid: bevy::asset::uuid::Uuid::from_u128(index + 5),
+        };
+        cache.set_shader(
+            flare,
+            Shader::from_wesl(
+                include_str!("../native_fx/superflare.wesl"),
+                "embedded://origins/native_fx/superflare.wesl",
+            ),
+        );
+        cache.get(4, flare, &definitions).unwrap();
     }
 }

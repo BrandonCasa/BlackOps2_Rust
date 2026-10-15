@@ -279,11 +279,10 @@ pub(super) fn validate_falloff(
                     active
                         .iter()
                         .filter(|argument| {
-                            argument["type"] == kind
-                                && argument["value"] == value
-                                && argument["buffer"] == buffer
-                                && argument["location"] == location
-                                && argument["size"] == size
+                            contract::argument(
+                                argument,
+                                [kind, value as u64, buffer, location, size],
+                            )
                         })
                         .count()
                         != 1
@@ -317,12 +316,7 @@ pub(super) fn validate_falloff(
         hashes.push(1507003663);
     }
     for &hash in &hashes {
-        let binding = material["textures"]
-            .as_array()
-            .ok_or("Missing three-layer falloff images")?
-            .iter()
-            .find(|binding| binding["hash"] == hash)
-            .ok_or("Missing active three-layer falloff image")?;
+        let binding = contract::texture_binding(material, hash)?;
         if if normal {
             binding["sampler"] != if hash == 3714406764 { 244 } else { 20 }
         } else if four {
@@ -648,12 +642,7 @@ pub(super) fn convert_falloff(
         hashes.push(3714721355);
     }
     for (index, hash) in hashes.into_iter().enumerate() {
-        let binding = native["textures"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|binding| binding["hash"] == hash)
-            .unwrap();
+        let binding = contract::texture_binding(native, hash)?;
         let name = binding["image"]
             .as_str()
             .ok_or("Missing three-layer falloff source image name")?
@@ -800,7 +789,6 @@ pub(super) fn convert_falloff(
         json!({"name":key,"pbrMetallicRoughness":{"baseColorFactor":[1.,1.,1.,1.],"metallicFactor":0.},"extras":{"surface":surface}}),
     )
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;

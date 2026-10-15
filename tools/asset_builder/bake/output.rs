@@ -164,36 +164,31 @@ pub(super) fn store(
     if layer_specular {
         outputs.push(("native-specular", specular));
     }
+    let mut dimensions = [width, height];
+    while dimensions[0].max(dimensions[1]) > 2048 {
+        dimensions = dimensions.map(|value| (value / 2).max(1));
+    }
     let mut native_specular = Value::Null;
     for (role, pixels) in outputs {
-        let static_normal = if role == "normal" && matches!(&family, Family::ScriptLayers(_)) {
-            uri.split_once("/states/").and_then(|(base, state)| {
-                state
-                    .split_once('/')
-                    .map(|(_, page)| format!("{base}/normals/{page}/normal.ktx2"))
-            })
-        } else {
-            None
-        };
-        let path = static_normal
-            .clone()
-            .unwrap_or_else(|| format!("{uri}/{role}.ktx2"));
-        let mut srgb = false;
-        if static_normal.is_none() || !pack.contains(&path) {
-            let image = mip_chain(width, height, pixels, role)?;
-            srgb = role == "color" && image.format != 19;
-            let bytes = texture::encode(
-                &image,
-                srgb,
-                if role == "native-specular" {
-                    "reflectance"
-                } else {
-                    role
-                },
-            )?;
-            texture::validate(&bytes)?;
-            pack.store(path.clone(), bytes)?;
+        let path = format!("{uri}/{role}.ktx2");
+        let mut image = mip_chain(width, height, pixels, role)?;
+        while image.width.max(image.height) > 2048 && image.levels.len() > 1 {
+            image.levels.remove(0);
+            image.width = (image.width / 2).max(1);
+            image.height = (image.height / 2).max(1);
         }
+        let srgb = role == "color" && image.format != 19;
+        let bytes = texture::encode(
+            &image,
+            srgb,
+            if role == "native-specular" {
+                "reflectance"
+            } else {
+                role
+            },
+        )?;
+        texture::validate(&bytes)?;
+        pack.store(path.clone(), bytes)?;
         if role == "native-specular" {
             native_specular = json!({"uri":path,"specular_rgb":"linear","gloss_channel":"alpha"});
         } else {
@@ -209,8 +204,8 @@ pub(super) fn store(
             "standard":{"roughness":1.,"metallic":if layer_specular {1.} else {0.},"reflectance":if layer_specular || base_alpha_response {0.5} else {0.},"base_color":[1.,1.,1.,1.]},
             "native_specular":native_specular,
             "presentation":{"alpha":"opaque","cull":"back","fog":true,"visible":true},
-            "bake":{"width":width,"height":height,"charts":charts,"source_texel_density":true,"layout":if sampler == 20 {"periodic"} else {"atlas"}},
-            "approximations":["Static material bake at source UV texel density; finite rasterization, BC compression and baked mip filtering", "Source normal slopes normalized before runtime texture filtering", "Source specular/gloss fitted to shared metallic/GGX PBR inputs where present; response mips average the fitted inputs"]}}});
+            "bake":{"width":dimensions[0],"height":dimensions[1],"charts":charts,"source_texel_density":dimensions == [width,height],"layout":if sampler == 20 {"periodic"} else {"atlas"}},
+            "approximations":["Static material bake capped at 2048 texels per axis using generated mips; finite rasterization, BC compression and baked mip filtering", "Source normal slopes normalized before runtime texture filtering", "Source specular/gloss fitted to shared metallic/GGX PBR inputs where present; response mips average the fitted inputs"]}}});
     if layer_cutout {
         material["extras"]["surface"]["source_framebuffer_alpha"] =
             json!("selected_layer_alpha_or_one");

@@ -7,27 +7,9 @@ import subprocess
 import time
 import traceback
 
-from test_support import Client, write_report
+from test_support import Client, capture, wait_for_slot, write_report
 from test_brp import require
-from test_weapon_materials import capture, inputs
-
-
-def processes(names):
-    executables = ','.join(f"'{name}.exe'" for name in names)
-    command = (f"@(Get-CimInstance Win32_Process | Where-Object {{ $_.Name -in @({executables}) "
-               "} "
-               "| Select-Object Name,ProcessId) | ConvertTo-Json -Compress")
-    value = subprocess.check_output(['powershell', '-NoProfile', '-NonInteractive', '-Command', command],
-                                    text=True, creationflags=subprocess.CREATE_NO_WINDOW).strip()
-    return json.loads(value) if value else []
-
-
-def wait_for_slot():
-    names = ('origins', 'capture', 'nsys', 'ncu', 'qrenderdoc', 'renderdoccmd',
-             'tracy-capture', 'WinPixGpuCapturer', 'obs64', 'ffmpeg')
-    while active := processes(names):
-        print(f'Waiting for shared game/capture slot: {active}', flush=True)
-        time.sleep(10)
+from test_weapon_materials import inputs
 
 
 def observation(client, timeout=90):

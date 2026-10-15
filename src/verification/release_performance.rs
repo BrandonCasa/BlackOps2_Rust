@@ -226,7 +226,6 @@ fn record(
     windows: Query<&Window>,
     adapter: Option<Res<bevy::render::renderer::RenderAdapterInfo>>,
     audio: Res<crate::audio::AudioDecodeStats>,
-    profile: Res<crate::rendering::profile::VisualProfile>,
     preprocessing: Res<crate::rendering::PreprocessingStatus>,
     environment: Res<crate::run_environment::RunEnvironment>,
 ) {
@@ -322,8 +321,8 @@ fn record(
         "logging_enabled":cfg!(debug_assertions),
         "render_diagnostics":false,"pipeline_cache_per_frame_inspection":false,
         "run_environment": &*environment,
-        "antialiasing":profile.antialiasing,"preprocessing":preprocessing.report(),
-        "shared_lighting":{"method":"native_raster","ray_tracing":false,"local_light_limit":profile.max_local_lights},
+        "antialiasing":"dlss_ray_reconstruction","preprocessing":preprocessing.report(),
+        "shared_lighting":{"method":"solari","ray_tracing":true},
         "texture_loading":"resident","audio_decode":&*audio,
     });
     match std::fs::write(output.join("performance.json"), receipt.to_string()) {

@@ -51,3 +51,10 @@ pub(crate) fn literal(material: &Value, hash: u32) -> Result<[f32; 4]> {
     }
     Ok(literal)
 }
+
+pub(crate) fn argument(argument: &Value, expected: [u64; 5]) -> bool {
+    ["type", "value", "buffer", "location", "size"]
+        .into_iter()
+        .zip(expected)
+        .all(|(key, value)| argument[key] == value)
+}

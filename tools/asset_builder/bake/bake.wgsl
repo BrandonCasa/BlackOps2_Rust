@@ -232,17 +232,6 @@ fn special_surface(uv: vec2<f32>) -> Pixel {
 fn script_layer(uv0: vec2<f32>, vertex: vec4<f32>) -> Pixel {
         let count = u32(recipe.special_parms[2].x);
         let mode = u32(recipe.special_parms[2].y);
-        if recipe.special_parms[2].w >= 2.0 {
-            var result: Pixel;
-            result.color = sample_image(0u, uv0);
-            if mode == 1u || mode == 5u { result.color = vec4(result.color.rgb * vertex.rgb * vertex.rgb, result.color.a); }
-            if mode == 5u { result.color = vec4(result.color.rgb * pow(vertex.a, 4.0), result.color.a); }
-            result.normal = vec4(0.0, 0.0, 1.0, 1.0);
-            if recipe.special_parms[2].w == 3.0 { result.normal = sample_image(1u, uv0); }
-            result.response = vec4(1.0, 1.0, 0.0, 1.0);
-            result.specular = vec4(0.0);
-            return result;
-        }
         var values: array<vec4<f32>, 4>;
         var weights: array<f32, 4>;
         for (var i = 0u; i < count; i += 1u) {

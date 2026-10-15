@@ -32,11 +32,6 @@ impl Motion {
         ]
     }
 
-    fn animated(&self) -> bool {
-        self.rotation[0] * self.rotation[1] != 0.
-            || (0..2).any(|axis| self.scroll[axis] * self.scale[axis] != 0.)
-    }
-
     fn density(&self, image: &Input, axis: usize) -> f32 {
         if self.rotation[0] * self.rotation[1] == 0. {
             let matrix = self.transform(0.);
@@ -282,55 +277,20 @@ fn motions(native: &Value, mode: &str, count: usize) -> Result<Vec<Motion>> {
     Ok(result)
 }
 
-fn loop_samples(motion: &[Motion], recipe: &Recipe, bounds: [[f32; 2]; 2]) -> Result<usize> {
-    if !motion.iter().any(Motion::animated) {
-        return Ok(1);
-    }
-    let mut rates = Vec::new();
-    for (motion, input) in motion.iter().zip(&recipe.inputs) {
-        let radius = (0..2)
-            .map(|axis| {
-                (bounds[0][axis] - motion.origin[axis] + motion.offset[axis])
-                    .abs()
-                    .max((bounds[1][axis] - motion.origin[axis] + motion.offset[axis]).abs())
-                    * motion.scale[axis].abs()
-            })
-            .sum::<f32>() as f64;
-        let rotation =
-            f64::from(motion.rotation[0]) * f64::from(motion.rotation[1]) * f64::from(motion.tau)
-                / std::f64::consts::TAU;
-        if rotation != 0. {
-            rates.push((
-                rotation,
-                radius.max(1.) * input.width.max(input.height) as f64 * std::f64::consts::TAU,
-            ));
-        }
-        for axis in 0..2 {
-            let scroll = f64::from(motion.scroll[axis]) * f64::from(motion.scale[axis]);
-            if scroll == 0. {
-                continue;
-            }
-            if input.sampler & (32 << axis) != 0 {
-                return Err(
-                    "A moving clamped script-layer axis has no repeating baked sequence".into(),
-                );
-            }
-            rates.push((
-                scroll,
-                if axis == 0 { input.width } else { input.height } as f64,
-            ));
-        }
-    }
-    for frames in 1..=2_000_000 {
-        let seconds = frames as f64 / 20.;
-        if rates.iter().all(|(rate, texels)| {
-            let phase = rate * seconds;
-            phase.round() != 0. && (phase - phase.round()).abs() * texels <= 0.125
-        }) {
-            return Ok(frames);
-        }
-    }
-    Err("Authored script-layer motion does not close within 100000 seconds at one eighth of a source texel".into())
+fn averaging_seconds(motion: &[Motion]) -> f32 {
+    motion
+        .iter()
+        .flat_map(|motion| {
+            [
+                motion.rotation[0] * motion.rotation[1] * motion.tau / std::f32::consts::TAU,
+                motion.scroll[0] * motion.scale[0],
+                motion.scroll[1] * motion.scale[1],
+            ]
+        })
+        .filter(|rate| rate.abs() > f32::EPSILON)
+        .map(|rate| rate.abs().recip())
+        .fold(0., f32::max)
+        .min(500.)
 }
 
 struct Plan {
@@ -338,7 +298,6 @@ struct Plan {
     motion: Vec<Motion>,
     bounds: [[f32; 2]; 2],
     frames: usize,
-    states: Vec<[f32; 4]>,
     periodic: bool,
     dimensions: [usize; 2],
 }
@@ -362,15 +321,7 @@ fn plan(
     if !bounds.iter().flatten().all(|value| value.is_finite()) {
         return Err("Script-layer bake has no finite source UV domain".into());
     }
-    let frames = loop_samples(&motion, &recipe, bounds)?;
-    let states: Vec<[f32; 4]> = if native["baked_script_states"].is_null() {
-        vec![recipe.special_parms[1]]
-    } else {
-        serde_json::from_value(native["baked_script_states"].clone())?
-    };
-    if states.is_empty() || states.iter().flatten().any(|value| !value.is_finite()) {
-        return Err("Invalid baked native script states".into());
-    }
+    let frames = (averaging_seconds(&motion) * 20.).ceil().max(1.) as usize;
     let periodic = motion.iter().zip(&recipe.inputs).all(|(motion, image)| {
         let transform = motion.transform(0.);
         motion.rotation[0] * motion.rotation[1] == 0.
@@ -382,7 +333,7 @@ fn plan(
     if periodic {
         bounds = [[0., 0.], [1., 1.]];
     }
-    let dimensions: [usize; 2] = std::array::from_fn(|axis| {
+    let mut dimensions: [usize; 2] = std::array::from_fn(|axis| {
         let density = motion
             .iter()
             .zip(&recipe.inputs)
@@ -392,26 +343,21 @@ fn plan(
             .max(4)
             .next_multiple_of(4)
     });
-    if dimensions.iter().any(|value| *value > 16384) {
-        return Err(format!("Baked script-layer source UV domain requires {dimensions:?}, exceeding the runtime texture limit").into());
+    let scale = 512. / dimensions[0].max(dimensions[1]) as f32;
+    if scale < 1. {
+        dimensions = dimensions.map(|value| {
+            ((value as f32 * scale).ceil() as usize)
+                .max(4)
+                .next_multiple_of(4)
+        });
     }
     Ok(Plan {
         recipe,
         motion,
         bounds,
         frames,
-        states,
         periodic,
         dimensions,
-    })
-}
-
-fn state_weights(state: f32) -> [f64; 5] {
-    std::array::from_fn(|index| {
-        (0..5)
-            .filter(|other| *other != index)
-            .map(|other| (state as f64 * 4. - other as f64) / (index as f64 - other as f64))
-            .product()
     })
 }
 
@@ -446,224 +392,84 @@ pub(super) fn bake(
         return Ok(geometry);
     }
     let Plan {
-        mut recipe,
+        recipe,
         motion,
         bounds,
         frames,
-        states,
         periodic,
         dimensions,
     } = plan(mode, native, surfaces, images)?;
     let [width, height] = dimensions;
     let base = format!("prepared/materials/{}/average", converted.len());
-    let tint = matches!(mode, "normal_script" | "normal_script_unlit");
-    let first_color = geometry[0].colors[0];
-    let atlas = tint
-        && geometry
-            .iter()
-            .flat_map(|surface| &surface.colors)
-            .any(|color| color[..3] != first_color[..3]);
-    let mut banks = BTreeMap::<String, Vec<Value>>::new();
-    let mut materials = BTreeMap::<String, Value>::new();
-    let mut remapped = Vec::new();
-    let mut integrals = BTreeMap::<[u32; 3], Vec<[Vec<[f32; 4]>; 2]>>::new();
+    let state = recipe.special_parms[1];
     println!(
-        "Integrating static ray average {}: {} source-loop samples at 20 Hz, {} script states, {:?} texels; transparent effects excluded",
-        native["name"],
-        frames,
-        states.len(),
-        dimensions
+        "Integrating one static ray average {}: {} source-loop samples at 20 Hz, {:?} texels",
+        native["name"], frames, dimensions
     );
-    let source_baker = gpu::Baker::new(&recipe)?;
-    for (bank, state) in states.iter().copied().enumerate() {
-        recipe = read(mode, native, Some(images))?;
-        recipe.special_parms[1] = state;
-        let integrate = |state| {
-            source_baker.average(
-                width,
-                height,
-                bounds,
-                frames,
-                state,
-                |sample| {
-                    let seconds = if frames == 1 {
-                        0.
-                    } else {
-                        (sample as f32 + 0.5) / 20.
-                    };
-                    motion
-                        .iter()
-                        .map(|motion| motion.transform(seconds))
-                        .collect()
-                },
-                false,
-            )
-        };
-        let [mut colors, normals] = if states.len() > 5 && tint && (0. ..=1.).contains(&state[0]) {
-            let key = [state[1].to_bits(), state[2].to_bits(), state[3].to_bits()];
-            if !integrals.contains_key(&key) {
-                let mut basis = Vec::new();
-                for index in 0..5 {
-                    let mut anchor = state;
-                    anchor[0] = index as f32 / 4.;
-                    basis.push(integrate(anchor)?);
-                }
-                integrals.insert(key, basis);
-            }
-            let basis = &integrals[&key];
-            let weights = state_weights(state[0]);
-            let colors = (0..width * height)
-                .map(|pixel| {
-                    std::array::from_fn(|channel| {
-                        (0..5)
-                            .map(|index| weights[index] * basis[index][0][pixel][channel] as f64)
-                            .sum::<f64>()
-                            .max(0.) as f32
-                    })
-                })
-                .collect();
-            [colors, basis[0][1].clone()]
-        } else {
-            integrate(state)?
-        };
-        if tint && !atlas {
-            let tint = first_color.map(|value| value as f32 / 255.);
-            for pixel in &mut colors {
-                for axis in 0..3 {
-                    pixel[axis] *= tint[axis] * tint[axis];
-                }
-            }
-        }
-        let mut current = BTreeMap::new();
-        let uri = format!("{base}/states/{bank}");
-        let pieces = if atlas {
-            let span = [bounds[1][0] - bounds[0][0], bounds[1][1] - bounds[0][1]];
-            let transform = [
-                1. / span[0].max(f32::EPSILON),
-                0.,
-                0.,
-                1. / span[1].max(f32::EPSILON),
-                -bounds[0][0] / span[0].max(f32::EPSILON),
-                -bounds[0][1] / span[1].max(f32::EPSILON),
-            ];
-            recipe.inputs = vec![Input {
-                transform,
-                width,
-                height,
-                sampler: if periodic { 20 } else { 116 },
-                pixels: colors,
-            }];
-            if mode == "normal_script" {
-                recipe.inputs.push(Input {
-                    transform,
-                    width,
-                    height,
-                    sampler: if periodic { 20 } else { 116 },
-                    pixels: normals,
-                });
-            }
-            recipe.special_parms[2][3] = if mode == "normal_script" { 3. } else { 2. };
-            let baker = gpu::Baker::new(&recipe)?;
-            let geometry = geometry
+    let samples = frames.min(128);
+    let baker = gpu::Baker::new(&recipe)?;
+    let [colors, normals] = baker.average(
+        width,
+        height,
+        bounds,
+        samples,
+        state,
+        |sample| {
+            let seconds = if frames == 1 {
+                0.
+            } else {
+                (sample as f32 + 0.5) * frames as f32 / (20. * samples as f32)
+            };
+            motion
                 .iter()
-                .map(Surface::unindex)
-                .collect::<Result<Vec<_>>>()?;
-            layered(native, &geometry, &recipe, &baker, &uri, &mut current, pack)?
-        } else {
-            let value = store(
-                native,
-                &format!("{uri}/0"),
-                width,
-                height,
-                [
-                    colors,
-                    if mode == "normal_script" {
-                        normals
-                    } else {
-                        Vec::new()
-                    },
-                    Vec::new(),
-                    Vec::new(),
-                ],
-                if periodic { 20 } else { 116 },
-                0,
-                pack,
-            )?;
-            current.insert(identity.clone(), value);
-            let mut pieces = geometry.clone();
-            if !periodic {
-                for surface in &mut pieces {
-                    for uv in &mut surface.uv {
-                        for axis in 0..2 {
-                            uv[axis] = (uv[axis] - bounds[0][axis])
-                                / (bounds[1][axis] - bounds[0][axis]).max(f32::EPSILON);
-                        }
-                    }
+                .map(|motion| motion.transform(seconds))
+                .collect()
+        },
+        false,
+    )?;
+    let value = store(
+        native,
+        &format!("{base}/0"),
+        width,
+        height,
+        [
+            colors,
+            if mode == "normal_script" {
+                normals
+            } else {
+                Vec::new()
+            },
+            Vec::new(),
+            Vec::new(),
+        ],
+        if periodic { 20 } else { 116 },
+        0,
+        pack,
+    )?;
+    let mut pieces = geometry;
+    if !periodic {
+        for surface in &mut pieces {
+            for uv in &mut surface.uv {
+                for axis in 0..2 {
+                    uv[axis] = (uv[axis] - bounds[0][axis])
+                        / (bounds[1][axis] - bounds[0][axis]).max(f32::EPSILON);
                 }
             }
-            pieces
-        };
-        let identities: std::collections::BTreeSet<_> = pieces
-            .iter()
-            .map(|surface| surface.material.clone())
-            .collect();
-        for identity in identities {
-            let value = current
-                .remove(&identity)
-                .ok_or("Static ray average page material is absent")?;
-            let surface = &value["extras"]["surface"];
-            banks
-                .entry(identity.clone())
-                .or_default()
-                .push(json!({"channels":surface["channels"],"standard":surface["standard"]}));
-            materials.entry(identity).or_insert(value);
         }
-        if bank == 0 {
-            remapped = pieces;
-        }
-        println!(
-            "Integrated ray state {}/{} for {}",
-            bank + 1,
-            states.len(),
-            native["name"]
-        );
     }
-    for (name, mut material) in materials {
-        let surface = &mut material["extras"]["surface"];
-        for (key, value) in primary.as_object().unwrap() {
-            if key.starts_with("source_") {
-                surface[key] = value.clone();
-            }
+    let mut material = value;
+    let surface = &mut material["extras"]["surface"];
+    for (key, value) in primary.as_object().unwrap() {
+        if key.starts_with("source_") {
+            surface[key] = value.clone();
         }
-        surface.as_object_mut().unwrap().remove("pending_runtime");
-        surface["source_script_layers"]["consumer"] = json!("native_hybrid_layers");
-        surface["hybrid"] = json!({"ray_visible":true,"ray_average":{"source_loop_samples":frames,"sample_hz":20.,
-            "loop_seconds":if frames == 1 {0.} else {frames as f64 / 20.},"color_space":"linear_radiance",
-            "integration":"uniform_midpoint_with_compensated_summation","primary_uv_channel":1}});
-        if states.len() > 1 {
-            surface["static_states"] =
-                json!({"states":states,"surfaces":banks.remove(&name).unwrap()});
-        }
-        surface["approximations"].as_array_mut().unwrap().push(json!("Secondary rays use a finite temporal integral of source linear radiance over the authored repeat period at 20 Hz. Primary visibility retains source animation and view dependence. Native reflection probes use the shared GGX fit"));
-        if name != identity && !converted.contains_key(&identity) {
-            let mut alias = material.clone();
-            alias["name"] = json!(identity);
-            alias["extras"]["surface"]["identity"] = json!(identity);
-            converted.insert(identity.clone(), alias);
-        }
-        converted.insert(name, material);
     }
-    if let Some(first) = remapped
-        .first()
-        .and_then(|surface| converted.get(&surface.material))
-        .cloned()
-    {
-        let mut alias = first;
-        alias["name"] = json!(identity);
-        alias["extras"]["surface"]["identity"] = json!(identity);
-        converted.insert(identity, alias);
-    }
-    Ok(remapped)
+    surface.as_object_mut().unwrap().remove("pending_runtime");
+    surface["source_script_layers"]["consumer"] = json!("native_hybrid_layers");
+    surface["hybrid"] = json!({"ray_visible":true});
+    surface["approximations"].as_array_mut().unwrap().push(json!("Secondary rays use one static ray texture, up to 512 texels per axis and 128 temporal samples over the longest layer period (capped at 500 seconds). Vertex tint is omitted from secondary rays. Primary visibility retains per-object state, animation and view dependence."));
+    converted.insert(identity, material);
+    Ok(pieces)
 }
 
 pub(super) fn finish(native: &Value, mode: &str, material: &mut Value) -> Result<()> {
@@ -821,7 +627,7 @@ mod tests {
                     .unwrap();
             let initial = read_frame(mode, &native, Some(&images), 0.).unwrap();
             let motions = motions(&native, mode, initial.special_parms[2][0] as usize).unwrap();
-            let frames = loop_samples(&motions, &initial, [[0., 0.], [1., 1.]]).unwrap();
+            let frames = (averaging_seconds(&motions) * 20.).ceil().max(1.) as usize;
             assert_eq!(frames == 1, name == "wpc/zm_tm_wallbuy_01");
             println!("{name}: {frames} baked time frames");
             let later = read_frame(mode, &native, Some(&images), 45.).unwrap();
@@ -1046,12 +852,5 @@ mod tests {
             )
             .unwrap();
         assert!((mean[0][0][0] - 0.41).abs() < 0.000001);
-        for degree in 0..=4 {
-            let weights = state_weights(0.37);
-            let value: f64 = (0..5)
-                .map(|index| weights[index] * (index as f64 / 4.).powi(degree))
-                .sum();
-            assert!((value - 0.37_f32.powi(degree) as f64).abs() < 0.000001);
-        }
     }
 }

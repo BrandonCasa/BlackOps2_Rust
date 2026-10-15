@@ -1,5 +1,6 @@
+use super::pbr::SurfaceMetadata;
 use super::{GameCamera, NativeArtInputs, opaque::StandardReady, pbr::PbrReady};
-use bevy::{gltf::GltfMaterialExtras, prelude::*};
+use bevy::prelude::*;
 
 #[derive(Component)]
 pub(super) struct EyeLuminance {
@@ -26,7 +27,7 @@ pub(super) fn prepare(
         (
             Entity,
             &MeshMaterial3d<StandardMaterial>,
-            Ref<GltfMaterialExtras>,
+            Ref<SurfaceMetadata>,
             Option<&EyeLuminance>,
         ),
         (
@@ -34,7 +35,7 @@ pub(super) fn prepare(
             With<StandardReady>,
             Or<(
                 Added<StandardReady>,
-                Changed<GltfMaterialExtras>,
+                Changed<SurfaceMetadata>,
                 Changed<MeshMaterial3d<StandardMaterial>>,
             )>,
         ),
@@ -49,9 +50,7 @@ pub(super) fn prepare(
             continue;
         }
         let result = (|| -> Result<bool, String> {
-            let value: serde_json::Value = serde_json::from_str(&extras.value)
-                .map_err(|error| format!("Invalid native eye material metadata: {error}"))?;
-            let source = &value["surface"]["source_eye_luminance"];
+            let source = &extras.0["surface"]["source_eye_luminance"];
             if source.is_null() {
                 return Ok(false);
             }
@@ -150,6 +149,7 @@ pub(super) fn animate(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::gltf::GltfMaterialExtras;
 
     fn app() -> App {
         let mut app = App::new();
@@ -157,7 +157,7 @@ mod tests {
             .init_resource::<super::super::OpaqueSurfaceStatus>()
             .init_resource::<crate::assets::LoadFailure>()
             .insert_resource(NextState::<crate::GameState>::Unchanged)
-            .add_systems(Update, (prepare, animate).chain());
+            .add_systems(Update, (super::super::pbr::parse_metadata, prepare, animate).chain());
         app
     }
 

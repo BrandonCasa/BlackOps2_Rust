@@ -11,12 +11,7 @@ pub(super) fn convert_single_unlit(
 ) -> Result<Value> {
     let (index, hash, mode) = validate_single_unlit(key, native, recipe)?;
     let layered = index == 4;
-    let binding = native["textures"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|binding| binding["hash"] == hash)
-        .unwrap();
+    let binding = contract::texture_binding(native, hash)?;
     let name = binding["image"]
         .as_str()
         .ok_or("Missing single-layer unlit source image name")?
@@ -362,20 +357,12 @@ pub(super) fn validate_single_unlit(
                 json!([422084965_u32, 12])
             };
             if arguments.len() != 4
-                || !arguments.iter().any(|argument| {
-                    argument["type"] == 3
-                        && argument["value"] == 67109077_u32
-                        && argument["buffer"] == 3
-                        && argument["location"] == 0
-                        && argument["size"] == 64
-                })
-                || !arguments.iter().any(|argument| {
-                    argument["type"] == 3
-                        && argument["value"] == 67109093_u32
-                        && argument["buffer"] == 0
-                        && argument["location"] == 576
-                        && argument["size"] == 64
-                })
+                || !arguments
+                    .iter()
+                    .any(|argument| contract::argument(argument, [3, 67109077, 3, 0, 64]))
+                || !arguments
+                    .iter()
+                    .any(|argument| contract::argument(argument, [3, 67109093, 0, 576, 64]))
                 || *state != expected_state
             {
                 return Err(format!(
@@ -412,11 +399,7 @@ pub(super) fn validate_single_unlit(
             if active
                 .iter()
                 .filter(|argument| {
-                    argument["type"] == kind
-                        && argument["value"] == hash
-                        && argument["buffer"] == 2
-                        && argument["location"] == location
-                        && argument["size"] == size
+                    contract::argument(argument, [kind, hash as u64, 2, location, size])
                 })
                 .count()
                 != 1
@@ -444,19 +427,12 @@ pub(super) fn validate_single_unlit(
             }
         }
         if layered
-            && (!arguments.iter().any(|argument| {
-                argument["type"] == 3
-                    && argument["value"] == 16777241_u32
-                    && argument["buffer"] == 2
-                    && argument["location"] == 64
-                    && argument["size"] == 16
-            }) || !arguments.iter().any(|argument| {
-                argument["type"] == 5
-                    && argument["value"] == 16777385_u32
-                    && argument["buffer"] == 1
-                    && argument["location"] == 368
-                    && argument["size"] == 16
-            }))
+            && (!arguments
+                .iter()
+                .any(|argument| contract::argument(argument, [3, 16777241, 2, 64, 16]))
+                || !arguments
+                    .iter()
+                    .any(|argument| contract::argument(argument, [5, 16777385, 1, 368, 16])))
         {
             return Err(format!(
                 "Single-layer unlit material {key} lacks reviewed gameTime or scriptVector0 binding"
@@ -467,13 +443,7 @@ pub(super) fn validate_single_unlit(
             && (arguments.len() != 4
                 || arguments
                     .iter()
-                    .filter(|argument| {
-                        argument["type"] == 5
-                            && argument["value"] == 16777387_u32
-                            && argument["buffer"] == 1
-                            && argument["location"] == 400
-                            && argument["size"] == 16
-                    })
+                    .filter(|argument| contract::argument(argument, [5, 16777387, 1, 400, 16]))
                     .count()
                     != 1)
         {
@@ -483,12 +453,7 @@ pub(super) fn validate_single_unlit(
             .into());
         }
     }
-    let texture = material["textures"]
-        .as_array()
-        .ok_or("Missing single-layer unlit images")?
-        .iter()
-        .find(|binding| binding["hash"] == image)
-        .ok_or("Missing single-layer unlit source image")?;
+    let texture = contract::texture_binding(material, image)?;
     if texture["sampler"] != 20 {
         return Err(format!("Single-layer unlit material {key} has unreviewed sampler").into());
     }

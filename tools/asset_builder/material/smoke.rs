@@ -71,10 +71,6 @@ fn smoke_pixel(
 }
 
 impl SmokeRecipe {
-    pub(super) fn index(self) -> usize {
-        3
-    }
-
     pub(super) fn validate(self, key: &str, native: &Value) -> Result<()> {
         if lookup(native["technique_set"].as_str().unwrap_or("")).is_none() {
             return Err(format!("Smoke pillar {key} has an unreviewed family").into());
@@ -96,7 +92,7 @@ impl SmokeRecipe {
                 .iter()
                 .map(|&(hash, location, size)| (6, hash, 2, location, size)),
         );
-        let selected = self.index();
+        let selected = 3;
         let pass = contract::pass(native, selected)?;
         if pass["vertex_shader"] != "pimp_shader_sw4_3d_zmb_smoke_pillar_cheap_cd848ad4.hlsl"
             || pass["pixel_shader"] != "pimp_shader_sw4_3d_zmb_smoke_pillar_cheap_f53884f8.hlsl"
@@ -127,11 +123,10 @@ impl SmokeRecipe {
                     active
                         .iter()
                         .filter(|argument| {
-                            argument["type"] == kind
-                                && argument["value"] == value
-                                && argument["buffer"] == buffer
-                                && argument["location"] == location
-                                && argument["size"] == size
+                            contract::argument(
+                                argument,
+                                [kind, value as u64, buffer, location as u64, size],
+                            )
                         })
                         .count()
                         != 1
@@ -161,74 +156,33 @@ impl SmokeRecipe {
         pack: &mut Pack,
     ) -> Result<Value> {
         self.validate(key, native)?;
-        let vec2 = |hash| -> Result<[f32; 2]> {
-            let value = contract::literal(native, hash)?;
-            Ok([value[0], value[1]])
+        let binding = contract::texture_binding(native, 2695565377)?;
+        let name = binding["image"].as_str().ok_or("Missing smoke color image")?.to_ascii_lowercase();
+        let source = images.get(&name).ok_or_else(|| format!("Missing smoke color image {name}"))?;
+        let identity = (name, "smoke-standard".into());
+        let uri = if let Some(uri) = shared.get(&identity) {
+            uri.clone()
+        } else {
+            let image = ordinary::bake(source, "color", None)?;
+            let uri = store_image(&image, format!("prepared/material-channels/{}/smoke.ktx2", shared.len()), true, "color", pack)?;
+            shared.insert(identity, uri.clone());
+            uri
         };
-        let scales = [
-            vec2(1426306028)?,
-            vec2(2010068229)?,
-            vec2(1621481545)?,
-            vec2(504449656)?,
-        ];
-        let speeds = [vec2(1426769011)?, vec2(2010882330)?, vec2(1638779318)?];
-        let mask_offset = vec2(3599644333)?;
         let color = contract::literal(native, 116600957)?;
         let hdr = contract::literal(native, 14836402)?[0];
-        let mut layers = Vec::new();
-        for &(hash, _, sampler, role, domain) in &TEXTURES {
-            let binding = contract::texture_binding(native, hash)?;
-            let name = binding["image"]
-                .as_str()
-                .ok_or("Missing smoke pillar image name")?
-                .to_ascii_lowercase();
-            let source = images
-                .get(&name)
-                .ok_or_else(|| format!("Missing smoke pillar image {name}"))?;
-            let source_key = (name.clone(), "source_color".into());
-            let uri = if let Some(uri) = shared.get(&source_key) {
-                uri.clone()
-            } else {
-                let uri = store_image(
-                    source,
-                    format!(
-                        "prepared/material-channels/{}/source-color.ktx2",
-                        shared.len()
-                    ),
-                    false,
-                    "source_color",
-                    pack,
-                )?;
-                shared.insert(source_key, uri.clone());
-                uri
-            };
-            layers.push(json!({"uri":uri,"hash":hash,"role":role,"sampler":sampler,"domain":domain,"color_space":"native_encoded"}));
-        }
-        let surface = json!({"version":3,"identity":key,"native":native,
-            "channels":[],
-            "source_layers":layers,
-            "standard":{"unlit":true,"roughness":1.,"metallic":0.,"reflectance":0.,"base_color":[1.,1.,1.,1.]},
-            "presentation":{"alpha":"add","cull":"back","fog":false,"visible":true},
-            "source_smoke":{"consumer":"native_layers_vertex_time_depth_forward","color":color,"hdr_amount":hdr,"density":"alpha_red_times_mask_red_times_sum_alpha_plus_red_and_alpha_minus_red",
-                "rgb":"square_sum_color_plus_rgb_and_color_minus_rgb_times_vertex_rgb_times_color_rgb_times_density_times_vertex_alpha_squared_times_depth_fade_times_color_alpha_times_hdr_amount",
-                "fragment_alpha":1.,"evaluation":"live_fragment","model_fx_shader_start":0.},
-            "source_uv_animation":{"game_time_code":25,"component":3,"evaluation":"fragment","scale":scales,"speed":speeds,"mask_offset":mask_offset,
-                "scroll":"uv_times_scale_plus_fraction_game_time_w_times_speed_times_scale","mask":"uv_minus_offset_times_scale_plus_offset",
-                "domains":["alpha","plus","minus","mask"],"independent_domains":true},
-            "source_depth_fade":{"code_image":18,"render_target_size_code":17,"near_plane_scene_byte":928,
-                "factor":contract::literal(native,3371644427)?[0],"depth_epsilon":0.,"fade_epsilon":f32::from_bits(0x38d1b717),
-                "operation":"saturate_near_plane_divided_by_max_absolute_scene_depth_minus_clip_w_divided_by_max_fade_factor"},
-            "source_vertex_color_transfer":"linear_primary_vertex_rgb_and_squared_primary_vertex_alpha",
-            "source_emissive":{"output_transfer":"sqrt_after_scene_hdr_control0"},
-            "source_blend":{"rgb":[2,2,1],"alpha":[1,2,1]},
-            "approximations":["Native six-layer scrolling, interpolated primary RGBA and source-unit depth softness use a linear additive forward consumer; native scene HDR control and gamma2 framebuffer composition use the shared Bevy exposure and framebuffer"],
-            "pending_runtime":"Native smoke scene HDR control0 and gamma2 framebuffer composition are approximated by the shared linear forward renderer"});
-        Ok(
-            json!({"name":key,"pbrMetallicRoughness":{"baseColorFactor":[1.,1.,1.,1.],"metallicFactor":0.},"extras":{"surface":surface}}),
-        )
+        let scale = contract::literal(native, 2010068229)?;
+        let speed = contract::literal(native, 2010882330)?;
+        let tint = [color[0], color[1], color[2]].map(|value| (value * color[3] * hdr).powi(2));
+        Ok(json!({"name":key,"pbrMetallicRoughness":{"metallicFactor":0.},
+            "extras":{"surface":{"version":3,"identity":key,"native":native,
+                "channels":[{"uri":uri,"role":"color","layer":0,"color_space":"srgb","sampler":binding["sampler"]}],
+                "standard":{"unlit":true,"roughness":1.,"metallic":0.,"reflectance":0.,"base_color":[tint[0],tint[1],tint[2],1.],"uv_transform":[scale[0],0.,0.,scale[1],0.,0.]},
+                "presentation":{"alpha":"add","cull":"back","fog":false,"visible":true},
+                "uv_animation":{"translation":[speed[0],speed[1]],"time_mode":"elapsed"},
+                "source_smoke":{"consumer":"standard_material"},
+                "approximations":["Source color-plus texture, tint, HDR scale and UV scroll use stock unlit additive material; independent six-layer density, squared vertex alpha and scene-depth softness are omitted"]}}}))
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;

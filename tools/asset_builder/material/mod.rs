@@ -82,9 +82,9 @@ impl Recipe {
             Self::Unlit(_) => 2,
             Self::SingleUnlit(recipe) => recipe.index,
             Self::Falloff(recipe) => recipe.index,
-            Self::Character(recipe) => recipe.index(),
+            Self::Character(_) => 4,
             Self::EffectModel(recipe) => recipe.index(),
-            Self::Smoke(recipe) => recipe.index(),
+            Self::Smoke(_) => 3,
             Self::World(recipe) => recipe.index(),
         }
     }

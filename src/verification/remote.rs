@@ -43,6 +43,7 @@ struct MaterialProbeState(Vec<(Entity, Handle<StandardMaterial>)>);
 #[serde(default, deny_unknown_fields)]
 struct MaterialProbeRequest {
     entities: Vec<u64>,
+    no_culling: bool,
 }
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -945,12 +946,16 @@ fn material_probe(In(value): In<Option<Value>>, world: &mut World) -> BrpResult 
             .ok_or_else(|| error("Selected source material is unavailable"))?;
         selected.push((entity, handle, material));
     }
+    let stimulus = world
+        .query_filtered::<&bevy::camera::Exposure, With<crate::rendering::GameCamera>>()
+        .single(world)
+        .map_or(1., |exposure| exposure.exposure().recip());
     let mut changed = Vec::new();
     for (index, (entity, original, source)) in selected.into_iter().enumerate() {
         let color = if index == 0 {
-            Color::linear_rgb(1., 0., 1.)
+            Color::linear_rgb(stimulus, 0., stimulus)
         } else {
-            Color::linear_rgb(0., 1., 1.)
+            Color::linear_rgb(0., stimulus, stimulus)
         };
         let handle = world
             .resource_mut::<Assets<StandardMaterial>>()
@@ -958,8 +963,8 @@ fn material_probe(In(value): In<Option<Value>>, world: &mut World) -> BrpResult 
                 base_color: color,
                 unlit: true,
                 fog_enabled: false,
-                cull_mode: source.cull_mode,
-                double_sided: source.double_sided,
+                cull_mode: if request.no_culling { None } else { source.cull_mode },
+                double_sided: request.no_culling || source.double_sided,
                 alpha_mode: source.alpha_mode,
                 depth_bias: source.depth_bias,
                 opaque_render_method: bevy::material::OpaqueRendererMethod::Forward,

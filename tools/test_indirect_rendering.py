@@ -7,8 +7,7 @@ import subprocess
 import time
 import urllib.error
 
-from test_lantern_shadows import wait_for_slot
-from test_support import Client, write_report
+from test_support import Client, capture, wait_for_slot, write_report
 from test_brp import require
 
 
@@ -40,16 +39,6 @@ def inputs(client, key, ticks):
                         and not s["held_inputs"] and not s["queued_inputs"])
 
 
-def capture(client, path):
-    client.call("origins/capture", {"path": str(path)})
-    deadline = time.monotonic() + 30
-    while time.monotonic() < deadline:
-        if path.exists() and path.stat().st_size > 0:
-            return str(path)
-        time.sleep(0.1)
-    raise TimeoutError(f"Screenshot was not written: {path}")
-
-
 def bound_key(state, action):
     for binding in state["controls"]["bindings"][action]:
         if isinstance(binding, dict) and "key" in binding:
@@ -68,7 +57,7 @@ def weapon_views(client, report, output):
     settled(client)
     case = {"weapon": "weapon.mp40_zm", "captures": {}, "ready": ready}
     report["weapon_views"] = case
-    case["captures"]["hip"] = capture(client, output / "weapon-hip.png")
+    case["captures"]["hip"] = capture(client, output / "weapon-hip.png")["path"]
     aim = bound_key(ready, "aim")
     fire = bound_key(ready, "fire")
     reload_key = bound_key(ready, "reload")
@@ -78,7 +67,7 @@ def weapon_views(client, report, output):
             {"tick": 3600, "key": aim, "pressed": False},
         ]})
         case["ads"] = client.until(lambda s: s["player"]["ads"] >= 0.99, timeout=10)
-        case["captures"]["ads"] = capture(client, output / "weapon-ads.png")
+        case["captures"]["ads"] = capture(client, output / "weapon-ads.png")["path"]
         require(client.state()["player"]["ads"] >= 0.99, "ADS ended before capture completed")
     finally:
         client.release()
@@ -94,7 +83,7 @@ def weapon_views(client, report, output):
         ]})
         case["firing"] = client.until(lambda s: s["session"]["shots"] > before["session"]["shots"],
                                       timeout=10)
-        case["captures"]["firing"] = capture(client, output / "weapon-firing.png")
+        case["captures"]["firing"] = capture(client, output / "weapon-firing.png")["path"]
         case["after_firing_capture"] = client.state()
     finally:
         client.release()
@@ -103,7 +92,7 @@ def weapon_views(client, report, output):
     inputs(client, reload_key, 1)
     case["reload"] = client.until(lambda s: s["player"]["action"].startswith("Reloading"),
                                   timeout=5)
-    case["captures"]["reload"] = capture(client, output / "weapon-reload.png")
+    case["captures"]["reload"] = capture(client, output / "weapon-reload.png")["path"]
     case["after_reload_capture"] = client.state()
     case["reloaded"] = client.until(lambda s: s["player"]["action"] == "Ready"
                                     and s["player"]["weapons"][0]["magazine"]
@@ -158,7 +147,47 @@ def gpu_cases(client, report):
         require(result["pixel"] == [0, 255, 0, 255], f"GPU upload boundary failed: {padding}")
 
 
-def run(client, report, output, process, startup_only=False, require_bindless=False, water=False):
+def material_probe(client, report, output):
+    rows = client.call("world.query", {"data": {"components": [
+        "bevy_mesh::components::Mesh3d", "bevy_camera::primitives::Aabb",
+        "bevy_ecs::name::Name"], "option": ["bevy_gltf::assets::GltfMaterialName"]}})
+    report["mesh_inventory"] = rows
+    candidates = [row for row in rows if "maps/mp/zm_tomb.d3dbsp/*0" in row["components"]["bevy_ecs::name::Name"]]
+    state = client.state()
+    player = state["player"]
+    position = player["position"][:]
+    position[1] += player["eye_height"] - player["height"] * .5
+    direction = [-math.sin(player["yaw"]) * math.cos(player["pitch"]),
+                 math.sin(player["pitch"]), -math.cos(player["yaw"]) * math.cos(player["pitch"])]
+    def distance(row):
+        aabb = row["components"]["bevy_camera::primitives::Aabb"]
+        near, far = 0, 100
+        for axis in range(3):
+            if abs(direction[axis]) < .00001:
+                if abs(position[axis] - aabb["center"][axis]) > aabb["half_extents"][axis]:
+                    return math.inf
+                continue
+            first = (aabb["center"][axis] - aabb["half_extents"][axis] - position[axis]) / direction[axis]
+            last = (aabb["center"][axis] + aabb["half_extents"][axis] - position[axis]) / direction[axis]
+            near, far = max(near, min(first, last)), min(far, max(first, last))
+        return near if far >= near > 1 and min(aabb["half_extents"]) < .2 else math.inf
+    candidates.sort(key=distance)
+    selected = [row for row in candidates if math.isfinite(distance(row))][:2]
+    require(selected, "No world surfaces found for the material probe")
+    report["material_probe"] = {}
+    for label, no_culling in (("source-culling", False), ("no-culling", True)):
+        try:
+            report["material_probe"][label] = client.call("origins/material-probe", {
+                "entities": [row["entity"] for row in selected], "no_culling": no_culling})
+            time.sleep(3)
+            report["material_probe"][label]["render"] = client.call("origins/materials")
+            report["screenshots"].append(capture(client, output / f"material-probe-{label}.png")["path"])
+        finally:
+            report["material_probe_restore"] = client.call("origins/material-probe", {})
+
+
+
+def run(client, report, output, process, startup_only=False, require_bindless=False, water=False, probe=False, settle_seconds=0, nsight=None, nsight_session=None, nsight_graphics=None):
     deadline = time.monotonic() + 360
     while time.monotonic() < deadline:
         require(process.poll() is None, f"Game exited during startup: {process.returncode}")
@@ -175,15 +204,62 @@ def run(client, report, output, process, startup_only=False, require_bindless=Fa
     report["schema"] = client.call("origins/schema")
     registry = client.call("registry.schema")
     report["render_before"] = settled(client)
-    report["screenshots"] = [capture(client, output / "initial.png")]
+    report["screenshots"] = [capture(client, output / "initial.png")["path"]]
+    if nsight:
+        result = subprocess.run([str(nsight), "start", "--session=" + nsight_session],
+                                capture_output=True, text=True, timeout=30,
+                                creationflags=subprocess.CREATE_NO_WINDOW)
+        report["nsight_start"] = {"exit_code": result.returncode, "stdout": result.stdout, "stderr": result.stderr}
+        require(result.returncode == 0, "Nsight failed to start capture: " + result.stderr)
+        print(json.dumps({"status": "nsight_capturing", "seconds": 15}), flush=True)
+        time.sleep(18)
+        report["screenshots"].append(capture(client, output / "nsight-capture.png")["path"])
+    if nsight_graphics:
+        print(json.dumps({"status": "waiting_for_nsight_graphics_capture"}), flush=True)
+        deadline = time.monotonic() + 300
+        previous = None
+        unchanged_since = time.monotonic()
+        while time.monotonic() < deadline:
+            files = [*output.glob("*.ngfx-bincap"), *output.glob("*.ngfx-capture")]
+            sizes = [(str(path), path.stat().st_size) for path in files]
+            if sizes != previous:
+                previous = sizes
+                unchanged_since = time.monotonic()
+            if sizes and all(size > 0 for _, size in sizes) and time.monotonic() - unchanged_since > 10:
+                report["nsight_graphics_captures"] = sizes
+                break
+            require(process.poll() is None, "Nsight Graphics target exited before capture completed")
+            time.sleep(1)
+        require("nsight_graphics_captures" in report, "Nsight Graphics capture did not finish")
+        report["screenshots"].append(capture(client, output / "nsight-graphics.png")["path"])
+    if settle_seconds:
+        report["settle_test"] = {"seconds": settle_seconds, "before": client.state()}
+        started = time.monotonic()
+        print(json.dumps({"status": "waiting_in_game", "seconds": settle_seconds}), flush=True)
+        time.sleep(settle_seconds)
+        report["settle_test"]["after"] = client.state()
+        elapsed = time.monotonic() - started
+        frames = report["settle_test"]["after"]["render_frame"] - report["settle_test"]["before"]["render_frame"]
+        report["settle_test"].update(elapsed_seconds=elapsed, frames=frames, average_fps=frames / elapsed)
+        memory_command = "$process=Get-Process -Id " + str(process.pid) + "; $process | Select-Object WorkingSet64,PrivateMemorySize64 | ConvertTo-Json -Compress"
+        report["settle_test"]["process_memory"] = json.loads(subprocess.check_output(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", memory_command],
+            text=True, creationflags=subprocess.CREATE_NO_WINDOW))
+        report["settle_test"]["whole_device_gpu"] = subprocess.check_output(
+            ["nvidia-smi", "--query-gpu=memory.used,utilization.gpu", "--format=csv"],
+            text=True, creationflags=subprocess.CREATE_NO_WINDOW).strip()
+        report["settle_test"]["materials_after"] = client.call("origins/materials")
+        report["screenshots"].append(capture(client, output / "after-wait.png")["path"])
+    if probe:
+        material_probe(client, report, output)
+    if startup_only:
+        return
     methods = {method["name"] for method in report["discovery"]["methods"]}
     if "origins/rendering/indirect" in methods:
         gpu_cases(client, report)
     if require_bindless:
         require(report.get("indirect_gpu", {}).get("capabilities", {}).get("opaque_bindless"),
                 "Opaque materials fell back from bindless rendering")
-    if startup_only:
-        return
     client.reset()
     client.call("origins/setup", {"clear_enemies": True, "pause_spawning_seconds": 120})
     before = client.wait_ticks(12)
@@ -204,13 +280,13 @@ def run(client, report, output, process, startup_only=False, require_bindless=Fa
         client.call("world.write_message", {"message": mouse_type, "value": {"delta": [400.0, 0.0]}})
         client.wait_ticks(12)
         settled(client)
-        report["screenshots"].append(capture(client, output / f"rotation-{index}.png"))
+        report["screenshots"].append(capture(client, output / f"rotation-{index}.png")["path"])
     client.reset()
     before = client.wait_ticks(12)
     after = inputs(client, bound_key(before, "fire"), 12)
     require(after["session"]["shots"] > before["session"]["shots"], "Fire input produced no shot")
     report["firing"] = {"before": before, "after": after}
-    report["screenshots"].append(capture(client, output / "firing.png"))
+    report["screenshots"].append(capture(client, output / "firing.png")["path"])
     weapon_views(client, report, output)
     report["render_after"] = settled(client)
     shadows = report["render_after"]["shadows"]
@@ -219,9 +295,9 @@ def run(client, report, output, process, startup_only=False, require_bindless=Fa
         report["water_view"] = client.call("origins/rendering", {
             "view": [-38.7, 5.5, -13.0, -38.7, 0.0, -21.0]})
         settled(client)
-        report["screenshots"].append(capture(client, output / "water-a.png"))
+        report["screenshots"].append(capture(client, output / "water-a.png")["path"])
         client.wait_ticks(90)
-        report["screenshots"].append(capture(client, output / "water-b.png"))
+        report["screenshots"].append(capture(client, output / "water-b.png")["path"])
         client.call("origins/rendering", {"restore_player_view": True})
     report["coverage_limits"] = [
         "Screenshots require visual review; pipeline success alone does not prove geometry.",
@@ -239,21 +315,49 @@ def main():
     parser.add_argument("--startup-only", action="store_true")
     parser.add_argument("--require-bindless", action="store_true")
     parser.add_argument("--water", action="store_true")
+    parser.add_argument("--material-probe", action="store_true")
+    parser.add_argument("--settle-seconds", type=float, default=0)
+    parser.add_argument("--disable-implicit-layers", action="store_true")
+    parser.add_argument("--nsight", type=Path)
+    parser.add_argument("--nsight-cpu-sampling", action="store_true")
+    parser.add_argument("--nsight-graphics", type=Path)
     args = parser.parse_args()
+    require(not (args.nsight and args.nsight_graphics), "Capture with one Nsight tool at a time")
     bundle, output = args.bundle.resolve(), args.output.resolve()
     require(not output.is_relative_to(Path(__file__).resolve().parent.parent), "Output must be external")
     output.mkdir(parents=True, exist_ok=False)
     report = {'passed': False, 'backend': args.backend, 'startup_only': args.startup_only}
+    report["implicit_layers_disabled"] = args.disable_implicit_layers
     client = Client(f"http://127.0.0.1:{args.port}", request_timeout=120, shutdown_timeout=60)
     wait_for_slot()
+    nsight_session = "origins-renderer-" + str(os.getpid())
     with (output / "game.log").open("w", encoding="utf-8") as log:
-        process = subprocess.Popen([str(bundle / "origins.exe"), "--validation-remote", str(args.port)],
+        environment = {**os.environ, "WGPU_BACKEND": args.backend, "RUST_LOG": "info,wgpu=warn,naga=warn"}
+        if args.disable_implicit_layers:
+            environment["VK_LOADER_LAYERS_DISABLE"] = "*ReShade*,*OW_OVERLAY*,*OW_OBS_HOOK*" if args.nsight or args.nsight_graphics else "~implicit~"
+        command = [str(bundle / "origins.exe"), "--validation-remote", str(args.port)]
+        if args.nsight:
+            sampling = "process-tree" if args.nsight_cpu_sampling else "none"
+            command = [str(args.nsight), "profile", "--trace=vulkan,vulkan-annotations",
+                       "--sample=" + sampling, "--cpuctxsw=" + sampling, "--debug-symbols=.",
+                       "--start-later=true", "--duration=15",
+                       "--kill=false", "--wait=all", "--session-new=" + nsight_session,
+                       "--output=" + str(output / "renderer"), *command]
+            report["nsight_command"] = command
+        elif args.nsight_graphics:
+            command = [str(args.nsight_graphics), "--exe", str(bundle / "origins.exe"),
+                       "--working-dir", str(bundle), "--output-dir", str(output),
+                       "--output-file", "renderer", "--frame-count", "1", "--no-bundle-replayer",
+                       "--non-portable", "--capture-countdown-timer", "120000", "--no-hud",
+                       "--args", "--validation-remote", str(args.port)]
+            report["nsight_command"] = command
+        process = subprocess.Popen(command,
             cwd=bundle, stdout=log, stderr=subprocess.STDOUT,
-            env={**os.environ, "WGPU_BACKEND": args.backend, "RUST_LOG": "info,wgpu=warn,naga=warn"},
+            env=environment,
             creationflags=subprocess.CREATE_NO_WINDOW)
         report["pid"] = process.pid
         try:
-            run(client, report, output, process, args.startup_only, args.require_bindless, args.water)
+            run(client, report, output, process, args.startup_only, args.require_bindless, args.water, args.material_probe, args.settle_seconds, args.nsight, nsight_session, args.nsight_graphics)
             report["passed"] = True
         except Exception as error:
             report["error"] = f"{type(error).__name__}: {error}"

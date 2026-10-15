@@ -5,11 +5,10 @@ import math
 from pathlib import Path
 import time
 
-from test_support import Client, write_report
+from test_support import Client, capture, write_report
 from test_support import external_output, info_string
 from test_nuke_rewards import actor, aim, prepare
 from test_throwable_down import binding, check, edge, schedule
-from test_weapon_materials import capture
 
 
 def observe(client, predicate, timeout=30):

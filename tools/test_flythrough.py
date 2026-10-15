@@ -6,7 +6,7 @@ import subprocess
 import time
 import urllib.error
 
-from test_support import Client, write_report
+from test_support import Client, capture, wait_for_slot, write_report
 from test_brp import require
 
 
@@ -28,17 +28,6 @@ def press(client, key):
     client.release()
     client.call("origins/input", {"events": [{"tick": 1, "key": key, "pressed": True},
                                              {"tick": 20, "key": key, "pressed": False}]})
-
-
-def wait_for_slot():
-    command = "@(Get-Process -Name origins,origins_flythrough,cargo,rustc,capture,nsys,ncu,qrenderdoc,renderdoccmd,tracy-capture,WinPixGpuCapturer,obs64,ffmpeg -ErrorAction SilentlyContinue | Select-Object ProcessName,Id) | ConvertTo-Json -Compress"
-    while True:
-        active = subprocess.check_output(["powershell", "-NoProfile", "-NonInteractive", "-Command", command],
-                                         text=True, creationflags=subprocess.CREATE_NO_WINDOW).strip()
-        if not active or active == "[]":
-            return
-        print(f"Waiting for shared game/capture/compiler slot: {active}", flush=True)
-        time.sleep(10)
 
 
 def main():
@@ -100,7 +89,7 @@ def main():
                 label = status["label"]
                 if status["phase"] == "running" and status["shot_elapsed_seconds"] >= 0.5 and not label.startswith(("Flying", "Transition")) and label not in captured:
                     path = output / f"shot-{status['shot']:02}.png"
-                    client.call("origins/capture", {"path": str(path)})
+                    capture(client, path)
                     captured.add(label)
                     report["captures"].append(str(path))
                 if status["phase"] == "finished":

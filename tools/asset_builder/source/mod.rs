@@ -97,65 +97,6 @@ pub fn build(install: &Path, output: &Path, preview: Option<&str>) -> Result<()>
     };
     let used_materials = crate::geometry::material_names(&catalog, required_models.as_ref())?;
     let mut materials = crate::material::read_used(&catalog, &used_materials)?;
-    if let Some(profile) = game
-        .as_ref()
-        .map(|game| &game.0["generator_crystals"])
-        .filter(|profile| profile.is_object())
-    {
-        let initial: [f32; 4] = serde_json::from_value(profile["initial_state"].clone())?;
-        let ranges: Vec<[f32; 2]> = ["zombie_controlled", "player_controlled"]
-            .into_iter()
-            .map(|phase| serde_json::from_value(profile[phase]["range"].clone()))
-            .collect::<std::result::Result<_, _>>()?;
-        let minimum = ranges
-            .iter()
-            .map(|range| range[0])
-            .fold(initial[0].min(0.), f32::min);
-        let maximum = ranges
-            .iter()
-            .map(|range| range[1])
-            .fold(initial[0].max(0.), f32::max);
-        let mut states = vec![[0.; 4], initial];
-        states.extend((0..=255).map(|index| {
-            let mut state = initial;
-            state[0] = minimum + (maximum - minimum) * index as f32 / 255.;
-            state
-        }));
-        states.sort_by(|a, b| a[0].total_cmp(&b[0]));
-        states.dedup();
-        let models: std::collections::BTreeSet<_> = profile["crystals"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|crystal| crystal["source_model"].as_str())
-            .map(str::to_ascii_lowercase)
-            .collect();
-        for (name, zone, root) in catalog
-            .definitions(5)
-            .filter(|(name, _, _)| models.contains(&name.to_ascii_lowercase()))
-        {
-            let streams = &catalog.zones[zone].1.streams;
-            let bindings = fastfile::Address::decode(streams.u32(root.add(36)?)?)?;
-            for index in 0..streams.u8(root.add(6)?)? as usize {
-                let material = catalog
-                    .pointer(zone, bindings.add(index * 4)?, 6)?
-                    .0
-                    .to_ascii_lowercase();
-                if let Some(native) = materials.get_mut(&material).filter(|native| {
-                    crate::material::script_layer_mode(
-                        native["technique_set"].as_str().unwrap_or_default(),
-                    )
-                    .is_some()
-                }) {
-                    native["baked_script_states"] = serde_json::json!(states);
-                    println!(
-                        "Baking source generator crystal {name} material {material} in {} script-state banks",
-                        states.len()
-                    );
-                }
-            }
-        }
-    }
     let research =
         PathBuf::from(std::env::var_os("USERPROFILE").ok_or("USERPROFILE is unavailable")?)
             .join("Documents/T6ZMResearch/t6zm-master");

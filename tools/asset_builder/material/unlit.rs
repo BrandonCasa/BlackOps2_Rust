@@ -67,30 +67,17 @@ pub(super) fn validate_unlit(key: &str, material: &Value, recipe: UnlitRecipe) -
         .filter(|argument| matches!(argument["type"].as_u64(), Some(0 | 1 | 2 | 6 | 7 | 8)))
         .collect();
     if active.len() != (if scaled { 2 } else { 1 })
-        || !active.iter().any(|argument| {
-            argument["type"] == 2
-                && argument["value"] == 2695565377_u32
-                && argument["location"] == 0
-                && argument["size"] == 1
-                && argument["buffer"] == 0
-        })
+        || !active
+            .iter()
+            .any(|argument| contract::argument(argument, [2, 2695565377, 0, 0, 1]))
         || scaled
-            && !active.iter().any(|argument| {
-                argument["type"] == 6
-                    && argument["value"] == 3799286735_u32
-                    && argument["location"] == 16
-                    && argument["size"] == 4
-                    && argument["buffer"] == 2
-            })
+            && !active
+                .iter()
+                .any(|argument| contract::argument(argument, [6, 3799286735, 2, 16, 4]))
     {
         return Err(format!("Unlit material {key} has unreviewed active bindings").into());
     }
-    let texture = material["textures"]
-        .as_array()
-        .ok_or("Missing unlit textures")?
-        .iter()
-        .find(|texture| texture["hash"] == 2695565377_u32)
-        .ok_or("Missing unlit color texture")?;
+    let texture = contract::texture_binding(material, 2695565377_u32)?;
     let sampler = texture["sampler"].as_u64();
     if !(if decal {
         matches!(sampler, Some(10 | 74))
@@ -249,12 +236,7 @@ pub(super) fn convert_unlit(
 ) -> Result<Value> {
     let UnlitRecipe { pixel: _, alpha } = recipe;
     let scale = validate_unlit(key, native, recipe)?;
-    let binding = native["textures"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|binding| binding["hash"] == 2695565377_u32)
-        .unwrap();
+    let binding = contract::texture_binding(native, 2695565377_u32)?;
     let name = binding["image"]
         .as_str()
         .ok_or("Missing unlit image name")?

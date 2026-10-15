@@ -48,8 +48,6 @@ struct GpuRequirements {
 #[derive(Component)]
 struct LoadingScreen;
 #[derive(Component)]
-struct LoadingLabel;
-#[derive(Component)]
 struct LoadingBar;
 #[derive(Component)]
 struct PreparationMesh;
@@ -368,7 +366,6 @@ fn setup(
                 ));
             }
             parent.spawn((
-                LoadingLabel,
                 crate::hud::native::NativeText::new("ORIGINS", 34.),
                 Node {
                     position_type: PositionType::Absolute,
@@ -407,7 +404,6 @@ fn display(
     state: Res<State<GameState>>,
     progress: Res<ShaderProgress>,
     mut screens: Query<&mut Visibility, With<LoadingScreen>>,
-    mut labels: Query<&mut crate::hud::native::NativeText, With<LoadingLabel>>,
     mut bars: Query<&mut Node, With<LoadingBar>>,
 ) {
     let loading = matches!(**state, GameState::Loading | GameState::PreparingShaders);
@@ -429,9 +425,6 @@ fn display(
     } else {
         0.
     };
-    for mut label in &mut labels {
-        label.value = "ORIGINS".into();
-    }
     for mut bar in &mut bars {
         bar.width = percent(percent_ready);
     }

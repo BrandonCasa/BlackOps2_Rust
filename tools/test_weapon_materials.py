@@ -5,9 +5,9 @@ from pathlib import Path
 import time
 
 try:
-    from .test_support import Client, write_report
+    from .test_support import Client, capture, write_report
 except ImportError:
-    from test_support import Client, write_report
+    from test_support import Client, capture, write_report
 
 
 def wait_materials(client, first=True, world=False, timeout=45, expected=None):
@@ -28,18 +28,6 @@ def wait_materials(client, first=True, world=False, timeout=45, expected=None):
             stable = None
         time.sleep(0.1)
     raise TimeoutError(f'Material preparation timed out: {last}')
-
-
-def capture(client, path):
-    client.call('origins/capture', {'path': str(path.resolve())})
-    deadline = time.monotonic() + 20
-    while time.monotonic() < deadline:
-        if path.is_file() and path.stat().st_size > 100:
-            encoded = asset_bytes(path)
-            if encoded.startswith(b'\x89PNG\r\n\x1a\n') and encoded.endswith(b'\x00\x00\x00\x00IEND\xaeB\x60\x82'):
-                return {'path': str(path)}
-        time.sleep(0.1)
-    raise TimeoutError(f'Screenshot did not complete: {path}')
 
 
 def inputs(client, events, ticks):

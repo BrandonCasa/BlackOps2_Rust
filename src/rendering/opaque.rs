@@ -1,13 +1,9 @@
-use super::{
-    SurfaceReady,
-    pbr::{PbrReady, PreparedTexture},
-};
+use super::pbr::{PbrReady, PreparedTexture};
 use bevy::{
     gltf::{GltfExtras, GltfMaterialName},
     mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes},
     mesh::{MeshVertexAttribute, VertexAttributeValues},
     prelude::*,
-    render::render_resource::AsBindGroup,
 };
 use serde_json::Value;
 use std::{
@@ -31,10 +27,6 @@ pub(crate) const FLAG_PACKED_BASIS: MeshVertexAttribute = MeshVertexAttribute::n
     bevy::render::render_resource::VertexFormat::Uint32x2,
 );
 
-pub(crate) fn bindless_supported(device: &bevy::render::renderer::RenderDevice) -> bool {
-    StandardMaterial::bindless_supported(device)
-}
-
 #[derive(Resource, Default, serde::Serialize)]
 pub(crate) struct OpaqueSurfaceStatus {
     world: usize,
@@ -54,7 +46,6 @@ impl OpaqueSurfaceStatus {
 }
 
 pub(super) struct SurfaceDefinition {
-    pub presentation: Value,
     channels: HashMap<(String, u64), Handle<Image>>,
     pub(super) metadata: Value,
     frames: Arc<Vec<Frame>>,
@@ -67,21 +58,12 @@ pub(crate) struct SurfaceLibrary {
 }
 impl SurfaceLibrary {
     pub(crate) fn textures_ready(&self, server: &AssetServer) -> Result<bool, String> {
-        let mut ready = true;
-        for definition in self.definitions.values() {
-            for image in definition.channels.values() {
-                if let Some(bevy::asset::LoadState::Failed(error)) =
-                    server.get_load_state(image.id())
-                {
-                    return Err(format!(
-                        "Standard material texture {:?}: {error}",
-                        image.path()
-                    ));
-                }
-                ready &= server.is_loaded_with_dependencies(image.id());
-            }
-        }
-        Ok(ready)
+        super::pbr::textures_ready(
+            server,
+            self.definitions
+                .values()
+                .flat_map(|definition| definition.channels.values()),
+        )
     }
 }
 
@@ -324,7 +306,6 @@ pub(super) fn register_prepared(
     library.definitions.insert(
         identity.into(),
         SurfaceDefinition {
-            presentation: surface["presentation"].clone(),
             channels: channels
                 .iter()
                 .map(|(texture, image)| ((texture.role.clone(), texture.layer), image.clone()))
@@ -447,7 +428,7 @@ struct Frame {
     channels: Vec<PreparedTexture>,
     factors: Value,
 }
-#[derive(Component, Clone)]
+#[derive(Component)]
 pub(super) struct AnimatedMaterial {
     driver: String,
     fps: f32,
@@ -456,7 +437,6 @@ pub(super) struct AnimatedMaterial {
     owner: Option<Entity>,
     frames: Arc<Vec<Frame>>,
     loaded: HashMap<usize, HashMap<String, Handle<Image>>>,
-    states: Arc<Vec<[f32; 4]>>,
     pending_frame: Option<usize>,
     pub(super) selected: usize,
 }
@@ -967,24 +947,6 @@ fn validate_animation(surface: &Value) -> Result<(), String> {
             super::pbr::uv_transform(&frame["standard"])?;
         }
     }
-    if !surface["static_states"].is_null() {
-        let palette = &surface["static_states"];
-        let states: Vec<[f32; 4]> =
-            serde_json::from_value(palette["states"].clone()).map_err(|error| error.to_string())?;
-        let surfaces = palette["surfaces"]
-            .as_array()
-            .ok_or("Static ray states have no surfaces")?;
-        if states.is_empty()
-            || states.len() != surfaces.len()
-            || states.iter().flatten().any(|value| !value.is_finite())
-        {
-            return Err("Invalid static ray material states".into());
-        }
-        for surface in surfaces {
-            super::pbr::textures(&surface["channels"])?;
-            super::pbr::uv_transform(&surface["standard"])?;
-        }
-    }
     if !surface["scalar_animation"].is_null() {
         let animation: ScalarAnimation =
             serde_json::from_value(surface["scalar_animation"].clone())
@@ -1030,13 +992,29 @@ pub(super) fn convert(
             &GlobalTransform,
             &InheritedVisibility,
         ),
-        (With<PbrReady>, With<SurfaceReady>, Without<StandardReady>),
+        (
+            With<PbrReady>,
+            Without<StandardReady>,
+            Without<crate::assets::WorldCollider>,
+        ),
     >,
     extras: Query<&GltfExtras>,
     parents: Query<&ChildOf>,
     rigs: Query<&crate::presentation::Rig>,
     stones: Query<(), With<crate::staff_puzzles::IceStone>>,
     art_inputs: Query<(), With<NativeArtInputs>>,
+    dynamic_roots: Query<
+        Has<crate::enemies::Zombie>,
+        Or<(
+            With<crate::barriers::BoardVisual>,
+            With<crate::generators::GeneratorVisual>,
+            With<crate::enemies::Zombie>,
+            With<crate::equipment::Grenade>,
+            With<crate::mines::PlantedMine>,
+            With<crate::presentation::ViewModelGroup>,
+        )>,
+    >,
+    profile: Res<super::profile::VisualProfile>,
     mut library: ResMut<SurfaceLibrary>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -1045,20 +1023,21 @@ pub(super) fn convert(
     mut next: ResMut<NextState<crate::GameState>>,
 ) {
     status.pending = 0;
-    for (entity, original, name, mesh, dynamic, skin, flag, global, visibility) in &query {
-        let Some(base) = materials.get(&original.0).cloned() else {
+    for (entity, original, name, mesh, mut dynamic, skin, flag, global, visibility) in &query {
+        let Some(mut base) = materials.get(&original.0).cloned() else {
             status.pending += 1;
-            continue;
-        };
-        let Some(definition) = library.definitions.get_mut(&name.0) else {
-            commands.entity(entity).insert(StandardReady);
-            status.world += 1;
             continue;
         };
         let mut current = Some(entity);
         let mut owner = None;
         let mut is_static = false;
+        let mut actor = false;
+        dynamic |= skin.is_some();
         while let Some(ancestor) = current {
+            if let Ok(zombie) = dynamic_roots.get(ancestor) {
+                dynamic = true;
+                actor |= zombie;
+            }
             if owner.is_none()
                 && let Ok(rig) = rigs.get(ancestor)
             {
@@ -1077,19 +1056,41 @@ pub(super) fn convert(
                 .is_some_and(|v| v["static_instance"] == true);
             current = parents.get(ancestor).ok().map(ChildOf::parent);
         }
-        let static_states = !definition.metadata["static_states"].is_null();
-        let animation = if static_states {
-            &definition.metadata["static_states"]
-        } else {
-            &definition.metadata["animation"]
+        if dynamic {
+            commands.entity(entity).insert(super::DynamicSurface);
+            if skin.is_some() {
+                commands
+                    .entity(entity)
+                    .insert(bevy::render::batching::NoAutomaticBatching);
+            }
+            if actor {
+                commands.entity(entity).insert(super::ActorSurface);
+            }
+        }
+        let Some(definition) = library.definitions.get_mut(&name.0) else {
+            commands.entity(entity).insert(StandardReady);
+            status.world += 1;
+            continue;
         };
+        let state = &definition.metadata["presentation"];
+        if !dynamic && state["emissive"].as_bool() == Some(true) {
+            base.emissive_exposure_weight = 1.;
+            base.emissive = if state["lamp"].as_bool() == Some(true) {
+                super::profile::color(profile.lantern_color).to_linear()
+                    * profile.lantern_emissive_nits
+            } else {
+                LinearRgba::WHITE * profile.emissive_nits
+            };
+            if let Some(mut material) = materials.get_mut(&original.0) {
+                *material = base.clone();
+            }
+        }
+        let animation = &definition.metadata["animation"];
         let live_mesh = dynamic
             || !definition.metadata["uv_animation"].is_null()
             || !definition.metadata["source_flag_motion"].is_null();
         if definition.frames.is_empty()
-            && let Some(source_frames) = animation["frames"]
-                .as_array()
-                .or_else(|| animation["surfaces"].as_array())
+            && let Some(source_frames) = animation["frames"].as_array()
         {
             for frame in source_frames {
                 let textures = super::pbr::textures(&frame["channels"]).unwrap();
@@ -1207,20 +1208,13 @@ pub(super) fn convert(
         }
         if !frames.is_empty() {
             commands.entity(entity).insert(AnimatedMaterial {
-                driver: if static_states {
-                    "native_script_state".into()
-                } else {
-                    animation["driver"].as_str().unwrap().into()
-                },
+                driver: animation["driver"].as_str().unwrap().into(),
                 fps: animation["fps"].as_f64().unwrap_or(0.) as f32,
                 time_frames: animation["time_frames"].as_u64().unwrap_or(1).max(1) as usize,
                 state_threshold: animation["state_threshold"].as_f64().unwrap_or(1.) as f32,
                 owner,
                 frames: frames.clone(),
                 loaded: HashMap::new(),
-                states: Arc::new(
-                    serde_json::from_value(animation["states"].clone()).unwrap_or_default(),
-                ),
                 pending_frame: None,
                 selected: usize::MAX,
             });
@@ -1270,31 +1264,6 @@ pub(super) fn animate(
                 .rem_euclid(count as f64) as usize
         };
         let desired = match animation.driver.as_str() {
-            "native_script_state" => {
-                let state = animation
-                    .owner
-                    .and_then(|owner| inputs.get(owner).ok())
-                    .filter(|input| input.script_available & 1 != 0)
-                    .map(|input| input.script_vectors[0]);
-                let bank = state.map_or(0, |state| {
-                    animation
-                        .states
-                        .iter()
-                        .enumerate()
-                        .min_by(|(_, a), (_, b)| {
-                            let distance = |value: &&[f32; 4]| {
-                                value
-                                    .iter()
-                                    .zip(state)
-                                    .map(|(a, b)| (*a - b).powi(2))
-                                    .sum::<f32>()
-                            };
-                            distance(a).total_cmp(&distance(b))
-                        })
-                        .map_or(0, |(index, _)| index)
-                });
-                bank
-            }
             "staff_charge" => {
                 let charged = animation
                     .owner
@@ -1320,7 +1289,6 @@ pub(super) fn animate(
                 desired / animation.time_frames * animation.time_frames
                     + (desired + 1) % animation.time_frames
             }
-            "native_script_state" => desired,
             "frozen_stone" => (desired + 1).min(count - 1),
             _ => (desired + 1) % count,
         };
@@ -1380,18 +1348,7 @@ pub(super) fn animate(
         if let Some(mut material) = materials.get_mut(handle) {
             let frame = &animation.frames[selected];
             let channels = &animation.loaded[&selected];
-            material.base_color_texture = channels.get("color").cloned();
-            material.normal_map_texture = channels.get("normal").cloned();
-            material.metallic_roughness_texture = channels.get("response").cloned();
-            material.occlusion_texture = channels
-                .get("occlusion")
-                .or_else(|| channels.get("response"))
-                .cloned();
-            material.emissive_texture = channels.get("emissive").cloned();
-            material.specular_tint_texture = channels
-                .get("reflectance")
-                .or_else(|| channels.get("specular_gloss"))
-                .cloned();
+            super::pbr::apply_channels(&mut material, |role| channels.get(role).cloned());
             apply_factors(&mut material, &frame.factors);
             animation.selected = selected;
         }
@@ -2994,7 +2951,6 @@ mod tests {
                             },
                         ]),
                         loaded: HashMap::new(),
-                        states: Arc::default(),
                         pending_frame: None,
                         selected: usize::MAX,
                     },
@@ -3064,7 +3020,6 @@ mod tests {
                             })
                             .collect(),
                     ),
-                    states: Arc::default(),
                     pending_frame: Some(0),
                     selected: usize::MAX,
                     loaded: HashMap::from([
@@ -3136,80 +3091,6 @@ mod tests {
                 .emissive
                 .red,
             3.
-        );
-    }
-
-    #[test]
-    fn static_ray_states_follow_owner_inputs_independently_of_shader_time() {
-        let mut app = App::new();
-        app.add_plugins((MinimalPlugins, bevy::asset::AssetPlugin::default()))
-            .init_asset::<Image>()
-            .init_asset::<StandardMaterial>()
-            .insert_resource(MaterialTime(9999.))
-            .add_systems(Update, animate);
-        let frames: Arc<Vec<Frame>> = Arc::new(
-            (1..=2)
-                .map(|value| Frame {
-                    channels: Vec::new(),
-                    factors: json!({"emissive":[value as f32,0.,0.],"emissive_exposure_weight":1.}),
-                })
-                .collect(),
-        );
-        let mut handles = Vec::new();
-        let mut owners = Vec::new();
-        for (start, state) in [(0., 0.5), (0.5, 0.)] {
-            let owner = app
-                .world_mut()
-                .spawn(NativeArtInputs {
-                    shader_time: Some((1250, start)),
-                    script_available: 1,
-                    script_vectors: [[state, 0., 0., 0.], [0.; 4], [0.; 4], [0.; 4]],
-                    ..default()
-                })
-                .id();
-            let handle = app
-                .world_mut()
-                .resource_mut::<Assets<StandardMaterial>>()
-                .add(StandardMaterial::default());
-            app.world_mut().spawn((
-                MeshMaterial3d(handle.clone()),
-                AnimatedMaterial {
-                    driver: "native_script_state".into(),
-                    fps: 2.,
-                    time_frames: 2,
-                    state_threshold: 1.,
-                    owner: Some(owner),
-                    frames: frames.clone(),
-                    states: Arc::new(vec![[0.; 4], [0.5, 0., 0., 0.]]),
-                    pending_frame: None,
-                    loaded: HashMap::new(),
-                    selected: usize::MAX,
-                },
-            ));
-            handles.push(handle);
-            owners.push(owner);
-        }
-        app.update();
-        let materials = app.world().resource::<Assets<StandardMaterial>>();
-        assert_eq!(materials.get(&handles[0]).unwrap().emissive.red, 2.);
-        assert_eq!(
-            materials.get(&handles[0]).unwrap().emissive_exposure_weight,
-            1.
-        );
-        assert_eq!(materials.get(&handles[1]).unwrap().emissive.red, 1.);
-        app.world_mut()
-            .get_mut::<NativeArtInputs>(owners[0])
-            .unwrap()
-            .script_available = 0;
-        app.update();
-        assert_eq!(
-            app.world()
-                .resource::<Assets<StandardMaterial>>()
-                .get(&handles[0])
-                .unwrap()
-                .emissive
-                .red,
-            1.
         );
     }
 }

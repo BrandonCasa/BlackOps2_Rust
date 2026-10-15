@@ -1,7 +1,4 @@
-use crate::rendering::{
-    GameCamera,
-    profile::{Antialiasing, VisualProfile},
-};
+use crate::rendering::{GameCamera, profile::VisualProfile};
 use bevy::{
     prelude::*,
     remote::{BrpError, BrpResult, RemoteMethods},
@@ -31,7 +28,6 @@ pub(super) fn install(app: &mut App) {
 #[derive(Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct Setup {
-    antialiasing: Option<Antialiasing>,
     view: Option<[f32; 6]>,
     restore_player_view: bool,
     color_patches: Option<Vec<[f32; 3]>>,
@@ -83,9 +79,6 @@ fn configure(In(params): In<Option<Value>>, world: &mut World) -> BrpResult {
         .query_filtered::<Entity, With<GameCamera>>()
         .iter(world)
         .collect();
-    if let Some(aa) = request.antialiasing {
-        world.resource_mut::<VisualProfile>().antialiasing = aa;
-    }
     if let Some(enabled) = request.bloom {
         for &entity in &cameras {
             if enabled {
@@ -161,6 +154,6 @@ fn configure(In(params): In<Option<Value>>, world: &mut World) -> BrpResult {
         }
     }
     Ok(
-        json!({"antialiasing":world.resource::<VisualProfile>().antialiasing,"scenario_setup":true, "color_patches":patches}),
+        json!({"antialiasing":"dlss_ray_reconstruction","scenario_setup":true, "color_patches":patches}),
     )
 }

@@ -1,5 +1,4 @@
 use super::*;
-#[cfg(test)]
 use half::f16;
 
 #[derive(Clone, Copy, PartialEq)]
@@ -55,11 +54,7 @@ fn pass_contract(
                 active
                     .iter()
                     .filter(|argument| {
-                        argument["type"] == kind
-                            && argument["value"] == value
-                            && argument["buffer"] == buffer
-                            && argument["location"] == location
-                            && argument["size"] == size
+                        contract::argument(argument, [kind, value as u64, buffer, location, size])
                     })
                     .count()
                     != 1
@@ -335,82 +330,34 @@ impl WorldRecipe {
             }
             Self::Water => {
                 let controls = WaterControls::read(native)?;
-                let mut layers = Vec::new();
-                for layer in 0..4 {
-                    let hash = if layer < 2 { 449481359 } else { 449481358 };
-                    let source =
-                        source_image(native, images, hash, "water-source-normal", shared, pack)?;
-                    layers.push(json!({"uri":source,"hash":hash,"sampler":20,"position_scale":controls.position[layer],
-                        "velocity":controls.velocity(layer),"slope_decode":if layer < 2 {controls.normal[..2].to_vec()} else {controls.normal[2..].to_vec()},
-                        "coordinates":"source_position_xy","normal_space":"source_world_xy"}));
-                }
-                surface["source_water"] = json!({"layers":layers,"game_time_code":25,"game_time_component":3,"time_wrap":false,
-                    "uv_operation":"source_position_xy_times_position_scale_plus_unwrapped_time_times_velocity",
-                    "normal_operation":"normalize_sum_four_decoded_xy_slopes_with_z_one_without_mesh_tbn",
-                    "color_normal":controls.color_n,"color_surface":controls.color_s,"control0":controls.control0,"control1":controls.control1,
-                    "view_color":"lerp_color_normal_color_surface_by_saturated_dot_world_normal_negative_normalized_view_position",
-                    "fresnel":"control0_z_plus_control0_w_times_one_minus_normal_dot_view_to_power_five",
-                    "scene_depth":{"code_image":18,"near_plane_buffer":0,"near_plane_offset":928,"operation":"saturate_control1_w_times_near_x_div_abs_scene_depth_minus_fragment_clip_w"},
-                    "refraction":{"code_image":9,"render_target_code":17,"pixel_offset_scale":8.,"offset":"normal_xy_times_sqrt_depth"},
-                    "lighting":{"lightmap_rows":[0.,1./3.],"second_row_scale":0.25,"decode":"rgb_divided_by_alpha_plus_0_000001"},
-                    "reflection":{"lod":0.,"decode":"rgb_divided_by_alpha_plus_0_000001","response":"lightmap_lighting_times_separate_reflection_spherical_harmonic_ratio"},
-                    "coverage":"view_color_alpha_times_primary_vertex_alpha_times_depth",
-                    "composition":"lerp_squared_refracted_scene_divided_by_scene_hdr_with_one_minus_fresnel_times_water_color_times_light_by_coverage_plus_fresnel_times_probe_times_depth",
-                    "fog":"source_fog_amount_times_source_fog_alpha_times_depth","fragment_alpha":0.});
-                surface["channels"] = json!([{"uri":surface["source_water"]["layers"][0]["uri"],"role":"normal","layer":0,"color_space":"linear","sampler":20}]);
+                let normal = ordinary::bake(image(native, images, 449481359)?, "normal", None)?;
+                let uri = store_image(&normal, format!("prepared/material-channels/{}/water-normal.ktx2", shared.len()), false, "normal", pack)?;
+                shared.insert((key.into(), "water-standard".into()), uri.clone());
+                surface["channels"] = json!([{"uri":uri,"role":"normal","layer":0,"color_space":"linear","sampler":20}]);
                 surface["standard"]["base_color"] = json!(controls.color_s);
+                surface["standard"]["roughness"] = json!(0.);
+                surface["standard"]["reflectance"] = json!((controls.control0[2].max(0.) / 0.16).sqrt());
                 surface["presentation"]["alpha"] = json!("blend");
                 surface["presentation"]["fog"] = json!(true);
-                surface["source_water"]["consumer"] =
-                    json!("native_world_normals_and_palette_shared_pbr");
-                surface["approximations"] = json!([
-                    "Four native world-position/time slope domains, authored view palette, Fresnel controls and vertex coverage use shared PBR lighting; native scene-depth/refraction, lightmap/reflection-SH and gamma framebuffer composition are deferred"
-                ]);
-                surface["pending_runtime"] = json!(
-                    "Native water requires four source-position XY/time normal domains and world-oriented slope sum, live view color/Fresnel, scene depth/refraction, lightmap/reflection-SH response, vertex alpha and depth-weighted fog/HDR composition; matching geometry and scene consumers are not connected"
-                );
+                surface["uv_animation"] = json!({"translation":controls.velocity(0),"time_mode":"elapsed"});
+                surface["source_water"] = json!({"consumer":"standard_material"});
+                surface["approximations"] = json!(["Source water palette, first normal map and scroll use stock transparent PBR; four world-position slope domains, view palette, native depth/refraction and lighting response are omitted"]);
             }
             Self::Embers => {
-                let parameters = EmberControls::read(native)?;
-                let mut sources = Vec::new();
-                for (hash, role) in [
-                    (2485960688, "normal"),
-                    (2799170835, "mask"),
-                    (3617419774, "ember"),
-                    (4030327853, "diffuse"),
-                ] {
-                    let uri = source_image(native, images, hash, "ember-source", shared, pack)?;
-                    sources.push(json!({"uri":uri,"hash":hash,"role":role,"sampler":20,"color_space":"native_encoded"}));
+                let controls = EmberControls::read(native)?;
+                let color = bake_embers(native, images, &controls, 0.)?;
+                let normal = ordinary::bake(image(native, images, 2485960688)?, "normal", None)?;
+                let mut channels = Vec::new();
+                for (role, image) in [("color", color), ("normal", normal)] {
+                    let uri = store_image(&image, format!("prepared/material-channels/{}/ember-{role}.ktx2", shared.len()), false, role, pack)?;
+                    shared.insert((key.into(), format!("ember-standard-{role}")), uri.clone());
+                    channels.push(json!({"uri":uri,"role":role,"layer":0,"color_space":"linear","sampler":20}));
                 }
+                surface["channels"] = json!(channels);
                 surface["presentation"]["alpha"] = json!("blend");
                 surface["presentation"]["fog"] = json!(true);
-                surface["source_layers"] = json!(sources);
-                surface["source_vertex_color_transfer"] = json!("native_fragment_composition");
-                surface["source_embers"] = json!({"consumer":"native_layers_vertex_time_shared_pbr","scale":parameters.scale,"direction":parameters.direction,"flicker_min":parameters.minimum,
-                    "flicker_max":parameters.maximum,"seed":parameters.seed,"game_time_code":25,"game_time_component":3,
-                    "sample_rate_hz":10.,"repeat_period":Value::Null,"flicker_weights":FLICKER_WEIGHTS,
-                    "quantization":"ten_times_time_minus_frac_ten_times_time_then_times_one_tenth_plus_seed",
-                    "flicker_updates":[0,1,2,3,0,1,2,0],"evaluation":"live_fragment",
-                    "uv":"uv0_times_scale_plus_frac_time_times_direction_times_scale",
-                    "mask_channels":{"r":"ember_intensity","g":"diffuse_ember_mix","b":"native_specular_response"},
-                    "candidate_rgb_scale":6.,"has_additive_emission":false,
-                    "vertex_color":"multiply_encoded_mixed_rgba_then_square_rgb",
-                    "fragment_alpha":"sqrt_saturate_mixed_alpha_times_vertex_alpha",
-                    "rgb":"mixed_rgb_squared_times_diffuse_lighting_plus_native_specular_then_times_mixed_alpha_times_vertex_alpha",
-                    "reflection":{"lod":4.,"weight":"saturate_mask_b_squared_times_0_765625_minus_0_015625","scale":0.2},
-                    "sun_specular":{"half_dot_scale":0.375,"denominator_scale":0.545,"denominator_bias":0.465,"fresnel_exponent":-10.,"final_scale":0.25,
-                        "operation":"saturate_dot_normal_sun_divided_by_dot_half_sun_squared_times_0_545_plus_0_465_times_saturate_dot_normal_half_times_0_375_times_mask_b_squared_plus_one_minus_mask_b_squared_times_exp2_negative_ten_dot_half_sun_times_0_25"},
-                    "lighting":"directional_lightmap_plus_sun_times_shadow_and_separate_reflection_spherical_harmonic_ratio",
-                    "reflection_lightmap_normal":"geometric_normal_before_normal_map_perturbation",
-                    "hero_lighting":{"buffer":0,"rows":[114,115,116],"stage":"linear_lit_rgb_times_coverage_before_fog_and_hdr"},
-                    "flicker_precision":"float32_cpu_dp4_reduction_can_differ_from_native_gpu_instruction_rounding"});
-                surface["source_blend"] = json!({"rgb":[5,6,1],"alpha":[8,2,1],"polygon_offset":1,"depth_write":false,"alpha_test":"gt_zero"});
-                surface["approximations"] = json!([
-                    "Native unwrapped 10Hz seeded flicker, independent ember scrolling, encoded texture and interpolated vertex composition, normal-map slopes, lit RGB coverage and sqrt alpha use the live forward consumer; native mask-B direct/reflection BRDF, directional lightmaps, reflection SH, hero lighting, polygon offset1, destination-alpha and gamma2 fog/HDR framebuffer composition use shared PBR and linear alpha blending"
-                ]);
-                surface["pending_runtime"] = json!(
-                    "Native ember mask-B BRDF, directional lightmap/reflection-SH, hero lighting, polygon offset1 and gamma2 alpha/fog/HDR framebuffer composition are approximated by shared PBR lighting and linear blending"
-                );
+                surface["source_embers"] = json!({"consumer":"standard_material"});
+                surface["approximations"] = json!(["Source ember composition at time zero and normal map use stock blended PBR; temporal flicker, independent scroll, native lightmap and reflection response are omitted"]);
             }
         }
         Ok(
@@ -601,7 +548,6 @@ impl EmberControls {
     }
 }
 
-#[cfg(test)]
 fn ember_pixel(diffuse: [f32; 4], mask: [f32; 4], ember: [f32; 4], flicker: f32) -> [f32; 4] {
     std::array::from_fn(|axis| {
         let candidate = ember[axis] * flicker * mask[0] * if axis < 3 { 6. } else { 1. };
@@ -610,7 +556,6 @@ fn ember_pixel(diffuse: [f32; 4], mask: [f32; 4], ember: [f32; 4], flicker: f32)
     })
 }
 
-#[cfg(test)]
 fn bake_embers(
     native: &Value,
     images: &BTreeMap<String, texture::Image>,
@@ -690,7 +635,6 @@ fn bake_embers(
     }
     Ok(result)
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;

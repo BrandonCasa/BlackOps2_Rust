@@ -8,10 +8,9 @@ import subprocess
 import time
 import traceback
 
-from test_support import Client, write_report
+from test_support import Client, capture, wait_for_slot, write_report
 from test_brp import require
-from test_lantern_shadows import wait_for_slot
-from test_weapon_materials import capture, inputs
+from test_weapon_materials import inputs
 from test_environment import ending
 
 

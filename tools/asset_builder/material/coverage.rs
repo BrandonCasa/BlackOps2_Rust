@@ -1,25 +1,5 @@
 use super::*;
 
-fn live_inputs(surface: &Value, native: &Value, bindings: &[(u32, &str)]) -> Result<bool> {
-    let Some(layers) = surface["source_layers"]
-        .as_array()
-        .filter(|layers| layers.len() == bindings.len())
-    else {
-        return Ok(false);
-    };
-    for (layer, &(hash, role)) in layers.iter().zip(bindings) {
-        if layer["hash"] != hash
-            || layer["role"] != role
-            || layer["uri"].as_str().is_none_or(str::is_empty)
-            || layer["color_space"] != "native_encoded"
-            || layer["sampler"] != contract::texture_binding(native, hash)?["sampler"]
-        {
-            return Ok(false);
-        }
-    }
-    Ok(true)
-}
-
 fn gaps(native: &BTreeMap<String, Value>, covered: impl Fn(&str, &Value) -> bool) -> Vec<String> {
     let mut families = BTreeMap::<&str, Vec<&str>>::new();
     for (name, material) in native {
@@ -127,10 +107,6 @@ pub fn accept_initial_visual_approximations(
             && (falloff_recipe(family).is_some()
                 || single_unlit_recipe(family)
                     .is_some_and(|recipe| matches!(recipe.mode, "layer" | "layer_reflection")));
-        let live_smoke = smoke::lookup(family).is_some()
-            && surface["source_smoke"]["consumer"] == "native_layers_vertex_time_depth_forward";
-        let live_embers = world::lookup(family) == Some(world::WorldRecipe::Embers)
-            && surface["source_embers"]["consumer"] == "native_layers_vertex_time_shared_pbr";
         if !surface["source_hero_lighting"].is_null() && !hero {
             continue;
         }
@@ -161,7 +137,7 @@ pub fn accept_initial_visual_approximations(
                             *field,
                             "source_script_layers" | "source_layer_uv" | "source_script_coverage"
                         )
-                    || live_smoke && *field == "source_uv_animation")
+)
         }) {
             continue;
         }
@@ -222,95 +198,6 @@ pub fn accept_initial_visual_approximations(
                 continue;
             }
             "native_live_layer_clock_script_uv_and_color_shared_hdr"
-        } else if live_smoke {
-            smoke::lookup(family).unwrap().validate(name, material)?;
-            let uv = &surface["source_uv_animation"];
-            let two = |hash| -> Result<[f32; 2]> {
-                let value = contract::literal(material, hash)?;
-                Ok([value[0], value[1]])
-            };
-            if !live_inputs(
-                surface,
-                material,
-                &[
-                    (170923560, "alpha_plus"),
-                    (1345510170, "alpha"),
-                    (2515352718, "alpha_mask"),
-                    (2564398276, "alpha_minus"),
-                    (2695565377, "color_plus"),
-                    (2816785293, "color_minus"),
-                ],
-            )? || uv["game_time_code"] != 25
-                || uv["component"] != 3
-                || uv["scale"]
-                    != json!([
-                        two(1426306028)?,
-                        two(2010068229)?,
-                        two(1621481545)?,
-                        two(504449656)?
-                    ])
-                || uv["speed"] != json!([two(1426769011)?, two(2010882330)?, two(1638779318)?])
-                || uv["mask_offset"] != json!(two(3599644333)?)
-                || surface["source_smoke"]["color"]
-                    != json!(contract::literal(material, 116600957)?)
-                || surface["source_smoke"]["hdr_amount"]
-                    != json!(contract::literal(material, 14836402)?[0])
-                || surface["source_smoke"]["model_fx_shader_start"] != 0.
-                || surface["source_smoke"]["evaluation"] != "live_fragment"
-                || surface["source_depth_fade"]["factor"]
-                    != json!(contract::literal(material, 3371644427)?[0])
-                || surface["source_vertex_color_transfer"]
-                    != "linear_primary_vertex_rgb_and_squared_primary_vertex_alpha"
-                || surface["presentation"]["alpha"] != "add"
-                || surface["presentation"]["cull"] != "back"
-                || surface["presentation"]["fog"] != false
-            {
-                continue;
-            }
-            roles.clear();
-            live_only = true;
-            "native_live_smoke_layers_vertex_clock_depth_shared_hdr"
-        } else if live_embers {
-            world::WorldRecipe::Embers.validate(name, material)?;
-            let ember = &surface["source_embers"];
-            let direction = contract::literal(material, 4131458919)?;
-            if !live_inputs(
-                surface,
-                material,
-                &[
-                    (2485960688, "normal"),
-                    (2799170835, "mask"),
-                    (3617419774, "ember"),
-                    (4030327853, "diffuse"),
-                ],
-            )? || ember["game_time_code"] != 25
-                || ember["game_time_component"] != 3
-                || ember["sample_rate_hz"] != 10.
-                || !ember["repeat_period"].is_null()
-                || ember["scale"] != json!(contract::literal(material, 882815034)?[0])
-                || ember["direction"] != json!([direction[0], direction[1]])
-                || ember["flicker_min"] != json!(contract::literal(material, 769609961)?[0])
-                || ember["flicker_max"] != json!(contract::literal(material, 769610231)?[0])
-                || ember["seed"] != json!(contract::literal(material, 2629851747)?[0])
-                || ember["flicker_weights"]
-                    != json!([81.239487_f32, 17.348024_f32, 37.349838_f32, 59.39484_f32])
-                || ember["flicker_updates"] != json!([0, 1, 2, 3, 0, 1, 2, 0])
-                || ember["has_additive_emission"] != false
-                || ember["hero_lighting"]["buffer"] != 0
-                || ember["hero_lighting"]["rows"] != json!([114, 115, 116])
-                || ember["hero_lighting"]["stage"]
-                    != "linear_lit_rgb_times_coverage_before_fog_and_hdr"
-                || ember["evaluation"] != "live_fragment"
-                || surface["source_vertex_color_transfer"] != "native_fragment_composition"
-                || surface["presentation"]["alpha"] != "blend"
-                || surface["presentation"]["cull"] != "back"
-                || surface["presentation"]["fog"] != true
-            {
-                continue;
-            }
-            roles.clear();
-            live_only = true;
-            "native_live_ember_layers_vertex_clock_flicker_shared_pbr"
         } else if let Some(recipe) = ordinary_recipe(family) {
             let vertex_lighting = family.starts_with("mlv_")
                 && surface["source_vertex_lighting"]["source"] == 5

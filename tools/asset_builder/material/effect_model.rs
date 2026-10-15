@@ -122,13 +122,7 @@ impl EffectModelRecipe {
             for (hash, location, sampler) in textures {
                 if arguments
                     .iter()
-                    .filter(|a| {
-                        a["type"] == 2
-                            && a["value"] == hash
-                            && a["location"] == location
-                            && a["buffer"] == 0
-                            && a["size"] == 1
-                    })
+                    .filter(|a| contract::argument(a, [2, hash as u64, 0, location, 1]))
                     .count()
                     != 1
                 {
@@ -160,13 +154,7 @@ impl EffectModelRecipe {
             for (hash, location, size) in constants {
                 if arguments
                     .iter()
-                    .filter(|a| {
-                        a["type"] == 6
-                            && a["value"] == hash
-                            && a["location"] == location
-                            && a["size"] == size
-                            && a["buffer"] == 2
-                    })
+                    .filter(|a| contract::argument(a, [6, hash as u64, 2, location, size]))
                     .count()
                     != 1
                 {
@@ -183,13 +171,9 @@ impl EffectModelRecipe {
                 );
             }
             if self == Self::ElectricDisc
-                && !arguments.iter().any(|a| {
-                    a["type"] == 5
-                        && a["value"] == 16777241_u32
-                        && a["buffer"] == 2
-                        && a["location"] == 64
-                        && a["size"] == 16
-                })
+                && !arguments
+                    .iter()
+                    .any(|a| contract::argument(a, [5, 16777241, 2, 64, 16]))
             {
                 return Err(format!("Electric-disc material {key} lacks native GameTime").into());
             }
@@ -220,7 +204,7 @@ impl EffectModelRecipe {
     ) -> Result<Value> {
         self.validate(key, native)?;
         let mut inputs = Vec::new();
-        for (hash, _, sampler) in self.textures() {
+        for (hash, _, sampler) in self.textures().into_iter().filter(|(hash, _, _)| *hash == 2695565377) {
             let binding = contract::texture_binding(native, hash)?;
             let name = binding["image"].as_str().unwrap().to_ascii_lowercase();
             let image = images
@@ -233,36 +217,29 @@ impl EffectModelRecipe {
             let uri = if let Some(uri) = shared.get(&identity) {
                 uri.clone()
             } else {
+                let color = ordinary::bake(image, "color", None)?;
                 let uri = store_image(
-                    image,
+                    &color,
                     format!(
                         "prepared/material-channels/{}/effect-model.ktx2",
                         shared.len()
                     ),
-                    false,
+                    true,
                     "color",
                     pack,
                 )?;
                 shared.insert(identity, uri.clone());
                 uri
             };
-            inputs.push(json!({"uri":uri,"role":"color","layer":0,"color_space":"linear","sampler":sampler}));
-        }
-        let mut constants = [[0_f32; 4]; 16];
-        for (hash, location, size) in self.constants() {
-            let literal = contract::literal(native, hash)?;
-            for component in 0..size as usize / 4 {
-                let offset = location as usize / 4 + component;
-                constants[offset / 4][offset % 4] = literal[component];
-            }
+            inputs.push(json!({"uri":uri,"role":"color","layer":0,"color_space":"srgb","sampler":sampler}));
         }
         let projected = self == Self::ProjectedBlood;
         Ok(
             json!({"name":key,"pbrMetallicRoughness":{"baseColorFactor":[1.,1.,1.,1.],"metallicFactor":0.},
             "extras":{"surface":{"version":3,"identity":key,"native":native,"channels":[inputs[0]],"standard":{"roughness":1.,"metallic":0.,"reflectance":0.,"unlit":!projected},
             "presentation":{"alpha":if projected {"blend"} else {"add"},"cull":"none","fog":false,"visible":true},
-            "source_effect_model":{"kind":if projected {"projected_blood"} else {"electric_disc"},"inputs":inputs,"constants":constants},
-            "approximations":if projected {json!(["Native grid/sun lighting and gamma2 framebuffer composition use upstream PBR lighting"])} else {json!(["Native HDR and gamma2 framebuffer composition use the upstream linear HDR framebuffer"])}}}}),
+            "source_effect_model":{"kind":if projected {"projected_blood"} else {"electric_disc"},"consumer":"standard_material"},
+            "approximations":if projected {json!(["Source blood color uses upstream forward decal and PBR lighting; native projection edge and gamma2 framebuffer composition are approximated"])} else {json!(["Source electric-disc color uses stock additive material; native distortion, independent layered animation and depth softness are omitted"])}}}}),
         )
     }
 }

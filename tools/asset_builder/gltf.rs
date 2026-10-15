@@ -389,7 +389,14 @@ impl Scene {
             let list = self.data["materials"].as_array_mut().unwrap();
             self.material_indices.insert(key.clone(), list.len());
             indices.insert(key, list.len());
-            list.push(material.clone());
+            let mut material = material.clone();
+            let native = &material["extras"]["surface"]["native"];
+            if native.is_object() {
+                material["extras"]["surface"]["native"] = json!({
+                    "name":native["name"], "technique_set":native["technique_set"],
+                });
+            }
+            list.push(material);
         }
         Ok(indices)
     }

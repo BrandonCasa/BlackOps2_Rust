@@ -1,24 +1,18 @@
-use crate::{
-    GameState,
-    assets::{GameDefinition, WorldCollider},
-    player::Player,
-};
+use crate::{GameState, assets::GameDefinition, player::Player};
 use bevy::{
     camera::{Hdr, primitives::Aabb},
     core_pipeline::{prepass::DepthPrepass, tonemapping::Tonemapping},
-    gltf::GltfMaterialName,
     prelude::*,
 };
 pub(crate) mod atmosphere;
-mod animated_surfaces;
-mod effect_models;
 mod eyes;
 pub(crate) mod grading;
+mod hybrid;
+#[cfg(feature = "dev-tools")]
 mod lighting_inspection;
 mod lod;
 pub(crate) mod opaque;
 mod pbr;
-mod hybrid;
 pub(crate) mod postprocess;
 pub(crate) mod preparation;
 mod preprocessing;
@@ -43,8 +37,6 @@ pub(crate) const BASE_FOV_DEGREES: f32 = 55.;
 #[extract_app(bevy::render::RenderApp)]
 pub struct GameCamera;
 
-#[derive(Component)]
-struct SurfaceReady;
 #[derive(Component)]
 pub(crate) struct DynamicSurface;
 
@@ -88,17 +80,16 @@ struct FixtureLightReady;
 pub struct GameRenderingPlugin;
 impl Plugin for GameRenderingPlugin {
     fn build(&self, app: &mut App) {
+        #[cfg(feature = "dev-tools")]
+        app.add_plugins(lighting_inspection::LightingInspectionPlugin);
         preparation::install(app);
-        effect_models::install(app);
         pbr::install(app);
-        animated_surfaces::install(app);
         app.add_plugins(solari::OriginsSolariPlugin)
             .add_plugins(lod::PropLodPlugin)
             .add_plugins(preprocessing::PreprocessingPlugin)
             .add_plugins(residency::ResidencyPlugin)
             .init_resource::<profile::VisualProfile>()
             .add_plugins(atmosphere::AtmospherePlugin)
-            .add_plugins(lighting_inspection::LightingInspectionPlugin)
             .add_plugins(readback_shutdown::ReadbackShutdownPlugin)
             .init_resource::<OpaqueSurfaceStatus>()
             .init_resource::<opaque::MaterialTime>()
@@ -153,11 +144,8 @@ impl Plugin for GameRenderingPlugin {
                     (
                         pbr::refresh,
                         pbr::prepare,
-                        animated_surfaces::prepare,
-                        surfaces,
                         fixture_lights,
                         opaque::convert,
-                        animated_surfaces::pending,
                         eyes::prepare.run_if(opaque::material_scene_active),
                     )
                         .chain()
@@ -203,12 +191,6 @@ fn cluster_capacity(mut settings: ResMut<bevy::light::cluster::GlobalClusterSett
 }
 
 pub(crate) fn setup(mut commands: Commands, profile: Res<profile::VisualProfile>) {
-    commands.insert_resource(bevy::light::PointLightShadowMap {
-        size: profile.lantern_shadow_map_size,
-    });
-    commands.insert_resource(bevy::light::DirectionalLightShadowMap {
-        size: profile.sun_shadow_map_size,
-    });
     commands.insert_resource(GlobalAmbientLight {
         color: profile::color(profile.ambient_color),
         brightness: profile.ambient_brightness,
@@ -275,13 +257,6 @@ fn configure(
             ..default()
         },
         bevy::camera::visibility::RenderLayers::from_layers(&[0, 1]),
-        bevy::light::CascadeShadowConfigBuilder {
-            num_cascades: profile.sun_shadow_cascades,
-            maximum_distance: profile.sun_shadow_distance,
-            first_cascade_far_bound: profile.sun_shadow_first_cascade,
-            ..default()
-        }
-        .build(),
         Transform::IDENTITY.looking_to(
             -atmosphere::source_direction(source.sun_angles[0], source.sun_angles[1]),
             Vec3::Y,
@@ -362,95 +337,6 @@ fn camera_follow(
             .map_or(BASE_FOV_DEGREES.to_radians(), |w| {
                 inventory.ads_fov(BASE_FOV_DEGREES, w)
             });
-    }
-}
-
-fn surfaces(
-    mut commands: Commands,
-    surfaces: Query<
-        (
-            Entity,
-            &MeshMaterial3d<StandardMaterial>,
-            &GltfMaterialName,
-            Has<bevy::mesh::skinning::SkinnedMesh>,
-        ),
-        (
-            Without<SurfaceReady>,
-            Without<WorldCollider>,
-            Without<DynamicSurface>,
-            With<PbrReady>,
-        ),
-    >,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    library: Option<Res<opaque::SurfaceLibrary>>,
-    profile: Res<profile::VisualProfile>,
-    parents: Query<&ChildOf>,
-    zombies: Query<(), With<crate::enemies::Zombie>>,
-    boards: Query<
-        (),
-        Or<(
-            With<crate::barriers::BoardVisual>,
-            With<crate::generators::GeneratorVisual>,
-            With<crate::enemies::Zombie>,
-            With<crate::equipment::Grenade>,
-            With<crate::mines::PlantedMine>,
-            With<crate::presentation::ViewModelGroup>,
-        )>,
-    >,
-) {
-    let Some(library) = library else { return };
-    for (entity, handle, name, skinned) in &surfaces {
-        let mut ancestor = Some(entity);
-        let mut dynamic = skinned;
-        let mut actor = false;
-        while let Some(e) = ancestor {
-            actor |= zombies.contains(e);
-            if boards.contains(e) {
-                dynamic = true;
-                break;
-            }
-            ancestor = parents.get(e).ok().map(ChildOf::parent);
-        }
-        if dynamic {
-            commands.entity(entity).insert(DynamicSurface);
-            if skinned {
-                commands
-                    .entity(entity)
-                    .insert(bevy::render::batching::NoAutomaticBatching);
-            }
-            if actor {
-                commands.entity(entity).insert(ActorSurface);
-            }
-            commands.entity(entity).insert(SurfaceReady);
-            continue;
-        }
-        let Some(mut material) = materials.get_mut(&handle.0) else {
-            continue;
-        };
-        let Some(definition) = library.definitions.get(&name.0) else {
-            commands.entity(entity).insert(SurfaceReady);
-            continue;
-        };
-        let state = &definition.presentation;
-        if state["visible"].as_bool() == Some(false) {
-            commands.entity(entity).insert(Visibility::Hidden);
-        }
-        material.fog_enabled = state["fog"].as_bool().unwrap_or(true);
-        material.double_sided = state["cull"].as_str() == Some("none");
-        material.cull_mode = match state["cull"].as_str() {
-            Some("none") => None,
-            Some("front") => Some(bevy::render::render_resource::Face::Front),
-            _ => Some(bevy::render::render_resource::Face::Back),
-        };
-        if state["emissive"].as_bool() == Some(true) {
-            material.emissive_exposure_weight = 1.;
-            material.emissive = if state["lamp"].as_bool() == Some(true) {
-                profile::color(profile.lantern_color).to_linear() * profile.lantern_emissive_nits
-            } else {
-                LinearRgba::WHITE * profile.emissive_nits
-            };
-        }
-        commands.entity(entity).insert(SurfaceReady);
     }
 }
 

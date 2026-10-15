@@ -38,7 +38,10 @@ pub(super) fn probe(
     queue: Res<RenderQueue>,
     adapter: Res<RenderAdapter>,
 ) -> BrpResult {
-    let opaque_bindless = crate::rendering::opaque::bindless_supported(&device);
+    let opaque_bindless =
+        <StandardMaterial as bevy::render::render_resource::AsBindGroup>::bindless_supported(
+            &device,
+        );
     let device = device.wgpu_device();
     let limits = device.limits();
     let Some(params) = params else {

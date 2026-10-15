@@ -44,7 +44,7 @@ pub fn convert(
             continue;
         }
         let (zone_name, zone) = &catalog.zones[zone_index];
-        let source = (|| -> Result<texture::Image> {
+        let mut source = (|| -> Result<texture::Image> {
             let streams = &zone.streams;
             let load = Address::decode(streams.u32(root)?)?;
             let size = streams.u32(load.add(8)?)? as usize;
@@ -119,6 +119,15 @@ pub fn convert(
             })
         })()
         .map_err(|error| format!("Image {zone_name}/{name}: {error}"))?;
+        while source.width.max(source.height) > 1024
+            && source.depth == 1
+            && source.faces == 1
+            && source.levels.len() > 1
+        {
+            source.levels.remove(0);
+            source.width = (source.width / 2).max(1);
+            source.height = (source.height / 2).max(1);
+        }
         let semantic = zone.streams.u8(root.add(5)?)?;
         let role = match semantic {
             5 => "normal",

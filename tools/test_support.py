@@ -6,6 +6,7 @@ import itertools
 import json
 from pathlib import Path
 import socket
+import subprocess
 import time
 import urllib.error
 import urllib.parse
@@ -330,3 +331,27 @@ def gltf_accessor(document, binary, index):
     return np.ndarray((item['count'], width), dtype, binary,
                       view.get('byteOffset', 0) + item.get('byteOffset', 0),
                       (view.get('byteStride', width * dtype.itemsize), dtype.itemsize)).copy()
+
+
+def capture(client, path, timeout=30):
+    path = Path(path)
+    client.call('origins/capture', {'path': str(path.resolve())})
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if path.is_file() and path.stat().st_size > 100:
+            encoded = path.read_bytes()
+            if encoded.startswith(b'\x89PNG\r\n\x1a\n') and encoded.endswith(b'\x00\x00\x00\x00IEND\xaeB\x60\x82'):
+                return {'path': str(path)}
+        time.sleep(0.1)
+    raise TimeoutError(f'Screenshot did not complete: {path}')
+
+
+def wait_for_slot():
+    command = "@(Get-Process -Name origins,origins_flythrough,cargo,rustc,capture,nsys,ncu,qrenderdoc,renderdoccmd,tracy-capture,WinPixGpuCapturer,obs64,ffmpeg -ErrorAction SilentlyContinue | Select-Object ProcessName,Id) | ConvertTo-Json -Compress"
+    while True:
+        active = subprocess.check_output(["powershell", "-NoProfile", "-NonInteractive", "-Command", command],
+                                         text=True, creationflags=subprocess.CREATE_NO_WINDOW).strip()
+        if not active or active == "[]":
+            return
+        print(f"Waiting for shared game/capture/compiler slot: {active}", flush=True)
+        time.sleep(10)

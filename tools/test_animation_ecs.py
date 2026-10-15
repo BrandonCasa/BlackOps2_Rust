@@ -5,11 +5,10 @@ import math
 from pathlib import Path
 import time
 
-from test_support import Client, write_report
+from test_support import Client, capture, write_report
 from test_animation_fixes import observe, pause, pose_distance, weapon_rigs
 from test_generator_population import focus_generator, interaction_key
 from test_throwable_down import binding, check, edge, schedule
-from test_weapon_materials import capture
 
 
 def snapshot(client, predicate, timeout=30):

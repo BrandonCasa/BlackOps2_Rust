@@ -97,6 +97,7 @@ pub(super) struct RayMeshScratch {
     changed: HashSet<AssetId<Mesh>>,
     live: HashSet<RayMeshKey>,
     pose: Vec<Mat4>,
+    normal_pose: Vec<Mat3>,
     positions: Vec<[f32; 3]>,
     normals: Vec<[f32; 3]>,
     tangents: Vec<[f32; 4]>,
@@ -229,11 +230,15 @@ pub(super) fn prepare_meshes(
             }
             continue;
         }
-        let shared = skin.is_none()
-            && flag.is_none()
-            && (material.uv_transform == bevy::math::Affine2::IDENTITY
-                || (!uv_animation && !animated_material && !dynamic));
-        let key = RayMeshKey::new(source_id, material.uv_transform);
+        let ray_uv = if uv_animation || animated_material || dynamic {
+            prepared
+                .as_deref()
+                .map_or(material.uv_transform, |prepared| prepared.uv_transform)
+        } else {
+            material.uv_transform
+        };
+        let shared = skin.is_none() && flag.is_none();
+        let key = RayMeshKey::new(source_id, ray_uv);
         let flag_time = flag.and_then(super::opaque::FlagMotion::deformation_time);
         scratch.pose.clear();
         if let Some(skin) = skin {
@@ -264,7 +269,7 @@ pub(super) fn prepare_meshes(
             && prepared.deformed == flag.is_some()
             && prepared.flag_time == flag_time
             && prepared.pose == scratch.pose
-            && prepared.uv_transform == material.uv_transform
+            && prepared.uv_transform == ray_uv
             && (prepared.ownership == ProxyOwnership::Private || shared)
             && meshes.contains(prepared.proxy.id())
         {
@@ -307,10 +312,7 @@ pub(super) fn prepare_meshes(
                 }
             }
             for value in &mut scratch.uv {
-                *value = material
-                    .uv_transform
-                    .transform_point2(Vec2::from_array(*value))
-                    .to_array();
+                *value = ray_uv.transform_point2(Vec2::from_array(*value)).to_array();
             }
             match source.attribute(Mesh::ATTRIBUTE_TANGENT) {
                 Some(VertexAttributeValues::Float32x4(values)) => {
@@ -322,6 +324,14 @@ pub(super) fn prepare_meshes(
                 }
             }
             if skin.is_some() {
+                let RayMeshScratch {
+                    pose, normal_pose, ..
+                } = scratch;
+                normal_pose.clear();
+                normal_pose.extend(
+                    pose.iter()
+                        .map(|matrix| Mat3::from_mat4(*matrix).inverse().transpose()),
+                );
                 let Some(VertexAttributeValues::Uint16x4(joints)) =
                     source.attribute(Mesh::ATTRIBUTE_JOINT_INDEX)
                 else {
@@ -334,6 +344,7 @@ pub(super) fn prepare_meshes(
                 };
                 for i in 0..count {
                     let mut matrix = Mat4::ZERO;
+                    let mut normal_matrix = Mat3::ZERO;
                     for influence in 0..4 {
                         let weight = weights[i][influence];
                         if weight != 0. {
@@ -342,12 +353,13 @@ pub(super) fn prepare_meshes(
                                 continue;
                             };
                             matrix += *joint * weight;
+                            normal_matrix +=
+                                scratch.normal_pose[joints[i][influence] as usize] * weight;
                         }
                     }
                     scratch.positions[i] = matrix
                         .transform_point3(Vec3::from_array(scratch.positions[i]))
                         .to_array();
-                    let normal_matrix = Mat3::from_mat4(matrix).inverse().transpose();
                     scratch.normals[i] = (normal_matrix * Vec3::from_array(scratch.normals[i]))
                         .normalize_or(Vec3::Y)
                         .to_array();
@@ -384,7 +396,27 @@ pub(super) fn prepare_meshes(
                 .map(|prepared| prepared.proxy.clone())
                 && let Some(mut existing) = meshes.get_mut(&handle)
             {
-                *existing = proxy;
+                let mut previous = std::mem::replace(&mut *existing, proxy);
+                if let Some(VertexAttributeValues::Float32x3(values)) =
+                    previous.remove_attribute(Mesh::ATTRIBUTE_POSITION)
+                {
+                    scratch.positions = values;
+                }
+                if let Some(VertexAttributeValues::Float32x3(values)) =
+                    previous.remove_attribute(Mesh::ATTRIBUTE_NORMAL)
+                {
+                    scratch.normals = values;
+                }
+                if let Some(VertexAttributeValues::Float32x2(values)) =
+                    previous.remove_attribute(Mesh::ATTRIBUTE_UV_0)
+                {
+                    scratch.uv = values;
+                }
+                if let Some(VertexAttributeValues::Float32x4(values)) =
+                    previous.remove_attribute(Mesh::ATTRIBUTE_TANGENT)
+                {
+                    scratch.tangents = values;
+                }
                 handle
             } else {
                 meshes.add(proxy)
@@ -414,7 +446,7 @@ pub(super) fn prepare_meshes(
             prepared.deformed = flag.is_some();
             prepared.flag_time = flag_time;
             prepared.pose.clone_from(&scratch.pose);
-            prepared.uv_transform = material.uv_transform;
+            prepared.uv_transform = ray_uv;
             prepared.invalidated = false;
         } else {
             commands.entity(entity).insert(RayMeshSource {
@@ -425,7 +457,7 @@ pub(super) fn prepare_meshes(
                 deformed: flag.is_some(),
                 pose: scratch.pose.clone(),
                 flag_time,
-                uv_transform: material.uv_transform,
+                uv_transform: ray_uv,
                 invalidated: false,
             });
         }
@@ -738,7 +770,7 @@ mod tests {
     }
 
     #[test]
-    fn live_uv_states_detach_from_shared_proxies_and_publish_changed_generations() {
+    fn animated_uvs_do_not_rebuild_ray_geometry() {
         let mut app = app();
         let source = app
             .world_mut()
@@ -748,73 +780,34 @@ mod tests {
         let second_material = material(&mut app, bevy::math::Affine2::IDENTITY);
         let first = surface(&mut app, &source, &first_material);
         let second = surface(&mut app, &source, &second_material);
-        app.world_mut()
-            .entity_mut(first)
-            .insert(super::super::DynamicSurface);
-        app.update();
-        let shared = proxy(&app, first);
-        assert_eq!(shared, proxy(&app, second));
         let animation: super::super::opaque::UvAnimation = serde_json::from_value(
             serde_json::json!({"translation":[1.,0.],"time_mode":"elapsed"}),
         )
         .unwrap();
-        app.world_mut().entity_mut(first).insert(animation);
         app.world_mut()
-            .resource_mut::<Assets<StandardMaterial>>()
-            .get_mut(&first_material)
-            .unwrap()
-            .uv_transform = bevy::math::Affine2::from_translation(Vec2::X);
+            .entity_mut(first)
+            .insert((super::super::DynamicSurface, animation));
         app.update();
-        let mut private = proxy(&app, first);
-        assert_ne!(private, shared);
-        assert_eq!(proxy(&app, second), shared);
-        assert!(matches!(
-            app.world().get::<RayMeshSource>(first).unwrap().ownership,
-            ProxyOwnership::Private
-        ));
+        let shared = proxy(&app, first);
+        assert_eq!(shared, proxy(&app, second));
         let mut cursor = app
             .world()
             .resource::<Messages<AssetEvent<Mesh>>>()
             .get_cursor_current();
-        for offset in 2..12 {
+        for offset in 1..12 {
             app.world_mut()
                 .resource_mut::<Assets<StandardMaterial>>()
                 .get_mut(&first_material)
                 .unwrap()
                 .uv_transform = bevy::math::Affine2::from_translation(Vec2::new(offset as f32, 0.));
             app.update();
-            let updated = proxy(&app, first);
-            assert_eq!(updated, private);
+            assert_eq!(proxy(&app, first), shared);
             assert_eq!(proxy(&app, second), shared);
-            let events: Vec<_> = cursor
-                .read(app.world().resource::<Messages<AssetEvent<Mesh>>>())
-                .collect();
-            assert!(
-                events.iter().any(
-                    |event| matches!(event, AssetEvent::Modified { id } if *id == updated.id())
-                )
-            );
-            assert!(
-                !events
-                    .iter()
-                    .any(|event| matches!(event, AssetEvent::Added { id } if *id == private.id()))
-            );
+            assert!(!cursor.read(app.world().resource::<Messages<AssetEvent<Mesh>>>())
+                .any(|event| matches!(event, AssetEvent::Modified { id } | AssetEvent::Added { id } if *id == shared.id())));
             assert!(app.world().resource::<ChangedProxies>().0.is_empty());
-            private = updated;
+            assert!(app.world().resource::<ChangedRaySources>().0.is_empty());
         }
-        for _ in 0..3 {
-            app.update();
-        }
-        assert_eq!(proxy(&app, first), private);
-        assert_eq!(modifications(&app, &mut cursor, private.id()), 0);
-        assert!(app.world().resource::<ChangedProxies>().0.is_empty());
-        assert!(app.world().resource::<ChangedRaySources>().0.is_empty());
-        assert_eq!(app.world().resource::<Assets<Mesh>>().len(), 3);
-        let meshes = app.world().resource::<Assets<Mesh>>();
-        assert_eq!(
-            meshes.get(&shared).unwrap().attribute(Mesh::ATTRIBUTE_UV_0),
-            meshes.get(&source).unwrap().attribute(Mesh::ATTRIBUTE_UV_0)
-        );
     }
 
     #[test]

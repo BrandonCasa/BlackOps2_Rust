@@ -156,13 +156,7 @@ pub(super) fn validate_ordinary(
             if camo
                 && arguments
                     .iter()
-                    .filter(|argument| {
-                        argument["type"] == 5
-                            && argument["value"] == 16777397_u32
-                            && argument["buffer"] == 1
-                            && argument["location"] == 528
-                            && argument["size"] == 16
-                    })
+                    .filter(|argument| contract::argument(argument, [5, 16777397, 1, 528, 16]))
                     .count()
                     != 1
             {
@@ -174,13 +168,7 @@ pub(super) fn validate_ordinary(
             if (scrolling || flag)
                 && arguments
                     .iter()
-                    .filter(|argument| {
-                        argument["type"] == 3
-                            && argument["value"] == 16777241_u32
-                            && argument["buffer"] == 2
-                            && argument["location"] == 0
-                            && argument["size"] == 16
-                    })
+                    .filter(|argument| contract::argument(argument, [3, 16777241, 2, 0, 16]))
                     .count()
                     != 1
             {
@@ -298,12 +286,7 @@ pub(super) fn validate_ordinary(
             }
         }
         for hash in inputs.keys() {
-            let binding = material["textures"]
-                .as_array()
-                .ok_or("Missing native textures")?
-                .iter()
-                .find(|binding| binding["hash"] == *hash)
-                .ok_or_else(|| format!("Reviewed material {key} lacks active image {hash}"))?;
+            let binding = contract::texture_binding(material, *hash)?;
             if !matches!(binding["sampler"].as_u64(), Some(20 | 244)) {
                 return Err(format!(
                     "Reviewed material {key} has an unreviewed active sampler for {hash}"
@@ -367,12 +350,7 @@ pub(super) fn convert(
             inputs.push((3948059469, "source_detail_normal"));
         }
         for (hash, role) in inputs {
-            let binding = material["textures"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .find(|binding| binding["hash"] == hash)
-                .ok_or_else(|| format!("Missing source camo input {hash} for {key}"))?;
+            let binding = contract::texture_binding(material, hash)?;
             let name = binding["image"]
                 .as_str()
                 .ok_or("Missing source camo image")?
@@ -445,12 +423,7 @@ pub(super) fn convert(
     }
     let mut native_specular = Value::Null;
     for (hash, roles) in bindings {
-        let binding = material["textures"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|binding| binding["hash"] == hash)
-            .ok_or_else(|| format!("Ordinary lit material {key} has no source binding {hash}"))?;
+        let binding = contract::texture_binding(material, hash)?;
         if !pass["arguments"]
             .as_array()
             .unwrap()

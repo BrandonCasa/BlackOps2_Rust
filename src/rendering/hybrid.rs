@@ -1,10 +1,10 @@
 use super::{
-    opaque::{AnimatedMaterial, NativeArtInputs, NativeClock, StandardReady, SurfaceLibrary},
+    opaque::{NativeArtInputs, NativeClock, StandardReady, SurfaceLibrary},
     pbr::{self, PreparedTexture},
 };
 use bevy::{gltf::GltfMaterialName, mesh::MeshTag, prelude::*, render::storage::ShaderBuffer};
 use serde::Deserialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 #[derive(Resource, Default)]
 struct Instances {
@@ -12,12 +12,17 @@ struct Instances {
     slots: HashMap<Entity, u32>,
     free: Vec<u32>,
     data: Vec<[f32; 4]>,
+    dirty: bool,
 }
+
+#[derive(Component)]
+struct Prepared;
 
 #[derive(Component)]
 struct Live {
     slot: u32,
     base: Vec4,
+    owner: Option<Entity>,
 }
 
 #[derive(Component)]
@@ -27,6 +32,7 @@ pub(super) fn install(app: &mut App) {
     bevy::shader::load_shader_library!(app, "hybrid.wesl");
     app.init_resource::<Instances>()
         .add_plugins(MaterialPlugin::<LayerMaterial>::default())
+        .add_systems(OnEnter(crate::GameState::Loading), reset)
         .add_systems(
             PostUpdate,
             (prepare, upload)
@@ -43,6 +49,10 @@ pub(super) fn install(app: &mut App) {
         );
 }
 
+fn reset(mut instances: ResMut<Instances>) {
+    *instances = Instances::default();
+}
+
 fn prepare(
     mut commands: Commands,
     query: Query<
@@ -54,9 +64,8 @@ fn prepare(
             &GlobalTransform,
             &InheritedVisibility,
             Option<&bevy::mesh::skinning::SkinnedMesh>,
-            Option<&AnimatedMaterial>,
         ),
-        (With<StandardReady>, Without<Live>, Without<RayOwner>),
+        (With<StandardReady>, Without<Prepared>, Without<RayOwner>),
     >,
     library: Res<SurfaceLibrary>,
     sources: Res<Assets<StandardMaterial>>,
@@ -71,12 +80,14 @@ fn prepare(
     mut next: ResMut<NextState<crate::GameState>>,
 ) {
     if instances.buffer == Handle::default() {
+        cache.clear();
+        pending.clear();
         instances.data.resize(2, [0.; 4]);
         let mut buffer = ShaderBuffer::from(instances.data.clone());
         buffer.label = "Origins native material state".into();
         instances.buffer = buffers.add(buffer);
     }
-    for (entity, source, name, mesh, transform, visibility, skin, animation) in &query {
+    for (entity, source, name, mesh, transform, visibility, skin) in &query {
         let Some(definition) = library.definitions.get(&name.0) else {
             continue;
         };
@@ -84,7 +95,10 @@ fn prepare(
         let parsed = layer_controls(metadata);
         let (controls, inputs) = match parsed {
             Ok(Some(value)) => value,
-            Ok(None) => continue,
+            Ok(None) => {
+                commands.entity(entity).insert(Prepared);
+                continue;
+            }
             Err(error) => {
                 failure.0 = error;
                 next.set(crate::GameState::LoadError);
@@ -108,24 +122,17 @@ fn prepare(
                     .map(|input| pbr::load(&server, input))
                     .collect()
             });
-            if let Some(error) =
-                images
-                    .iter()
-                    .find_map(|image| match server.get_load_state(image.id()) {
-                        Some(bevy::asset::LoadState::Failed(error)) => Some(error.to_string()),
-                        _ => None,
-                    })
-            {
-                failure.0 = error;
-                next.set(crate::GameState::LoadError);
-                return;
-            }
-            if images
-                .iter()
-                .any(|image| !server.is_loaded_with_dependencies(image.id()))
-            {
-                status.pending += 1;
-                continue;
+            match pbr::textures_ready(&server, images.iter()) {
+                Err(error) => {
+                    failure.0 = error;
+                    next.set(crate::GameState::LoadError);
+                    return;
+                }
+                Ok(false) => {
+                    status.pending += 1;
+                    continue;
+                }
+                Ok(true) => {}
             }
             let channel = |role: &str, layer: u64| {
                 inputs
@@ -175,6 +182,7 @@ fn prepare(
             slot
         });
         instances.slots.insert(entity, slot);
+        instances.dirty = true;
         if metadata["hybrid"]["ray_visible"] == true {
             let mut ray = commands.spawn((
                 ChildOf(entity),
@@ -192,44 +200,52 @@ fn prepare(
             if let Some(skin) = skin {
                 ray.insert(skin.clone());
             }
-            if let Some(animation) = animation {
-                ray.insert(animation.clone());
-            }
         }
         commands
             .entity(entity)
-            .remove::<(MeshMaterial3d<StandardMaterial>, AnimatedMaterial)>()
+            .remove::<MeshMaterial3d<StandardMaterial>>()
             .insert((
                 MeshMaterial3d(material),
+                Prepared,
                 MeshTag::with_type::<Live>(slot),
                 Live {
                     slot,
                     base: controls.script,
+                    owner: None,
                 },
             ));
     }
 }
 
 fn upload(
-    query: Query<(Entity, &Live)>,
+    mut query: Query<(Entity, &mut Live)>,
     parents: Query<&ChildOf>,
     rigs: Query<&crate::presentation::Rig>,
     inputs: Query<&NativeArtInputs>,
     clock: Res<NativeClock>,
     mut instances: ResMut<Instances>,
     mut buffers: ResMut<Assets<ShaderBuffer>>,
+    mut removed: RemovedComponents<Live>,
 ) {
-    let mut live = HashSet::new();
-    for (entity, surface) in &query {
-        live.insert(entity);
+    let mut changed = instances.dirty;
+    for (entity, mut surface) in &mut query {
         let mut current = Some(entity);
-        let mut owner = None;
+        let mut owner = surface.owner.and_then(|entity| inputs.get(entity).ok());
+        if owner.is_some() {
+            current = None;
+        }
         while let Some(entity) = current {
             if let Ok(rig) = rigs.get(entity) {
                 owner = inputs.get(rig.owner).ok();
+                if owner.is_some() {
+                    surface.owner = Some(rig.owner);
+                }
             }
             if owner.is_none() {
                 owner = inputs.get(entity).ok();
+                if owner.is_some() {
+                    surface.owner = Some(entity);
+                }
             }
             if owner.is_some() {
                 break;
@@ -244,24 +260,24 @@ fn upload(
             .or_else(|| clock.render_milliseconds().map(|time| (time, 0.)))
             .and_then(|(time, start)| super::opaque::game_time(time, start).ok())
             .unwrap_or([0.; 4]);
-        instances.data[surface.slot as usize * 2] = script;
-        instances.data[surface.slot as usize * 2 + 1] = time;
+        let offset = surface.slot as usize * 2;
+        changed |= instances.data[offset] != script || instances.data[offset + 1] != time;
+        instances.data[offset] = script;
+        instances.data[offset + 1] = time;
     }
-    let removed: Vec<_> = instances
-        .slots
-        .keys()
-        .copied()
-        .filter(|entity| !live.contains(entity))
-        .collect();
-    for entity in removed {
+    for entity in removed.read() {
         if let Some(slot) = instances.slots.remove(&entity) {
             instances.free.push(slot);
         }
     }
-    if let Some(mut buffer) = buffers.get_mut(&instances.buffer) {
-        buffer.clear();
-        buffer.extend_from_slice(&instances.data);
-        buffer.resize_buffer((instances.data.len().next_power_of_two() * 16) as u64);
+    if changed && let Some(mut buffer) = buffers.get_mut(&instances.buffer) {
+        let size = (instances.data.len().next_power_of_two() * 16) as u64;
+        if buffer.buffer_size() < size {
+            buffer.resize(size);
+        }
+        buffer.cast_slice_mut::<[f32; 4]>().unwrap()[..instances.data.len()]
+            .copy_from_slice(&instances.data);
+        instances.dirty = false;
     }
 }
 
@@ -367,47 +383,17 @@ fn layer_controls(
     if script["consumer"] != "native_hybrid_layers" {
         return Ok(None);
     }
-    let mode = match (
-        surface["native"]["technique_set"].as_str(),
-        script["mode"].as_str(),
-    ) {
-        (
-            Some("wpc_sw4_3d_unlit_1layer_8691j77q" | "mc_sw4_3d_unlit_1layer_nofog_91f00f80"),
-            Some("single"),
-        ) => 0.,
-        (
-            Some(
-                "mc_sw4_3d_unlit_3layer_normal_script_q0zez5ju"
-                | "mlv_sw4_3d_unlit_3layer_normal_script_766fz50u",
-            ),
-            Some("normal_script"),
-        ) => 1.,
-        (Some("wpc_sw4_3d_unlit_3layer_normal_script_q1z1f6w1"), Some("normal_script_unlit")) => 1.,
-        (Some("mc_sw4_3d_unlit_3layer_nofog_falloff_5z943qe4"), Some("opaque")) => 2.,
-        (Some("mc_sw4_3d_unlit_3layer_nofog_falloff_5z909874"), Some("blend")) => 3.,
-        (
-            Some(
-                "mc_sw4_3d_unlit_3layer_nofog_falloff_w840w777"
-                | "mlv_sw4_3d_unlit_3layer_nofog_falloff_fjz6ze0u",
-            ),
-            Some("add"),
-        ) => 4.,
-        (
-            Some(
-                "mc_sw4_3d_unlit_3layer_nofog_falloff_zfeather_wq4jwzz6"
-                | "mlv_sw4_3d_unlit_3layer_nofog_falloff_zfeather_z0zw1090",
-            ),
-            Some("zfeather"),
-        ) => 5.,
-        (Some("mc_sw4_3d_unlit_3layer_nofog_qw71w785"), Some("layer_blend")) => 6.,
-        (
-            Some(
-                "mc_sw4_3d_unlit_4layer_nofog_eee768jw" | "mlv_sw4_3d_unlit_4layer_nofog_2j0ezz67",
-            ),
-            Some("four_add"),
-        ) => 7.,
-        (Some("mc_sw4_3d_unlit_4layer_jw0z1973"), Some("four_opaque")) => 8.,
-        _ => return Err("Unsupported native live layer family or mode".into()),
+    let mode = match script["mode"].as_str() {
+        Some("single") => 0.,
+        Some("normal_script" | "normal_script_unlit") => 1.,
+        Some("opaque") => 2.,
+        Some("blend") => 3.,
+        Some("add") => 4.,
+        Some("zfeather") => 5.,
+        Some("layer_blend") => 6.,
+        Some("four_add") => 7.,
+        Some("four_opaque") => 8.,
+        _ => return Err("Unsupported layered material mode".into()),
     };
     #[derive(Deserialize)]
     struct Layer {
@@ -432,13 +418,8 @@ fn layer_controls(
     } else {
         3
     };
-    if script["code_constant"] != 169
-        || script["base_state"] != serde_json::json!([0., 0., 0., 0.])
-        || surface["source_layer_uv"]["game_time_code"] != 25
-        || surface["source_layer_uv"]["game_time_component"] != 3
-        || layers.len() != count
-    {
-        return Err("Unsupported native live layer state, clock or count".into());
+    if layers.len() != count {
+        return Err("Layered material texture count does not match its mode".into());
     }
     let mut textures = Vec::new();
     for (index, layer) in layers.iter().enumerate() {
