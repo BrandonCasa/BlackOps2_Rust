@@ -327,7 +327,7 @@ impl Default for AudioSettings {
     }
 }
 impl AudioSettings {
-    fn gain(&self, channel: Channel) -> f32 {
+    pub(crate) fn gain(&self, channel: Channel) -> f32 {
         self.master
             * match channel {
                 Channel::Music => self.music,
@@ -970,9 +970,7 @@ impl Plugin for GameAudioPlugin {
             )
             .add_systems(OnEnter(GameState::GameOver), (stop, game_over).chain())
             .add_systems(OnEnter(GameState::Loading), stop);
-        app.add_systems(OnEnter(GameState::StartingSession), stop.run_if(
-            |intro: Res<crate::cinematics::LoadingPlayback>| !intro.active()
-        ));
+        app.add_systems(OnEnter(GameState::StartingSession), stop);
         app.add_systems(OnEnter(GameState::MainMenu), stop);
         app.add_systems(OnEnter(GameState::Ending), stop);
         gameplay::install(app);
@@ -1050,7 +1048,7 @@ fn play(
     }
     if !matches!(
         **state,
-        GameState::Playing | GameState::GameOver | GameState::Ending | GameState::StartingSession | GameState::Loading
+        GameState::Playing | GameState::GameOver | GameState::Ending | GameState::StartingSession
     ) {
         for (e, ..) in &requests {
             commands.entity(e).try_despawn();
@@ -1647,7 +1645,6 @@ fn maintain(
             &mut PlaybackSettings,
             Option<&RetiringSound>,
             Option<&mut SoundFade>,
-            Option<&crate::cinematics::CinematicAudioPaused>,
             Option<&SoundControl>,
         )>,
     )>,
@@ -1697,7 +1694,6 @@ fn maintain(
                     playback,
                     _,
                     _,
-                    cinematic_paused,
                     _,
                 )| {
                     let native = game
@@ -1720,7 +1716,6 @@ fn maintain(
                             && !semantic.completed
                             && sound.delay <= time.delta_secs(),
                         paused: (**state == GameState::Paused && native.pauseable)
-                            || cinematic_paused.is_some_and(|paused| paused.0)
                             || playback.paused && sound.delay > time.delta_secs(),
                     })
                 },
@@ -1746,7 +1741,6 @@ fn maintain(
         mut playback,
         retiring,
         fade,
-        cinematic_paused,
         control,
     ) in &mut sounds
     {
@@ -1758,8 +1752,7 @@ fn maintain(
                     .and_then(|alias| alias.native.get(index))
             })
         });
-        let paused = (**state == GameState::Paused && native.is_none_or(|sound| sound.pauseable))
-            || cinematic_paused.is_some_and(|p| p.0);
+        let paused = **state == GameState::Paused && native.is_none_or(|sound| sound.pauseable);
         if !paused {
             sound.delay = (sound.delay - time.delta_secs()).max(0.);
         }

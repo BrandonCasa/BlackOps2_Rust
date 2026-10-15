@@ -152,8 +152,6 @@ impl GameDefinition {
                 ));
             }
         }
-        crate::cinematics::bind_frames(&mut definition, root)
-            .map_err(ContentError::InvalidDefinition)?;
         actors::bind(&mut definition, root).map_err(ContentError::InvalidDefinition)?;
         if let Some(path) = &definition.navigation_metadata {
             let path = root.join(path);

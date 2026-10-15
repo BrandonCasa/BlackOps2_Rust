@@ -19,6 +19,14 @@ Copy-Item -LiteralPath $authoredGame -Destination (Join-Path $assets 'game.json'
 if ($GameplayOnly) { return }
 
 
+# First-party mpv CI binary: stock synchronized playback, no generated cinematic frames.
+$mpv = Join-Path $tools 'mpv/mpv.exe'
+if (!(Test-Path -LiteralPath $mpv)) {
+    $archive = Join-Path $tools 'mpv-v0.41.0-dev-g7c4f662c0-38598545310-x86_64-w64-mingw32-full.zip'
+    Invoke-WebRequest 'https://github.com/mpv-player/mpv/releases/download/git-release/mpv-v0.41.0-dev-g7c4f662c0-38598545310-x86_64-w64-mingw32-full.zip' -OutFile $archive
+    if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ne '0C310AA06B77BBF603CA99B024F0CBD5D85BBCEB4C106235373D844DBDA941EC') { throw 'Pinned mpv archive hash mismatch.' }
+    Expand-Archive -LiteralPath $archive -DestinationPath (Join-Path $tools 'mpv') -Force
+}
 # Unmodified, pinned upstream tools; all downloads and private dependencies stay in target.
 $oat = Join-Path $tools 'oat'
 $unlinker = Join-Path $oat 'Unlinker.exe'
@@ -128,12 +136,8 @@ if (!$SkipOat) {
     Copy-Item -LiteralPath $globals -Destination $audio -Recurse -Force
     & $python (Join-Path $checkout 'tools/export_audio.py') --tool $external --game $steam --out $assets *> (Join-Path $reports 'external-audio-aliases.log')
     if ($LASTEXITCODE -ne 0) { throw 'External native audio alias export failed.' }
-    $ffmpeg = (Get-Command ffmpeg -ErrorAction Stop).Source
     foreach ($movie in @('zm_tomb_load', 'zm_tomb_ee')) {
-        $frames = Join-Path $assets "cinematics/$movie"
-        New-Item -ItemType Directory -Path $frames -Force | Out-Null
-        & $ffmpeg -hide_banner -nostdin -y -threads 4 -i (Join-Path $steam "video/$movie.webm") -map 0:v:0 -fps_mode passthrough -compression_level 1 (Join-Path $frames 'frame_%06d.png') *> (Join-Path $reports "$movie-frames.log")
-        if ($LASTEXITCODE -ne 0) { throw "External cinematic frame export failed: $movie" }
+        Copy-Item -LiteralPath (Join-Path $steam "video/$movie.webm") -Destination (Join-Path $assets "cinematics/$movie.webm") -Force
     }
     if ($oatFailed) { Write-Warning "OAT extraction is incomplete; inspect $oatLog. Collision export will still run." }
 }

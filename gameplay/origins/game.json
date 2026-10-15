@@ -1384146,15 +1384146,13 @@
     "cinematics": [
       {
         "id": "cinematic.loading.zm_tomb_load",
-        "frame_directory": "cinematics/zm_tomb_load",
-        "frames_per_second": 30,
-        "audio": "sound.native.bik_zm_tomb_load.0"
+        "video": "cinematics/zm_tomb_load.webm",
+        "audio": ["bik_zm_tomb_load", "bik_zm_tomb_load_c"]
       },
       {
         "id": "cinematic.ending.zm_tomb_ee",
-        "frame_directory": "cinematics/zm_tomb_ee",
-        "frames_per_second": 30,
-        "audio": "sound.native.bik_zm_tomb_ee.0"
+        "video": "cinematics/zm_tomb_ee.webm",
+        "audio": ["bik_zm_tomb_ee_c", "bik_zm_tomb_ee"]
       }
     ],
     "definitions": [

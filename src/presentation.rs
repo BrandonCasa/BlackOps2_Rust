@@ -712,6 +712,8 @@ fn camera_pose(
     names: Query<(Entity, &Name)>,
     inventories: offhand::Inventories,
     definition: Option<Res<GameDefinition>>,
+    gltfs: Res<Assets<Gltf>>,
+    nodes: Res<Assets<bevy::gltf::GltfNode>>,
     mut poses: ParamSet<(
         Query<(&Transform, Option<&ChildOf>)>,
         Query<(&mut Transform, Option<&ViewModelGroup>, Option<&GameCamera>)>,
@@ -767,7 +769,12 @@ fn camera_pose(
             if cursor != root {
                 continue;
             }
-            let eye = camera_tag_pose(local);
+            // The ordinary glTF's static tag_view rotation already converts
+            // source axes. Apply only animation relative to that rest frame.
+            let source = gltfs.get(&rig.source).expect("Viewhands glTF source");
+            let rest = nodes.get(source.named_nodes.get("tag_view").expect("Viewhands tag_view"))
+                .expect("Viewhands tag_view source node").transform.rotation;
+            let eye = camera_tag_pose(local * Mat4::from_quat(rest.inverse()));
             eyes.push((
                 rig.owner,
                 eye,

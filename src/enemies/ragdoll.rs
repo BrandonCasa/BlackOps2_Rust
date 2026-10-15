@@ -521,7 +521,11 @@ fn begin(
                 poses
                     .get(*joint)
                     .ok()
-                    .map(GlobalTransform::compute_transform)
+                    .map(|pose| Transform::from_matrix(pose.to_matrix() * Mat4::from_scale_rotation_translation(
+                        Vec3::splat(1. / crate::assets::SOURCE_UNIT_METERS),
+                        Quat::from_rotation_x(std::f32::consts::FRAC_PI_2),
+                        Vec3::ZERO,
+                    )))
             })
             .collect::<Vec<_>>();
         if snapshot.iter().take(3).any(Option::is_none) {
@@ -740,6 +744,12 @@ fn apply_pose(
     body_poses: Query<(&Position, &Rotation)>,
     mut joints: ParamSet<(Query<(&Transform, Option<&ChildOf>)>, Query<&mut Transform>)>,
 ) {
+    // Imported joints use CoD inches; physical bone poses use Y-up metres.
+    let source_frame = Mat4::from_scale_rotation_translation(
+        Vec3::splat(crate::assets::SOURCE_UNIT_METERS),
+        Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2),
+        Vec3::ZERO,
+    );
     let mut writes = Vec::new();
     for rig in &rigs {
         if rig.socket.is_some() || !rig.ready {
@@ -802,7 +812,7 @@ fn apply_pose(
             ) else {
                 continue;
             };
-            let current = Transform::from_matrix(animated_parent.inverse() * animated_bone);
+            let current = Transform::from_matrix(source_frame * animated_parent.inverse() * animated_bone * source_frame.inverse());
             let base = Transform::from_matrix(Mat4::from_cols_array(&bone.base));
             let factor = if current.translation.length() <= 400. * 0.0254 {
                 (ragdoll.seconds / bone.seconds).clamp(0., 1.)
@@ -831,7 +841,7 @@ fn apply_pose(
             let mut ancestor = Mat4::IDENTITY;
             loop {
                 if let Some(world) = world_poses.get(&cursor) {
-                    ancestor = *world * ancestor;
+                    ancestor = *world * source_frame * ancestor;
                     break;
                 }
                 let Ok((pose, parent)) = poses.get(cursor) else {
@@ -843,7 +853,7 @@ fn apply_pose(
                 };
                 cursor = parent.parent();
             }
-            writes.push((entity, Transform::from_matrix(ancestor.inverse() * world)));
+            writes.push((entity, Transform::from_matrix(ancestor.inverse() * world * source_frame)));
         }
     }
     for (entity, pose) in writes {

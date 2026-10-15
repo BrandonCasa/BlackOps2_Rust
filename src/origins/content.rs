@@ -1019,12 +1019,9 @@ pub struct LocalizedString {
 #[derive(Clone, Deserialize)]
 pub struct CinematicSequence {
     pub id: ContentId,
-    #[serde(default)]
-    pub frame_directory: Option<String>,
-    #[serde(default)]
-    pub frames: Vec<String>,
-    pub frames_per_second: f32,
-    pub audio: Option<ContentId>,
+    pub video: String,
+    /// Source stereo bed, then center-channel narration.
+    pub audio: [ContentId; 2],
 }
 
 #[derive(Clone, Deserialize)]
