@@ -243,7 +243,6 @@ impl Zombie {
         self.transition(EnemyAnimation::Traverse);
         self
     }
-    #[expect(dead_code, reason = "Source-native spawn integration remains unfinished")]
     pub(crate) fn source_spawn(
         mut self,
         spawner: &crate::access::ActorSpawnerDefinition,

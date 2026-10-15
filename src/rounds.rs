@@ -419,6 +419,11 @@ pub(crate) fn advance(
             })
             .collect();
         let enemy = choices.get(session.random() as usize % choices.len().max(1))?;
+        let spawners: Vec<_> = definition.access.spawners.iter()
+            .filter(|spawner| spawner.archetype == enemy.archetype)
+            .collect();
+        let spawner = *spawners.get(session.random() as usize % spawners.len().max(1))?;
+        let entrance = navigation.choose_entrance(admission, spawner, &mut session)?;
         let gait = session
             .difficulty
             .gait(profile, session.round, session.random());
@@ -431,10 +436,13 @@ pub(crate) fn advance(
             admission.source.clone(),
             admission.zone.clone(),
             admission.rising,
+            admission.clone(),
+            spawner.clone(),
+            entrance,
         ))
     })();
-    let Some((position, shape, health, identity, gait, spawn_source, spawn_zone, rising)) =
-        candidate
+    let Some((position, shape, health, identity, gait, spawn_source, spawn_zone, rising,
+        admission, spawner, entrance)) = candidate
     else {
         evidence.failed_admissions += 1;
         evidence.budget_consumed_on_failure += u64::from(pending != session.pending);
@@ -476,11 +484,7 @@ pub(crate) fn advance(
         })
         .flatten();
     let zombie = Zombie::new(position, identity, gait).with_locomotion_seed(session.random());
-    let zombie = if let Some(profile) = rise {
-        zombie.rising(profile)
-    } else {
-        zombie
-    };
+    let zombie = zombie.source_spawn(&spawner, &admission, entrance, rise.map(|_| 0));
     let mut actor = commands.spawn((
         zombie,
         shape,
@@ -488,13 +492,11 @@ pub(crate) fn advance(
         PopulationKind::Ordinary,
         SpawnZone(spawn_zone),
         SessionEntity,
-        Visibility::Inherited,
+        Visibility::Hidden,
+        avian3d::prelude::ColliderDisabled,
         Transform::from_translation(position),
         Name::new("Original zombie"),
     ));
-    if rise.is_some() {
-        actor.insert(avian3d::prelude::ColliderDisabled);
-    }
     if quest.stage == crate::quests::QuestStage::UpgradeFists {
         actor.insert(crate::finale::FistCandidate::default());
     }
