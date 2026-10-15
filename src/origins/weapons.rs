@@ -101,3 +101,20 @@ pub(crate) fn bind(game: &mut GameDefinition, root: &Path) -> Result<(), String>
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod source_catalog_tests {
+    use super::Catalog;
+
+    #[test]
+    fn authored_catalog_deserializes_with_per_surface_throwable_tables() {
+        let catalog: Catalog = serde_json::from_str(include_str!("../../gameplay/origins/weapons.json"))
+            .expect("source-authored weapon data must match runtime types");
+        let monkey = catalog.weapons.iter().find(|weapon| weapon.id.0 == "weapon.cymbal_monkey_zm")
+            .and_then(|weapon| weapon.throwable.as_ref()).expect("source monkey definition");
+        assert_eq!(monkey.tangent_bounce[0], 0.5);
+        assert_eq!(monkey.tangent_bounce[1], 0.6);
+        assert_eq!(monkey.normal_bounce[6], 0.225);
+        assert_eq!(monkey.normal_bounce[31], 0.5);
+    }
+}
