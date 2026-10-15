@@ -8,6 +8,7 @@ sys.path.insert(0, str(external))
 from scripts.cod import backends
 from scripts.cod.t6.dumpers import gfxworld, material
 from scripts.cod.materials import material_file_stem
+from scripts.cod.iw5.dumpers import xmodel
 
 walk = backends.for_fastfile(str(zone)).walk(str(zone))
 walk.check()
@@ -62,6 +63,49 @@ for output, source in zip(data["staticModels"], world["dpvs.smodelDrawInsts"], s
     output["colorsIndex"] = source["colorsIndex"]
     output["visibility"] = source["visibility"] & 255
     output["reflectionProbeIndex"] = source["reflectionProbeIndex"] & 255
+
+# Retain the model streams needed by the original PACKED vertex programs.
+# The ordinary GLB scene remains available to animation/gameplay consumers.
+requested_models = {placement["model"] for placement in data["staticModels"]}
+data["modelGeometry"] = {}
+for model_asset in walk.by_type("xmodel"):
+    if model_asset.name not in requested_models:
+        continue
+    model = model_asset.record
+    model_data = {
+        "bounds": [list(model.unpack("<3f", key)) for key in ("mins", "maxs")],
+        "lods": [],
+    }
+    vertices, triangles = bytearray(), bytearray()
+    handles = list(model["materialHandles"])
+    for lod in range(model["numLods"]):
+        lod_data = {"dist": model[f"lodInfo[{lod}].dist"], "surfaces": []}
+        first = model[f"lodInfo[{lod}].surfIndex"]
+        for index, surface in enumerate(xmodel.surfaces(model, lod)):
+            vertex_bytes = bytes(surface["verts0"].bytes())
+            index_bytes = bytes(surface["triIndices"].bytes())
+            assert len(vertex_bytes) == surface["vertCount"] * 32
+            assert len(index_bytes) == surface["triCount"] * 6
+            source_material = handles[first + index]
+            lod_data["surfaces"].append({
+                "vertexByteOffset": len(vertices), "firstIndex": len(triangles) // 2,
+                "vertexCount": surface["vertCount"], "triCount": surface["triCount"],
+                "baseVertIndex": surface["baseVertIndex"], "flags": surface["flags"],
+                "material": source_material.name,
+                "materialFile": "materials/" + material_file_stem(source_material.name) + ".json",
+            })
+            vertices.extend(vertex_bytes)
+            triangles.extend(index_bytes)
+        model_data["lods"].append(lod_data)
+    for key, suffix, contents in (("vertexFile", "vertices", vertices), ("indexFile", "indices", triangles)):
+        name = f"model_export/{model_asset.name}.{suffix}.bin"
+        destination = assets / name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(contents)
+        model_data[key] = name
+    assert model_asset.name not in data["modelGeometry"], "Duplicate original static model"
+    data["modelGeometry"][model_asset.name] = model_data
+assert set(data["modelGeometry"]) == requested_models, "Missing original static model streams"
 
 
 def fog(record):
