@@ -3054250,6 +3054250,30 @@
       "distance_min": 5.08,
       "distance": 12.7,
       "looping": true
+    },
+    {
+      "id": "sound.door.debris",
+      "path": "sound/amb/environment/debris/rock/rock_debris_00.LN50.pc.snd.wav",
+      "volume": 0.03162029744881965,
+      "pitch": [
+        0.9715262306588947,
+        1.0292977690969574
+      ],
+      "distance_min": 12.7,
+      "distance": 22.86,
+      "looping": false
+    },
+    {
+      "id": "sound.door.bunker",
+      "path": "sound/zmb/level/zm_tomb/doors/drop/tomb_door_metal.SN50.pc.snd.flac",
+      "volume": 0.05622941037251569,
+      "pitch": [
+        1.0,
+        1.0
+      ],
+      "distance_min": 22.86,
+      "distance": 90.17,
+      "looping": false
     }
   ],
   "sources": [
