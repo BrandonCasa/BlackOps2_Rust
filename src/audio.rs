@@ -31,7 +31,6 @@ pub enum Channel {
     Dialogue,
 }
 #[derive(Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct Alias {
     pub sounds: Vec<ContentId>,
     pub spatial: bool,
@@ -52,7 +51,6 @@ pub struct Alias {
 }
 
 #[derive(Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct NativeSound {
     pub id: u32,
     pub sound: Option<ContentId>,
@@ -95,7 +93,6 @@ pub struct NativeSound {
 }
 
 #[derive(Clone, Copy, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct NativeLimit {
     pub count: u8,
     pub policy: u8,
@@ -199,19 +196,17 @@ impl NativeSound {
 
 }
 #[derive(Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct SoundNote {
     pub seconds: f32,
     pub alias: String,
 }
 #[derive(Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct EmitterDefinition {
     pub alias: String,
     pub position: [f32; 3],
 }
 #[derive(Clone, Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct WaterDefinition {
     pub volumes: Vec<Vec<[f32; 4]>>,
     pub triangles: Vec<[[f32; 3]; 3]>,
@@ -271,7 +266,7 @@ impl WaterDefinition {
     }
 }
 #[derive(Clone, Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct AudioDefinition {
     pub aliases: BTreeMap<String, Alias>,
     pub bindings: BTreeMap<String, String>,
@@ -312,7 +307,7 @@ impl AudioDefinition {
 
 }
 #[derive(Resource, Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct AudioSettings {
     pub master: f32,
     pub effects: f32,
@@ -571,7 +566,6 @@ pub(crate) enum PlaybackStatus {
 pub(crate) struct Lifetimes(BTreeMap<Entity, bool>);
 
 #[derive(Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct MasterDefinition {
     pub buses: [f32; 9],
     pub gain: f32,
@@ -581,7 +575,6 @@ pub struct MasterDefinition {
 }
 
 #[derive(Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct EqualizerDefinition {
     pub enabled: bool,
     pub gain: f32,
@@ -590,7 +583,6 @@ pub struct EqualizerDefinition {
 }
 
 #[derive(Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct DynamicsDefinition {
     pub enabled: bool,
     pub pre_gain: f32,
@@ -606,13 +598,11 @@ impl MasterDefinition {
 }
 
 #[derive(Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct RoomDefinition {
     pub parameters: [f32; 16],
 }
 
 #[derive(Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct DuckProfile {
     pub name: String,
     pub fades: [f32; 2],

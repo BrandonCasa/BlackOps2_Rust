@@ -15,7 +15,6 @@ use std::collections::{BTreeMap, BTreeSet};
 mod source;
 
 #[derive(Clone, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct BenchDefinition {
     pub id: String,
     pub source_trigger: String,

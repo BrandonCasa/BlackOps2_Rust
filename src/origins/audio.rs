@@ -5,7 +5,6 @@ use serde::Deserialize;
 use std::path::Path;
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct SourceAudio {
     audio: AudioDefinition,
     sounds: Vec<SoundDefinition>,
