@@ -34,6 +34,7 @@ struct Parameters {
     special_parms: array<vec4<f32>,3>,
     slots: vec4<u32>,
     images: array<vec4<u32>, 9>,
+    transforms: array<vec4<f32>, 18>,
 }
 struct Sample {
     uv01: vec4<f32>,
@@ -52,6 +53,7 @@ struct Pixel {
 @group(0) @binding(1) var<storage, read> images: array<vec4<f32>>;
 @group(0) @binding(2) var<storage, read> samples: array<Sample>;
 @group(0) @binding(3) var<storage, read_write> output: array<Pixel>;
+@group(0) @binding(4) var<storage, read_write> frame_color: array<vec4<f32>>;
 
 fn flag(bit: u32) -> bool { return (recipe.flags & bit) != 0u; }
 fn address(value: i32, size: i32, clamped: bool) -> u32 {
@@ -62,7 +64,10 @@ fn at(image: vec4<u32>, x: i32, y: i32) -> vec4<f32> {
     return images[image.z + address(y, i32(image.y), (image.w & 64u) != 0u) * image.x
         + address(x, i32(image.x), (image.w & 32u) != 0u)];
 }
-fn sample_image(index: u32, uv: vec2<f32>) -> vec4<f32> {
+fn sample_image(index: u32, source_uv: vec2<f32>) -> vec4<f32> {
+    let matrix = recipe.transforms[index * 2u];
+    let offset = recipe.transforms[index * 2u + 1u].xy;
+    let uv = vec2(dot(matrix.xy, source_uv), dot(matrix.zw, source_uv)) + offset;
     let image = recipe.images[index];
     var u = uv.x - floor(uv.x);
     var v = uv.y - floor(uv.y);
@@ -219,12 +224,60 @@ fn special_surface(uv: vec2<f32>) -> Pixel {
     return result;
 }
 
+fn script_layer(uv0: vec2<f32>, vertex: vec4<f32>) -> Pixel {
+        let count = u32(recipe.special_parms[2].x);
+        let mode = u32(recipe.special_parms[2].y);
+        var values: array<vec4<f32>, 4>;
+        var weights: array<f32, 4>;
+        for (var i = 0u; i < count; i += 1u) {
+            values[i] = sample_image(i, uv0);
+            weights[i] = values[i].a * recipe.special_parms[0][i]
+                * (1.0 - clamp(recipe.special_parms[1][i], 0.0, 1.0));
+        }
+        var color = values[count - 1u].rgb * values[count - 1u].a;
+        var coverage = weights[count - 1u];
+        for (var i = i32(count) - 2; i >= 0; i -= 1) {
+            color += weights[u32(i)] * (values[u32(i)].rgb - color);
+            coverage = clamp(coverage + weights[u32(i)], 0.0, 1.0);
+        }
+        if mode == 4u || mode == 5u || mode == 7u { color *= coverage; }
+        if mode == 1u { color *= vertex.rgb * (1.0 - recipe.special_parms[1].x); }
+        if mode == 5u { color *= vertex.rgb * vertex.a * vertex.a; }
+        color *= recipe.special_parms[2].z;
+        var alpha = 1.0;
+        if mode == 0u || mode == 3u || mode == 6u { alpha = sqrt(max(coverage, 0.0)); }
+        var result: Pixel;
+        result.color = vec4<f32>(color * color, alpha);
+        result.normal = vec4<f32>(0.0, 0.0, 1.0, 1.0);
+        if recipe.special_parms[2].w != 0.0 {
+            result.normal = normal(sample_image(count, uv0).xy * recipe.parms.z + vec2<f32>(recipe.parms.w));
+        }
+        result.response = vec4<f32>(1.0, 1.0, 0.0, 1.0);
+        result.specular = vec4<f32>(0.0);
+        return result;
+}
+
+@compute @workgroup_size(64)
+fn script_frame(@builtin(global_invocation_id) invocation: vec3<u32>) {
+    let index = invocation.x;
+    if index >= recipe.count { return; }
+    let source = index + recipe.slots.y;
+    let dimensions = vec2<f32>(recipe.slots.xz);
+    let uv = recipe.second_parms.xy + recipe.second_parms.zw *
+        (vec2<f32>(f32(source % recipe.slots.x), f32(source / recipe.slots.x)) + vec2<f32>(0.5)) / dimensions;
+    frame_color[index] = script_layer(uv, vec4<f32>(1.0)).color;
+}
+
 @compute @workgroup_size(64)
 fn bake(@builtin(global_invocation_id) invocation: vec3<u32>) {
     let index = invocation.x;
     if index >= recipe.count { return; }
     let sample = samples[index];
     let uv0 = sample.uv01.xy;
+    if (recipe.flags & SPECIAL_SURFACE) == SPECIAL_SURFACE {
+        output[index] = script_layer(uv0, sample.transform * 0.5 + vec4<f32>(0.5));
+        return;
+    }
     if flag(SPECIAL_SURFACE) {
         output[index] = special_surface(uv0);
         return;

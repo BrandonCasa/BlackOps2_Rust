@@ -791,7 +791,7 @@ fn installed_ordinary_materials_batch() {
         let doc: serde_json::Value = serde_json::from_slice(bytes).unwrap();
         for buffer in doc["buffers"].as_array().unwrap() {
             crate::dependency(
-                &pack,
+                &|path| pack.contains(path),
                 std::path::Path::new(uri).parent().unwrap(),
                 buffer["uri"].as_str().unwrap(),
             )
@@ -1606,9 +1606,7 @@ fn installed_ordinary_materials_increment() {
             .unwrap()["code_constants"]["181"],
         serde_json::json!([0., 0., 0., 0.])
     );
-    let mut check_pack = crate::pack::Pack {
-        entries: pack.entries.clone(),
-    };
+    let mut check_pack = crate::pack::Pack::from_entries(pack.entries.clone());
     check_pack
         .entries
         .insert("game.json".into(), std::sync::Arc::new(b"{}".to_vec()));

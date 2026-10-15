@@ -50,7 +50,7 @@ use core::*;
 use serde_json::Value;
 use std::path::{Component, Path, PathBuf};
 
-fn dependency(pack: &pack::Pack, directory: &Path, uri: &str) -> Result<()> {
+fn dependency(contains: &impl Fn(&str) -> bool, directory: &Path, uri: &str) -> Result<()> {
     let mut path = directory.to_path_buf();
     let uri = uri.split('#').next().unwrap_or(uri);
     if uri.contains([':', '\\', '%']) || uri.starts_with('/') {
@@ -64,16 +64,28 @@ fn dependency(pack: &pack::Pack, directory: &Path, uri: &str) -> Result<()> {
             _ => return Err(format!("Runtime dependency escapes pack: {uri}").into()),
         }
     }
-    pack.get(&path.to_string_lossy().replace('\\', "/"))?;
+    if !contains(&path.to_string_lossy().replace('\\', "/")) {
+        return Err(format!("Runtime dependency is missing: {}", path.display()).into());
+    }
     Ok(())
 }
 
 fn check(path: &Path) -> Result<()> {
-    let pack = pack::Pack::read(path)?;
-    validate_pack(&pack)
+    let index = pack::PackIndex::read(path)?;
+    validate_game(&index.metadata()?)?;
+    for name in index.entries.keys() {
+        validate_entry(name, &index.get(name)?, &|path| {
+            index.entries.contains_key(path)
+        })?;
+    }
+    println!(
+        "Pack contents and dependencies resolved: {} entries",
+        index.entries.len()
+    );
+    Ok(())
 }
 
-fn validate_pack(pack: &pack::Pack) -> Result<()> {
+fn validate_game(pack: &pack::Pack) -> Result<()> {
     let game: Value = serde_json::from_slice(pack.get("game.json")?)?;
     let art: Value = serde_json::from_slice(pack.get("prepared/runtime.json")?)?;
     if art["schema_version"] != 1 {
@@ -98,11 +110,24 @@ fn validate_pack(pack: &pack::Pack) -> Result<()> {
             .into());
         }
     }
+    Ok(())
+}
+
+fn validate_pack(pack: &pack::Pack) -> Result<()> {
+    validate_game(pack)?;
     validate_entries(pack)
 }
 
 fn validate_entries(pack: &pack::Pack) -> Result<()> {
-    fn links(pack: &pack::Pack, directory: &Path, data: &Value) -> Result<()> {
+    for (name, bytes) in &pack.entries {
+        validate_entry(name, bytes, &|path| pack.contains(path))?;
+    }
+    println!("Pack contents and dependencies resolved");
+    Ok(())
+}
+
+fn validate_entry(name: &str, bytes: &[u8], contains: &impl Fn(&str) -> bool) -> Result<()> {
+    fn links(contains: &impl Fn(&str) -> bool, directory: &Path, data: &Value) -> Result<()> {
         match data {
             Value::Object(fields) => {
                 for (key, value) in fields {
@@ -120,12 +145,12 @@ fn validate_entries(pack: &pack::Pack) -> Result<()> {
                         || matches!(key.as_str(), "uri" | "scene" | "texture" | "path"))
                         && let Some(uri) = value.as_str().filter(|uri| !uri.is_empty())
                     {
-                        dependency(pack, directory, uri)?;
+                        dependency(contains, directory, uri)?;
                     }
                     if key == "uris" {
                         for uri in value.as_object().into_iter().flat_map(|uris| uris.values()) {
                             dependency(
-                                pack,
+                                contains,
                                 directory,
                                 uri.as_str().ok_or("Runtime image URI is not a string")?,
                             )?;
@@ -138,7 +163,7 @@ fn validate_entries(pack: &pack::Pack) -> Result<()> {
                             .flatten()
                             .filter_map(Value::as_str)
                         {
-                            dependency(pack, directory, uri)?;
+                            dependency(contains, directory, uri)?;
                         }
                     }
                     if key == "models" {
@@ -148,47 +173,45 @@ fn validate_entries(pack: &pack::Pack) -> Result<()> {
                             .flat_map(|models| models.values())
                             .filter_map(Value::as_str)
                         {
-                            dependency(pack, directory, uri)?;
+                            dependency(contains, directory, uri)?;
                         }
                     }
-                    links(pack, directory, value)?;
+                    links(contains, directory, value)?;
                 }
             }
             Value::Array(values) => {
                 for value in values {
-                    links(pack, directory, value)?;
+                    links(contains, directory, value)?;
                 }
             }
             _ => (),
         }
         Ok(())
     }
-    for (name, bytes) in &pack.entries {
-        let path = Path::new(name);
-        match path.extension().and_then(|value| value.to_str()) {
-            Some("ktx2") => {
-                texture::validate(bytes)?;
-            }
-            Some("gltf") => {
-                let doc: Value = serde_json::from_slice(bytes)?;
-                for section in ["buffers", "images"] {
-                    links(pack, path.parent().unwrap_or(Path::new("")), &doc[section])?;
-                }
-                for material in doc["materials"].as_array().into_iter().flatten() {
-                    links(pack, Path::new(""), &material["extras"])?;
-                }
-            }
-            Some("json" | "nativefx") => {
-                let doc: Value = serde_json::from_slice(bytes)?;
-                links(pack, Path::new(""), &doc)?;
-            }
-            _ => (),
+    let path = Path::new(name);
+    match path.extension().and_then(|value| value.to_str()) {
+        Some("ktx2") => {
+            texture::validate(bytes)?;
         }
+        Some("gltf") => {
+            let doc: Value = serde_json::from_slice(bytes)?;
+            for section in ["buffers", "images"] {
+                links(
+                    contains,
+                    path.parent().unwrap_or(Path::new("")),
+                    &doc[section],
+                )?;
+            }
+            for material in doc["materials"].as_array().into_iter().flatten() {
+                links(contains, Path::new(""), &material["extras"])?;
+            }
+        }
+        Some("json" | "nativefx") => {
+            let doc: Value = serde_json::from_slice(bytes)?;
+            links(contains, Path::new(""), &doc)?;
+        }
+        _ => (),
     }
-    println!(
-        "Pack contents and dependencies resolved: {} entries",
-        pack.entries.len()
-    );
     Ok(())
 }
 

@@ -133,6 +133,25 @@ pub fn selected_technique(family: &str) -> Option<usize> {
     Recipe::lookup(family).map(|recipe| recipe.technique())
 }
 
+pub(crate) fn script_layer_mode(family: &str) -> Option<&'static str> {
+    falloff_recipe(family).map(|recipe| recipe.mode).or_else(|| {
+        single_unlit_recipe(family)
+            .filter(|recipe| matches!(recipe.mode, "layer" | "layer_reflection"))
+            .map(|_| "single")
+    })
+}
+
+pub(crate) fn validate_script_layers(native: &Value) -> Result<usize> {
+    let name = native["name"].as_str().ok_or("Script-layer material name is missing")?;
+    let family = native["technique_set"].as_str().ok_or("Script-layer material family is missing")?;
+    if let Some(recipe) = falloff_recipe(family) {
+        validate_falloff(name, native, recipe).map(|(index, _)| index)
+    } else {
+        let recipe = single_unlit_recipe(family).ok_or("Unsupported script-layer material")?;
+        validate_single_unlit(name, native, recipe).map(|(index, _, _)| index)
+    }
+}
+
 pub(crate) fn validate_static_alpha_reveal(native: &Value) -> Result<bool> {
     let family = native["technique_set"]
         .as_str()

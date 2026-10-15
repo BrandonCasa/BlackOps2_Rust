@@ -53,323 +53,11 @@ impl bevy::pbr::MaterialExtension for WaterExtension {
 
 type WaterMaterial = bevy::pbr::ExtendedMaterial<StandardMaterial, WaterExtension>;
 
-#[derive(Clone, bevy::render::render_resource::ShaderType)]
-struct LayerControls {
-    scale_offset: [Vec4; 4],
-    origin_rotation: [Vec4; 4],
-    scroll_depth_alpha: [Vec4; 4],
-    script: Vec4,
-    time: Vec4,
-    emission: Vec4,
-    options: Vec4,
-    reflection: Vec4,
-    normal_decode: Vec4,
-}
-
-#[derive(Asset, bevy::render::render_resource::AsBindGroup, TypePath, Clone)]
-pub(super) struct LayerExtension {
-    #[uniform(100)]
-    controls: LayerControls,
-    #[texture(101)]
-    #[sampler(102)]
-    #[dependency]
-    first: Handle<Image>,
-    #[texture(103)]
-    #[sampler(104)]
-    #[dependency]
-    second: Handle<Image>,
-    #[texture(105)]
-    #[sampler(106)]
-    #[dependency]
-    third: Handle<Image>,
-    #[texture(107)]
-    #[sampler(108)]
-    #[dependency]
-    fourth: Handle<Image>,
-    #[texture(109)]
-    #[sampler(110)]
-    #[dependency]
-    normal: Handle<Image>,
-}
-
-impl bevy::pbr::MaterialExtension for LayerExtension {
-    fn fragment_shader() -> bevy::shader::ShaderRef {
-        "embedded://origins/rendering/script_layers.wesl".into()
-    }
-    fn enable_prepass() -> bool {
-        false
-    }
-    fn enable_shadows() -> bool {
-        false
-    }
-    fn enable_oit() -> bool {
-        false
-    }
-}
-
-type LayerMaterial = bevy::pbr::ExtendedMaterial<StandardMaterial, LayerExtension>;
-
-#[derive(Component)]
-struct LiveLayers {
-    base: Vec4,
-}
-
-fn layer_controls(
-    surface: &serde_json::Value,
-) -> Result<Option<(LayerControls, Vec<PreparedTexture>)>, String> {
-    let script = &surface["source_script_layers"];
-    if script["consumer"] != "native_live_layers" {
-        return Ok(None);
-    }
-    let mode = match (
-        surface["native"]["technique_set"].as_str(),
-        script["mode"].as_str(),
-    ) {
-        (
-            Some("wpc_sw4_3d_unlit_1layer_8691j77q" | "mc_sw4_3d_unlit_1layer_nofog_91f00f80"),
-            Some("single"),
-        ) => 0.,
-        (
-            Some(
-                "mc_sw4_3d_unlit_3layer_normal_script_q0zez5ju"
-                | "mlv_sw4_3d_unlit_3layer_normal_script_766fz50u",
-            ),
-            Some("normal_script"),
-        ) => 1.,
-        (Some("wpc_sw4_3d_unlit_3layer_normal_script_q1z1f6w1"), Some("normal_script_unlit")) => 1.,
-        (Some("mc_sw4_3d_unlit_3layer_nofog_falloff_5z943qe4"), Some("opaque")) => 2.,
-        (Some("mc_sw4_3d_unlit_3layer_nofog_falloff_5z909874"), Some("blend")) => 3.,
-        (
-            Some(
-                "mc_sw4_3d_unlit_3layer_nofog_falloff_w840w777"
-                | "mlv_sw4_3d_unlit_3layer_nofog_falloff_fjz6ze0u",
-            ),
-            Some("add"),
-        ) => 4.,
-        (
-            Some(
-                "mc_sw4_3d_unlit_3layer_nofog_falloff_zfeather_wq4jwzz6"
-                | "mlv_sw4_3d_unlit_3layer_nofog_falloff_zfeather_z0zw1090",
-            ),
-            Some("zfeather"),
-        ) => 5.,
-        (Some("mc_sw4_3d_unlit_3layer_nofog_qw71w785"), Some("layer_blend")) => 6.,
-        (
-            Some(
-                "mc_sw4_3d_unlit_4layer_nofog_eee768jw" | "mlv_sw4_3d_unlit_4layer_nofog_2j0ezz67",
-            ),
-            Some("four_add"),
-        ) => 7.,
-        (Some("mc_sw4_3d_unlit_4layer_jw0z1973"), Some("four_opaque")) => 8.,
-        _ => return Err("Unsupported native live layer family or mode".into()),
-    };
-    #[derive(Deserialize)]
-    struct Layer {
-        uri: String,
-        sampler: u8,
-        color_space: String,
-        layer: usize,
-        scale: [f32; 2],
-        offset: [f32; 2],
-        origin: [f32; 2],
-        rotation: [f32; 2],
-        scroll: [f32; 2],
-        depth: f32,
-        alpha: Option<f32>,
-    }
-    let layers: Vec<Layer> = serde_json::from_value(surface["source_layers"].clone())
-        .map_err(|error| format!("Invalid native live layers: {error}"))?;
-    let count = if mode == 0. {
-        1
-    } else if mode >= 7. {
-        4
-    } else {
-        3
-    };
-    if script["code_constant"] != 169
-        || script["base_state"] != serde_json::json!([0., 0., 0., 0.])
-        || surface["source_layer_uv"]["game_time_code"] != 25
-        || surface["source_layer_uv"]["game_time_component"] != 3
-        || layers.len() != count
-    {
-        return Err("Unsupported native live layer state, clock or count".into());
-    }
-    let mut textures = Vec::new();
-    for (index, layer) in layers.iter().enumerate() {
-        crate::origins::validate_asset_path(&layer.uri).map_err(|error| error.to_string())?;
-        if layer.color_space != "native_encoded"
-            || layer.layer != index
-            || !layer
-                .scale
-                .iter()
-                .chain(layer.offset.iter())
-                .chain(layer.origin.iter())
-                .chain(layer.rotation.iter())
-                .chain(layer.scroll.iter())
-                .chain([&layer.depth, &layer.alpha.unwrap_or(0.)])
-                .all(|value| value.is_finite())
-        {
-            return Err("Invalid native live layer input or parameter".into());
-        }
-        textures.push(PreparedTexture {
-            uri: layer.uri.clone(),
-            role: format!("native_layer_{index}"),
-            layer: 0,
-            color_space: "linear".into(),
-            sampler: layer.sampler,
-        });
-    }
-    let number = |value: &serde_json::Value, fallback: f32| -> Result<f32, String> {
-        if value.is_null() {
-            return Ok(fallback);
-        }
-        let value = value.as_f64().ok_or("Invalid native layer scalar")? as f32;
-        value
-            .is_finite()
-            .then_some(value)
-            .ok_or("Non-finite native layer scalar".into())
-    };
-    let normal = &surface["source_normal"];
-    let mut normal_scale: [f32; 2] = [1., 1.];
-    let mut decode: [f32; 2] = [1., 0.];
-    if !normal.is_null() {
-        let uri = normal["uri"]
-            .as_str()
-            .ok_or("Missing native layer normal image")?;
-        crate::origins::validate_asset_path(uri).map_err(|error| error.to_string())?;
-        normal_scale = serde_json::from_value(normal["scale"].clone())
-            .map_err(|error| format!("Invalid native layer normal scale: {error}"))?;
-        decode = serde_json::from_value(normal["decode"].clone())
-            .map_err(|error| format!("Invalid native layer normal decode: {error}"))?;
-        if !normal_scale
-            .iter()
-            .chain(decode.iter())
-            .all(|value| value.is_finite())
-        {
-            return Err("Non-finite native layer normal parameters".into());
-        }
-        textures.push(PreparedTexture {
-            uri: uri.into(),
-            role: "native_layer_normal".into(),
-            layer: 0,
-            color_space: "linear".into(),
-            sampler: normal["sampler"]
-                .as_u64()
-                .filter(|value| *value <= 255)
-                .ok_or("Invalid native layer normal sampler")? as u8,
-        });
-    }
-    let state: [f32; 4] = if script["state"].is_null() {
-        [0.; 4]
-    } else {
-        serde_json::from_value(script["state"].clone())
-            .map_err(|error| format!("Invalid native layer state: {error}"))?
-    };
-    if !state.iter().all(|value| value.is_finite()) {
-        return Err("Non-finite native layer state".into());
-    }
-    let gloss = number(&surface["source_reflection"]["gloss"], 0.)?;
-    let reflect =
-        number(&surface["source_reflection"]["amount"], 0.)? * (0.75 + 0.25 * gloss).clamp(0., 1.);
-    let controls = LayerControls {
-        scale_offset: std::array::from_fn(|index| {
-            let layer = &layers[index.min(count - 1)];
-            Vec4::new(
-                layer.scale[0],
-                layer.scale[1],
-                layer.offset[0],
-                layer.offset[1],
-            )
-        }),
-        origin_rotation: std::array::from_fn(|index| {
-            let layer = &layers[index.min(count - 1)];
-            Vec4::new(
-                layer.origin[0],
-                layer.origin[1],
-                layer.rotation[0],
-                layer.rotation[1],
-            )
-        }),
-        scroll_depth_alpha: std::array::from_fn(|index| {
-            let layer = &layers[index.min(count - 1)];
-            Vec4::new(
-                layer.scroll[0],
-                layer.scroll[1],
-                layer.depth,
-                layer.alpha.unwrap_or(0.),
-            )
-        }),
-        script: Vec4::from_array(state),
-        time: Vec4::ZERO,
-        emission: Vec4::new(
-            number(&surface["source_emissive"]["amount"], 1.)?,
-            number(&surface["source_falloff"]["power"], 0.)?,
-            number(&surface["source_falloff"]["boost"], 1.)?,
-            number(&surface["source_layer_uv"]["rotation_tau"], 1.)?,
-        ),
-        options: Vec4::new(
-            mode,
-            count as f32,
-            number(&surface["source_layer_uv"]["depth_epsilon"], 0.)?,
-            reflect,
-        ),
-        reflection: Vec4::new(
-            gloss,
-            normal_scale[0],
-            normal_scale[1],
-            number(&normal["height"], 0.)?,
-        ),
-        normal_decode: Vec4::new(decode[0], decode[1], (!normal.is_null()) as u8 as f32, 0.),
-    };
-    Ok(Some((controls, textures)))
-}
-
-fn advance_layers(
-    clock: Res<super::opaque::NativeClock>,
-    surfaces: Query<(Entity, &LiveLayers, &MeshMaterial3d<LayerMaterial>)>,
-    parents: Query<&ChildOf>,
-    inputs: Query<&super::opaque::NativeArtInputs>,
-    mut materials: ResMut<Assets<LayerMaterial>>,
-) {
-    for (entity, live, handle) in &surfaces {
-        let mut ancestor = Some(entity);
-        let mut input = None;
-        while let Some(current) = ancestor {
-            if let Ok(found) = inputs.get(current) {
-                input = Some(found);
-                break;
-            }
-            ancestor = parents.get(current).ok().map(ChildOf::parent);
-        }
-        let script = input
-            .filter(|input| input.script_available & 1 != 0)
-            .map_or(live.base, |input| Vec4::from_array(input.script_vectors[0]));
-        let time = input
-            .and_then(|input| input.shader_time)
-            .or_else(|| {
-                clock
-                    .render_milliseconds()
-                    .map(|milliseconds| (milliseconds, 0.))
-            })
-            .and_then(|(milliseconds, start)| super::opaque::game_time(milliseconds, start).ok());
-        if let Some(mut material) = materials.get_mut(&handle.0) {
-            material.extension.controls.script = script;
-            if let Some(time) = time {
-                material.extension.controls.time = Vec4::from_array(time);
-            }
-        }
-    }
-}
-
 pub(super) fn install(app: &mut App) {
+    super::baked::install(app);
     bevy::shader::load_shader_library!(app, "water.wesl");
-    bevy::shader::load_shader_library!(app, "script_layers.wesl");
     app.add_plugins(MaterialPlugin::<WaterMaterial>::default())
-        .add_plugins(MaterialPlugin::<LayerMaterial>::default())
-        .add_systems(
-            PostUpdate,
-            (advance_water, advance_layers).after(super::MaterialAnimation),
-        );
+        .add_systems(PostUpdate, advance_water.after(super::MaterialAnimation));
 }
 
 fn advance_water(
@@ -532,8 +220,21 @@ pub(crate) fn validate(surface: &serde_json::Value) -> Result<(), String> {
         return Err(format!("Unresolved material runtime binding: {reason}"));
     }
     textures(&surface["channels"])?;
+    if surface["bake"]["script_layers"] == true {
+        if surface["baked_effect"]["mode"]
+            .as_u64()
+            .is_none_or(|mode| mode > 8)
+            || surface["baked_effect"]["falloff_power"]
+                .as_f64()
+                .is_none_or(|power| !power.is_finite())
+        {
+            return Err("Invalid baked effect shading parameters".into());
+        }
+    }
     water_controls(surface)?;
-    layer_controls(surface)?;
+    if surface["source_script_layers"]["consumer"] == "native_live_layers" {
+        return Err("Native layered material has no baked animation frames".into());
+    }
     super::animated_surfaces::validate(surface)?;
     if !surface["source_shadow_only"].is_null() {
         let shadow = &surface["source_shadow_only"];
@@ -632,21 +333,30 @@ fn retain_texture_mips(image: &mut Image, maximum_dimension: u32) {
         || descriptor.mip_level_count < 2
         || image.data_order != TextureDataOrder::MipMajor
         || image.texture_view_descriptor.is_some()
-    { return; }
-    let Some(data) = image.data.as_mut() else { return; };
-    let Some(block_bytes) = descriptor.format.block_copy_size(None) else { return; };
+    {
+        return;
+    }
+    let Some(data) = image.data.as_mut() else {
+        return;
+    };
+    let Some(block_bytes) = descriptor.format.block_copy_size(None) else {
+        return;
+    };
     let (block_width, block_height) = descriptor.format.block_dimensions();
     let mut width = descriptor.size.width;
     let mut height = descriptor.size.height;
     let mut skipped = 0;
     let mut offset = 0;
     while width.max(height) > maximum_dimension && skipped + 1 < descriptor.mip_level_count {
-        offset += (width.div_ceil(block_width) * height.div_ceil(block_height) * block_bytes) as usize;
+        offset +=
+            (width.div_ceil(block_width) * height.div_ceil(block_height) * block_bytes) as usize;
         width = (width / 2).max(1);
         height = (height / 2).max(1);
         skipped += 1;
     }
-    if skipped == 0 || offset >= data.len() { return; }
+    if skipped == 0 || offset >= data.len() {
+        return;
+    }
     *data = data[offset..].to_vec();
     descriptor.size.width = width;
     descriptor.size.height = height;
@@ -721,7 +431,6 @@ pub(super) fn prepare(
     server: Res<AssetServer>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut water_materials: ResMut<Assets<WaterMaterial>>,
-    mut layer_materials: ResMut<Assets<LayerMaterial>>,
     mut water_cache: Local<HashMap<AssetId<StandardMaterial>, Handle<WaterMaterial>>>,
     mut pending: Local<PreparedHandles>,
     mut failure: ResMut<crate::assets::LoadFailure>,
@@ -757,13 +466,9 @@ pub(super) fn prepare(
             continue;
         }
         let water = water_controls(surface).expect("Validated native water controls");
-        let layers = layer_controls(surface).expect("Validated native layer controls");
         let channels = pending.entry(handle.0.id()).or_insert_with(|| {
             let mut textures = textures(&surface["channels"]).unwrap();
             if let Some((_, inputs)) = &water {
-                textures.extend(inputs.iter().cloned());
-            }
-            if let Some((_, inputs)) = &layers {
                 textures.extend(inputs.iter().cloned());
             }
             textures
@@ -844,7 +549,7 @@ pub(super) fn prepare(
         } else if state["visible"].as_bool() == Some(false) {
             commands.entity(entity).insert(Visibility::Hidden);
         }
-        if super::shadows::excludes_caster(surface) {
+        if super::shadows::excludes_caster(surface) || surface["bake"]["script_layers"] == true {
             commands.entity(entity).insert(bevy::light::NotShadowCaster);
         }
         if let Some((controls, _)) = water {
@@ -875,51 +580,6 @@ pub(super) fn prepare(
                     bevy::light::NotShadowCaster,
                 ));
         }
-        if let Some((controls, inputs)) = layers {
-            let layer = |index: usize| {
-                channel(&format!(
-                    "native_layer_{}",
-                    index.min(controls.options.y as usize - 1)
-                ))
-                .unwrap()
-            };
-            let mut base = material.clone();
-            base.base_color_texture = None;
-            base.normal_map_texture = None;
-            base.unlit = controls.options.w == 0.;
-            base.opaque_render_method = bevy::material::OpaqueRendererMethod::Forward;
-            let live = LiveLayers {
-                base: controls.script,
-            };
-            let layered = layer_materials.add(bevy::pbr::ExtendedMaterial {
-                base,
-                extension: LayerExtension {
-                    first: layer(0),
-                    second: layer(1),
-                    third: layer(2),
-                    fourth: layer(3),
-                    normal: if inputs
-                        .iter()
-                        .any(|input| input.role == "native_layer_normal")
-                    {
-                        channel("native_layer_normal").unwrap()
-                    } else {
-                        layer(0)
-                    },
-                    controls,
-                },
-            });
-            commands
-                .entity(entity)
-                .remove::<MeshMaterial3d<StandardMaterial>>()
-                .insert((
-                    MeshMaterial3d(layered),
-                    live,
-                    super::SurfaceReady,
-                    super::opaque::StandardReady,
-                    bevy::light::NotShadowCaster,
-                ));
-        }
         if let Some(ref mut library) = library {
             if let Err(error) = super::opaque::register_prepared(library, surface, channels) {
                 failure.0 = format!("Material {}: {error}", surface["identity"]);
@@ -939,9 +599,19 @@ mod tests {
 
     #[test]
     fn texture_residency_keeps_existing_compressed_mips_and_their_dimensions() {
-        use bevy::render::render_resource::{Extent3d, TextureDataOrder, TextureDimension, TextureFormat};
-        let mut image = Image::new_uninit(Extent3d { width: 64, height: 32, depth_or_array_layers: 1 },
-            TextureDimension::D2, TextureFormat::Bc7RgbaUnorm, bevy::asset::RenderAssetUsages::default());
+        use bevy::render::render_resource::{
+            Extent3d, TextureDataOrder, TextureDimension, TextureFormat,
+        };
+        let mut image = Image::new_uninit(
+            Extent3d {
+                width: 64,
+                height: 32,
+                depth_or_array_layers: 1,
+            },
+            TextureDimension::D2,
+            TextureFormat::Bc7RgbaUnorm,
+            bevy::asset::RenderAssetUsages::default(),
+        );
         image.texture_descriptor.mip_level_count = 7;
         image.data_order = TextureDataOrder::MipMajor;
         let mut data = Vec::new();
@@ -958,122 +628,6 @@ mod tests {
         assert_eq!(image.data.as_ref().unwrap(), &expected);
         retain_texture_mips(&mut image, 16);
         assert_eq!(image.data.unwrap(), expected);
-    }
-
-    #[test]
-    fn live_layers_keep_object_vectors_and_unwrapped_owner_time_separate() {
-        use super::super::opaque::{NativeArtInputs, NativeClock};
-        let surface = json!({"native":{"technique_set":"wpc_sw4_3d_unlit_1layer_8691j77q"},
-            "source_script_layers":{"consumer":"native_live_layers","mode":"single","code_constant":169,"base_state":[0.,0.,0.,0.]},
-            "source_layers":[{"uri":"prepared/source.ktx2","layer":0,"sampler":20,"color_space":"native_encoded",
-                "scale":[1.,1.],"offset":[0.,0.],"origin":[0.,0.],"rotation":[0.,0.],"scroll":[0.,0.],"depth":0.,"alpha":1.}],
-            "source_layer_uv":{"game_time_code":25,"game_time_component":3,"depth_epsilon":0.00001,"rotation_tau":6.283185},
-            "source_emissive":{"amount":1.}});
-        let (controls, _) = layer_controls(&surface).unwrap().unwrap();
-        let mut app = App::new();
-        app.init_resource::<NativeClock>()
-            .init_resource::<Assets<LayerMaterial>>()
-            .add_systems(Update, advance_layers);
-        let mut objects = Vec::new();
-        for value in [0.65, 0.1] {
-            let owner = app
-                .world_mut()
-                .spawn(NativeArtInputs {
-                    script_vectors: [[value, 0., 0., 0.], [1., 2., 3., 4.], [0.; 4], [0.; 4]],
-                    script_available: 3,
-                    shader_time: Some((12500, 2.)),
-                    ..default()
-                })
-                .id();
-            let handle = app.world_mut().resource_mut::<Assets<LayerMaterial>>().add(
-                bevy::pbr::ExtendedMaterial {
-                    base: StandardMaterial::default(),
-                    extension: LayerExtension {
-                        controls: controls.clone(),
-                        first: default(),
-                        second: default(),
-                        third: default(),
-                        fourth: default(),
-                        normal: default(),
-                    },
-                },
-            );
-            let entity = app
-                .world_mut()
-                .spawn((
-                    ChildOf(owner),
-                    LiveLayers { base: Vec4::ZERO },
-                    MeshMaterial3d(handle.clone()),
-                ))
-                .id();
-            objects.push((owner, entity, handle));
-        }
-        app.update();
-        let materials = app.world().resource::<Assets<LayerMaterial>>();
-        assert_eq!(
-            materials
-                .get(&objects[0].2)
-                .unwrap()
-                .extension
-                .controls
-                .script
-                .x,
-            0.65
-        );
-        assert_eq!(
-            materials
-                .get(&objects[1].2)
-                .unwrap()
-                .extension
-                .controls
-                .script
-                .x,
-            0.1
-        );
-        assert!(
-            (materials
-                .get(&objects[0].2)
-                .unwrap()
-                .extension
-                .controls
-                .time
-                .w
-                - 10.5)
-                .abs()
-                < 0.000002
-        );
-        app.world_mut()
-            .entity_mut(objects[0].1)
-            .insert(ChildOf(objects[1].0));
-        app.update();
-        assert_eq!(
-            app.world()
-                .resource::<Assets<LayerMaterial>>()
-                .get(&objects[0].2)
-                .unwrap()
-                .extension
-                .controls
-                .script
-                .x,
-            0.1
-        );
-        app.world_mut()
-            .get_mut::<NativeArtInputs>(objects[1].0)
-            .unwrap()
-            .script_available = 2;
-        app.update();
-        for (_, _, handle) in objects {
-            assert_eq!(
-                app.world()
-                    .resource::<Assets<LayerMaterial>>()
-                    .get(&handle)
-                    .unwrap()
-                    .extension
-                    .controls
-                    .script,
-                Vec4::ZERO
-            );
-        }
     }
 
     #[test]

@@ -378,17 +378,25 @@ mod tests {
             ),
         );
         cache.get(1, water, &definitions).unwrap();
-        let layers = AssetId::Uuid {
+        let baked = AssetId::Uuid {
             uuid: bevy::asset::uuid::Uuid::from_u128(index + 3),
         };
         cache.set_shader(
-            layers,
+            baked,
             Shader::from_wesl(
-                include_str!("script_layers.wesl"),
-                "embedded://origins/rendering/script_layers.wesl",
+                include_str!("baked.wesl"),
+                "embedded://origins/rendering/baked.wesl",
             ),
         );
-        cache.get(2, layers, &definitions).unwrap();
+        for mode in 0..=8 {
+            let mut definitions = definitions.to_vec();
+            definitions.push(ShaderDefVal::UInt("BAKED_MODE".into(), mode));
+            definitions.push(ShaderDefVal::UInt(
+                "BAKED_FALLOFF_BITS".into(),
+                1.5_f32.to_bits(),
+            ));
+            cache.get(2, baked, &definitions).unwrap();
+        }
         let animated = AssetId::Uuid {
             uuid: bevy::asset::uuid::Uuid::from_u128(index + 4),
         };

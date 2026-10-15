@@ -3,20 +3,16 @@ use super::*;
 pub(super) fn build(
     install: &Path,
     catalog: &catalog::Catalog<'_>,
-    materials: &std::collections::BTreeMap<String, serde_json::Value>,
     name: &str,
     output: &Path,
 ) -> Result<()> {
-    let key = name.to_ascii_lowercase();
     let model = catalog
         .definitions(5)
         .find(|(model, _, _)| model.eq_ignore_ascii_case(name));
     let groups = if let Some((model_name, zone, root)) = model {
         crate::geometry::model(catalog, model_name, zone, root)?
     } else {
-        if !materials.contains_key(&key) {
-            return Err(format!("Native material/model is missing: {name}").into());
-        }
+        catalog.resolve(6, name)?;
         let mut surfaces = Vec::new();
         for (_, zone, root) in catalog.definitions(17) {
             surfaces.extend(
@@ -30,10 +26,8 @@ pub(super) fn build(
             let bindings = fastfile::Address::decode(streams.u32(root.add(36)?)?)?;
             let mut matching = false;
             for index in 0..streams.u8(root.add(6)?)? as usize {
-                if catalog
-                    .pointer(zone, bindings.add(index * 4)?, 6)?
-                    .0
-                    .eq_ignore_ascii_case(name)
+                if catalog.pointer(zone, bindings.add(index * 4)?, 6)
+                    .is_ok_and(|(binding, _, _)| binding.eq_ignore_ascii_case(name))
                 {
                     matching = true;
                     break;
@@ -53,24 +47,16 @@ pub(super) fn build(
     if groups.is_empty() || groups.iter().any(Vec::is_empty) {
         return Err(format!("Native preview {name} has an empty geometry selection").into());
     }
-    let selected = groups
+    let required_materials = groups
         .iter()
         .flatten()
-        .map(|surface| {
-            let key = surface.material.to_ascii_lowercase();
-            materials
-                .get(&key)
-                .cloned()
-                .map(|material| (key, material))
-                .ok_or_else(|| {
-                    format!("Native preview material is missing: {}", surface.material).into()
-                })
-        })
-        .collect::<Result<std::collections::BTreeMap<_, _>>>()?;
+        .map(|surface| surface.material.to_ascii_lowercase())
+        .collect();
+    let selected = crate::material::read_used(catalog, &required_materials)?;
     let required = crate::material::inputs(&selected, catalog)?;
-    let mut pack = pack::Pack::default();
+    let mut pack = pack::Pack::streaming(output)?;
     let (_, images) = images::convert(install, catalog, &mut pack, Some(&required))?;
-    let mut converted = std::collections::BTreeMap::new();
+    let mut converted = crate::material::convert_known(&selected, &images, &mut pack)?;
     let baked = crate::bake::surfaces(
         &selected,
         groups.iter().flatten().cloned().collect(),
@@ -78,9 +64,6 @@ pub(super) fn build(
         &mut converted,
         &mut pack,
     )?;
-    converted.extend(crate::material::convert_known(
-        &selected, &images, &mut pack,
-    )?);
     let gaps = crate::material::missing(&selected, &converted);
     if !gaps.is_empty() {
         return Err(format!(
@@ -111,7 +94,7 @@ pub(super) fn build(
         scene.write(&uri, &mut pack)?;
     }
     crate::validate_entries(&pack)?;
-    pack.write(std::io::BufWriter::new(std::fs::File::create(output)?))?;
+    pack.write_to(output)?;
     println!(
         "Packed converted native preview {name}: {} source geometry groups into {}",
         groups.len(),

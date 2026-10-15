@@ -13,6 +13,7 @@ mod layered;
 mod output;
 mod recipe;
 mod reveal;
+mod script_layers;
 mod special;
 #[cfg(test)]
 mod tests;
@@ -29,6 +30,7 @@ enum Family {
     Tiled(tiled::Definition),
     Emissive(emissive::Definition),
     AlphaReveal(bool),
+    ScriptLayers(&'static str),
 }
 
 fn family(name: &str) -> Option<Family> {
@@ -37,6 +39,7 @@ fn family(name: &str) -> Option<Family> {
         .or_else(|| tiled::lookup(name).map(Family::Tiled))
         .or_else(|| emissive::lookup(name).map(Family::Emissive))
         .or_else(|| reveal::lookup(name).map(Family::AlphaReveal))
+        .or_else(|| crate::material::script_layer_mode(name).map(Family::ScriptLayers))
 }
 
 impl Family {
@@ -50,6 +53,7 @@ impl Family {
             Self::Tiled(definition) => tiled::read(definition, native, images),
             Self::Emissive(definition) => emissive::read(definition, native, images),
             Self::AlphaReveal(_) => reveal::read(native, images),
+            Self::ScriptLayers(mode) => script_layers::read(mode, native, images),
         }
     }
 
@@ -68,6 +72,7 @@ impl Family {
                 layer_specular: *specular,
                 ..Default::default()
             },
+            Self::ScriptLayers(_) => Output::default(),
         }
     }
 }
@@ -174,14 +179,46 @@ pub fn surfaces(
     for surface in supplied {
         let key = surface.material.to_ascii_lowercase();
         if required.contains_key(&key) {
-            groups.entry(key).or_default().push(surface.unindex()?);
+            let script = crate::material::script_layer_mode(
+                required[&key]["technique_set"].as_str().unwrap(),
+            )
+            .is_some();
+            groups.entry(key).or_default().push(if script {
+                surface
+            } else {
+                surface.unindex()?
+            });
         }
     }
+    let mut animation_bytes = 0;
+    for (key, material) in &required {
+        if let Some(mode) =
+            crate::material::script_layer_mode(material["technique_set"].as_str().unwrap())
+        {
+            let surfaces = groups.get(*key).ok_or_else(|| {
+                format!("Animated material {key} has no supplied source geometry")
+            })?;
+            animation_bytes += script_layers::preflight(mode, material, surfaces, images)?;
+        }
+    }
+    println!(
+        "Prepared animation frame estimate: {:.2} GiB",
+        animation_bytes as f64 / 1073741824.
+    );
     let mut baked = BTreeMap::<String, Vec<Surface>>::new();
     for (key, material) in required {
         let surfaces = groups
             .remove(key)
             .ok_or_else(|| format!("Layered material {key} has no supplied source geometry"))?;
+        if let Some(mode) =
+            crate::material::script_layer_mode(material["technique_set"].as_str().unwrap())
+        {
+            for surface in script_layers::bake(mode, material, &surfaces, images, converted, pack)?
+            {
+                baked.entry(surface.name.clone()).or_default().push(surface);
+            }
+            continue;
+        }
         let source_counts: BTreeMap<_, _> = surfaces
             .iter()
             .map(|surface| (surface.name.clone(), surface.indices.len()))

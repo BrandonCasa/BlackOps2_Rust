@@ -54,6 +54,9 @@ pub fn build(install: &Path, output: &Path, preview: Option<&str>) -> Result<()>
     let authorized = installation()?.canonicalize()?;
     let zones = read_zones(install)?;
     let catalog = catalog::Catalog::new(&zones);
+    if let Some(name) = preview {
+        return preview::build(&authorized, &catalog, name, output);
+    }
     let references: std::collections::BTreeSet<_> = zones
         .iter()
         .flat_map(|(_, zone)| zone.assets.iter())
@@ -94,14 +97,70 @@ pub fn build(install: &Path, output: &Path, preview: Option<&str>) -> Result<()>
     };
     let used_materials = crate::geometry::material_names(&catalog, required_models.as_ref())?;
     let mut materials = crate::material::read_used(&catalog, &used_materials)?;
+    if let Some(profile) = game
+        .as_ref()
+        .map(|game| &game.0["generator_crystals"])
+        .filter(|profile| profile.is_object())
+    {
+        let initial: [f32; 4] = serde_json::from_value(profile["initial_state"].clone())?;
+        let ranges: Vec<[f32; 2]> = ["zombie_controlled", "player_controlled"]
+            .into_iter()
+            .map(|phase| serde_json::from_value(profile[phase]["range"].clone()))
+            .collect::<std::result::Result<_, _>>()?;
+        let minimum = ranges
+            .iter()
+            .map(|range| range[0])
+            .fold(initial[0].min(0.), f32::min);
+        let maximum = ranges
+            .iter()
+            .map(|range| range[1])
+            .fold(initial[0].max(0.), f32::max);
+        let mut states = vec![[0.; 4], initial];
+        states.extend((0..=255).map(|index| {
+            let mut state = initial;
+            state[0] = minimum + (maximum - minimum) * index as f32 / 255.;
+            state
+        }));
+        states.sort_by(|a, b| a[0].total_cmp(&b[0]));
+        states.dedup();
+        let models: std::collections::BTreeSet<_> = profile["crystals"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|crystal| crystal["source_model"].as_str())
+            .map(str::to_ascii_lowercase)
+            .collect();
+        for (name, zone, root) in catalog
+            .definitions(5)
+            .filter(|(name, _, _)| models.contains(&name.to_ascii_lowercase()))
+        {
+            let streams = &catalog.zones[zone].1.streams;
+            let bindings = fastfile::Address::decode(streams.u32(root.add(36)?)?)?;
+            for index in 0..streams.u8(root.add(6)?)? as usize {
+                let material = catalog
+                    .pointer(zone, bindings.add(index * 4)?, 6)?
+                    .0
+                    .to_ascii_lowercase();
+                if let Some(native) = materials.get_mut(&material).filter(|native| {
+                    crate::material::script_layer_mode(
+                        native["technique_set"].as_str().unwrap_or_default(),
+                    )
+                    .is_some()
+                }) {
+                    native["baked_script_states"] = serde_json::json!(states);
+                    println!(
+                        "Baking source generator crystal {name} material {material} in {} script-state banks",
+                        states.len()
+                    );
+                }
+            }
+        }
+    }
     let research =
         PathBuf::from(std::env::var_os("USERPROFILE").ok_or("USERPROFILE is unavailable")?)
             .join("Documents/T6ZMResearch/t6zm-master");
     if !research.is_dir() {
         return Err("The authorized t6zm-master research workspace is missing".into());
-    }
-    if let Some(name) = preview {
-        return preview::build(&authorized, &catalog, &materials, name, output);
     }
     let (mut camo_library, camo_variants) = if initial {
         (None, std::collections::BTreeMap::new())
@@ -184,7 +243,7 @@ pub fn build(install: &Path, output: &Path, preview: Option<&str>) -> Result<()>
     if validated_materials != used_materials {
         return Err("Selected model material metadata and decoded source geometry disagree".into());
     }
-    let mut pack = pack::Pack::default();
+    let mut pack = pack::Pack::streaming(output)?;
     let collision = crate::collision::convert(&catalog, &mut pack)?;
     crate::game::prepare(game, &entities, &collision)?;
     let required_sounds = initial.then(|| {
@@ -444,7 +503,7 @@ pub fn build(install: &Path, output: &Path, preview: Option<&str>) -> Result<()>
         std::sync::Arc::new(serde_json::to_vec(&runtime)?),
     );
     crate::validate_pack(&pack)?;
-    pack.write(std::io::BufWriter::new(std::fs::File::create(output)?))?;
+    pack.write_to(output)?;
     println!(
         "Packed {} runtime entries into {}",
         pack.entries.len(),

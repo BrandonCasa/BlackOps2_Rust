@@ -1,6 +1,7 @@
 use super::*;
 
 pub(super) struct Input {
+    pub(super) transform: [f32; 6],
     pub(super) width: usize,
     pub(super) height: usize,
     pub(super) sampler: u8,
@@ -13,6 +14,7 @@ impl Input {
             return Err("Layered material input is not a 2D image".into());
         }
         Ok(Self {
+            transform: [1., 0., 0., 1., 0., 0.],
             width: image.width,
             height: image.height,
             sampler,
@@ -21,7 +23,18 @@ impl Input {
     }
 
     pub(super) fn sample(&self, uv: [f32; 2]) -> [f32; 4] {
-        texture::sample(&self.pixels, self.width, self.height, uv, self.sampler)
+        texture::sample(
+            &self.pixels,
+            self.width,
+            self.height,
+            self.uv(uv),
+            self.sampler,
+        )
+    }
+
+    pub(super) fn uv(&self, uv: [f32; 2]) -> [f32; 2] {
+        let [xx, xy, yx, yy, x, y] = self.transform;
+        [xx * uv[0] + xy * uv[1] + x, yx * uv[0] + yy * uv[1] + y]
     }
 }
 
@@ -117,6 +130,15 @@ impl Recipe {
             };
             for value in metadata {
                 push32(&mut parameters, value);
+            }
+        }
+        for index in 0..9 {
+            let transform = self
+                .inputs
+                .get(index)
+                .map_or([1., 0., 0., 1., 0., 0.], |input| input.transform);
+            for value in transform.into_iter().chain([0., 0.]) {
+                push32(&mut parameters, value.to_bits());
             }
         }
 

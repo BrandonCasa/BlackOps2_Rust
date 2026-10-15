@@ -56,7 +56,7 @@ impl OpaqueSurfaceStatus {
 pub(super) struct SurfaceDefinition {
     pub presentation: Value,
     channels: HashMap<(String, u64), Handle<Image>>,
-    metadata: Value,
+    pub(super) metadata: Value,
     frames: Arc<Vec<Frame>>,
 }
 #[derive(Resource, Default)]
@@ -343,6 +343,10 @@ pub(super) fn apply_factors(material: &mut StandardMaterial, factors: &Value) {
     material.perceptual_roughness = scalar("roughness", material.perceptual_roughness);
     material.metallic = scalar("metallic", material.metallic);
     material.reflectance = scalar("reflectance", material.reflectance);
+    material.emissive_exposure_weight = scalar(
+        "emissive_exposure_weight",
+        material.emissive_exposure_weight,
+    );
     material.specular_transmission = scalar("specular_transmission", 0.);
     material.diffuse_transmission = scalar("diffuse_transmission", 0.);
     material.ior = scalar("ior", 1.5);
@@ -452,7 +456,9 @@ pub(super) struct AnimatedMaterial {
     owner: Option<Entity>,
     frames: Arc<Vec<Frame>>,
     loaded: HashMap<usize, HashMap<String, Handle<Image>>>,
-    selected: usize,
+    states: Arc<Vec<[f32; 4]>>,
+    pending_frame: Option<usize>,
+    pub(super) selected: usize,
 }
 
 #[derive(Component, Default)]
@@ -905,7 +911,7 @@ fn validate_animation(surface: &Value) -> Result<(), String> {
             .filter(|frames| !frames.is_empty())
             .ok_or("Material animation has no frames")?;
         match animation["driver"].as_str() {
-            Some("time" | "staff_charge") => {
+            Some("time" | "staff_charge" | "native_layers") => {
                 if animation["fps"]
                     .as_f64()
                     .is_none_or(|fps| !fps.is_finite() || fps <= 0.)
@@ -921,6 +927,20 @@ fn validate_animation(surface: &Value) -> Result<(), String> {
                         || animation["state_threshold"].as_f64().is_none()
                     {
                         return Err("Staff material animation has invalid state banks".into());
+                    }
+                }
+                if animation["driver"] == "native_layers" {
+                    let states: Vec<[f32; 4]> = serde_json::from_value(animation["states"].clone())
+                        .map_err(|error| error.to_string())?;
+                    let count = animation["time_frames"]
+                        .as_u64()
+                        .filter(|count| *count > 0)
+                        .ok_or("Baked native sequence has no time frames")?;
+                    if states.is_empty()
+                        || states.iter().flatten().any(|value| !value.is_finite())
+                        || count.checked_mul(states.len() as u64) != Some(frames.len() as u64)
+                    {
+                        return Err("Invalid baked native sequence banks".into());
                     }
                 }
             }
@@ -1124,6 +1144,10 @@ pub(super) fn convert(
                 owner,
                 frames: frames.clone(),
                 loaded: HashMap::new(),
+                states: Arc::new(
+                    serde_json::from_value(animation["states"].clone()).unwrap_or_default(),
+                ),
+                pending_frame: None,
                 selected: usize::MAX,
             });
         }
@@ -1149,28 +1173,81 @@ pub(super) fn convert(
 
 pub(super) fn animate(
     time: Res<MaterialTime>,
+    clock: Option<Res<NativeClock>>,
     inputs: Query<&NativeArtInputs>,
     server: Res<AssetServer>,
     inventories: Query<&crate::weapons::WeaponInventory>,
     stones: Query<&crate::staff_puzzles::FrozenStone>,
-    mut entities: Query<(&mut AnimatedMaterial, &MeshMaterial3d<StandardMaterial>)>,
+    mut entities: Query<(
+        &mut AnimatedMaterial,
+        Option<&MeshMaterial3d<StandardMaterial>>,
+        Option<&super::baked::Base>,
+    )>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut failure: Option<ResMut<crate::assets::LoadFailure>>,
     mut next: Option<ResMut<NextState<crate::GameState>>>,
 ) {
-    for (mut animation, handle) in &mut entities {
+    for (mut animation, handle, baked) in &mut entities {
+        let Some(handle) = handle
+            .map(|handle| &handle.0)
+            .or_else(|| baked.map(|base| &base.material))
+        else {
+            continue;
+        };
         let count = animation.frames.len();
-        let seconds = time.0
+        let mut seconds = time.0
             - animation
                 .owner
                 .and_then(|owner| inputs.get(owner).ok())
                 .map_or(0., |input| input.time_offset as f64);
+        if animation.driver == "native_layers" {
+            let input = animation.owner.and_then(|owner| inputs.get(owner).ok());
+            let Some((milliseconds, start)) =
+                input.and_then(|input| input.shader_time).or_else(|| {
+                    clock
+                        .as_ref()
+                        .and_then(|clock| clock.render_milliseconds())
+                        .map(|milliseconds| (milliseconds, 0.))
+                })
+            else {
+                continue;
+            };
+            let Ok(native) = game_time(milliseconds, start) else {
+                continue;
+            };
+            seconds = f64::from(native[3]);
+        }
         let phase = |count: usize| {
             (seconds * animation.fps as f64)
                 .floor()
                 .rem_euclid(count as f64) as usize
         };
-        let selected = match animation.driver.as_str() {
+        let desired = match animation.driver.as_str() {
+            "native_layers" => {
+                let state = animation
+                    .owner
+                    .and_then(|owner| inputs.get(owner).ok())
+                    .filter(|input| input.script_available & 1 != 0)
+                    .map(|input| input.script_vectors[0]);
+                let bank = state.map_or(0, |state| {
+                    animation
+                        .states
+                        .iter()
+                        .enumerate()
+                        .min_by(|(_, a), (_, b)| {
+                            let distance = |value: &&[f32; 4]| {
+                                value
+                                    .iter()
+                                    .zip(state)
+                                    .map(|(a, b)| (*a - b).powi(2))
+                                    .sum::<f32>()
+                            };
+                            distance(a).total_cmp(&distance(b))
+                        })
+                        .map_or(0, |(index, _)| index)
+                });
+                bank * animation.time_frames + phase(animation.time_frames)
+            }
             "staff_charge" => {
                 let charged = animation
                     .owner
@@ -1192,18 +1269,22 @@ pub(super) fn animate(
             _ => phase(count),
         };
         let following = match animation.driver.as_str() {
-            "staff_charge" => {
-                selected / animation.time_frames * animation.time_frames
-                    + (selected + 1) % animation.time_frames
+            "staff_charge" | "native_layers" => {
+                desired / animation.time_frames * animation.time_frames
+                    + (desired + 1) % animation.time_frames
             }
-            "frozen_stone" => (selected + 1).min(count - 1),
-            _ => (selected + 1) % count,
+            "frozen_stone" => (desired + 1).min(count - 1),
+            _ => (desired + 1) % count,
         };
         let previous = animation.selected;
-        animation
-            .loaded
-            .retain(|index, _| *index == selected || *index == following || *index == previous);
-        for index in [selected, following] {
+        let pending = animation.pending_frame;
+        animation.loaded.retain(|index, _| {
+            *index == desired
+                || *index == following
+                || *index == previous
+                || Some(*index) == pending
+        });
+        for index in [desired, following] {
             if !animation.loaded.contains_key(&index) {
                 let channels = animation.frames[index]
                     .channels
@@ -1213,7 +1294,7 @@ pub(super) fn animate(
                 animation.loaded.insert(index, channels);
             }
         }
-        if let Some((image, error)) = animation.loaded[&selected].values().find_map(|image| {
+        if let Some((image, error)) = animation.loaded[&desired].values().find_map(|image| {
             match server.get_load_state(image.id()) {
                 Some(bevy::asset::LoadState::Failed(error)) => Some((image, error)),
                 _ => None,
@@ -1227,16 +1308,28 @@ pub(super) fn animate(
             }
             return;
         }
+        let ready = |index: usize| {
+            animation.loaded.get(&index).is_some_and(|channels| {
+                channels
+                    .values()
+                    .all(|image| server.is_loaded_with_dependencies(image.id()))
+            })
+        };
+        let selected = if ready(desired) {
+            desired
+        } else if let Some(pending) = pending.filter(|index| ready(*index)) {
+            pending
+        } else {
+            if animation.pending_frame.is_none() {
+                animation.pending_frame = Some(desired);
+            }
+            continue;
+        };
+        animation.pending_frame = (selected != desired).then_some(desired);
         if animation.selected == selected {
             continue;
         }
-        if animation.loaded[&selected]
-            .values()
-            .any(|image| !server.is_loaded_with_dependencies(image.id()))
-        {
-            continue;
-        }
-        if let Some(mut material) = materials.get_mut(&handle.0) {
+        if let Some(mut material) = materials.get_mut(handle) {
             let frame = &animation.frames[selected];
             let channels = &animation.loaded[&selected];
             material.base_color_texture = channels.get("color").cloned();
@@ -2819,6 +2912,8 @@ mod tests {
                             },
                         ]),
                         loaded: HashMap::new(),
+                        states: Arc::default(),
+                        pending_frame: None,
                         selected: usize::MAX,
                     },
                 ))
@@ -2855,5 +2950,184 @@ mod tests {
             assert!(animation.loaded.len() <= 3);
             assert!(animation.loaded.contains_key(&animation.selected));
         }
+    }
+    #[test]
+    fn delayed_frames_advance_playback_even_after_the_requested_phase_changes() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::asset::AssetPlugin::default()))
+            .init_asset::<Image>()
+            .init_asset::<StandardMaterial>()
+            .insert_resource(MaterialTime(1.5))
+            .add_systems(Update, animate);
+        let material = app
+            .world_mut()
+            .resource_mut::<Assets<StandardMaterial>>()
+            .add(StandardMaterial::default());
+        let unloaded = || HashMap::from([("emissive".into(), Handle::<Image>::default())]);
+        let entity = app
+            .world_mut()
+            .spawn((
+                MeshMaterial3d(material.clone()),
+                AnimatedMaterial {
+                    driver: "time".into(),
+                    fps: 1.,
+                    time_frames: 4,
+                    state_threshold: 1.,
+                    owner: None,
+                    frames: Arc::new(
+                        (1..=4)
+                            .map(|value| Frame {
+                                channels: Vec::new(),
+                                factors: json!({"emissive":[value as f32,0.,0.]}),
+                            })
+                            .collect(),
+                    ),
+                    states: Arc::default(),
+                    pending_frame: Some(0),
+                    selected: usize::MAX,
+                    loaded: HashMap::from([
+                        (0, HashMap::new()),
+                        (1, unloaded()),
+                        (2, unloaded()),
+                        (3, unloaded()),
+                    ]),
+                },
+            ))
+            .id();
+        app.update();
+        assert_eq!(
+            app.world()
+                .resource::<Assets<StandardMaterial>>()
+                .get(&material)
+                .unwrap()
+                .emissive
+                .red,
+            1.
+        );
+        app.world_mut().resource_mut::<MaterialTime>().0 = 2.5;
+        app.update();
+        assert_eq!(
+            app.world()
+                .get::<AnimatedMaterial>(entity)
+                .unwrap()
+                .pending_frame,
+            Some(1)
+        );
+        app.world_mut()
+            .get_mut::<AnimatedMaterial>(entity)
+            .unwrap()
+            .loaded
+            .get_mut(&1)
+            .unwrap()
+            .clear();
+        app.update();
+        assert_eq!(
+            app.world()
+                .resource::<Assets<StandardMaterial>>()
+                .get(&material)
+                .unwrap()
+                .emissive
+                .red,
+            2.
+        );
+        assert!(
+            app.world()
+                .get::<AnimatedMaterial>(entity)
+                .unwrap()
+                .loaded
+                .len()
+                <= 4
+        );
+        app.world_mut()
+            .get_mut::<AnimatedMaterial>(entity)
+            .unwrap()
+            .loaded
+            .get_mut(&2)
+            .unwrap()
+            .clear();
+        app.update();
+        assert_eq!(
+            app.world()
+                .resource::<Assets<StandardMaterial>>()
+                .get(&material)
+                .unwrap()
+                .emissive
+                .red,
+            3.
+        );
+    }
+
+    #[test]
+    fn baked_native_frames_select_scoped_script_banks_and_native_shader_time() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::asset::AssetPlugin::default()))
+            .init_asset::<Image>()
+            .init_asset::<StandardMaterial>()
+            .insert_resource(MaterialTime(9999.))
+            .add_systems(Update, animate);
+        let frames: Arc<Vec<Frame>> = Arc::new(
+            (1..=4)
+                .map(|value| Frame {
+                    channels: Vec::new(),
+                    factors: json!({"emissive":[value as f32,0.,0.],"emissive_exposure_weight":1.}),
+                })
+                .collect(),
+        );
+        let mut handles = Vec::new();
+        let mut owners = Vec::new();
+        for (start, state) in [(0., 0.5), (0.5, 0.)] {
+            let owner = app
+                .world_mut()
+                .spawn(NativeArtInputs {
+                    shader_time: Some((1250, start)),
+                    script_available: 1,
+                    script_vectors: [[state, 0., 0., 0.], [0.; 4], [0.; 4], [0.; 4]],
+                    ..default()
+                })
+                .id();
+            let handle = app
+                .world_mut()
+                .resource_mut::<Assets<StandardMaterial>>()
+                .add(StandardMaterial::default());
+            app.world_mut().spawn((
+                MeshMaterial3d(handle.clone()),
+                AnimatedMaterial {
+                    driver: "native_layers".into(),
+                    fps: 2.,
+                    time_frames: 2,
+                    state_threshold: 1.,
+                    owner: Some(owner),
+                    frames: frames.clone(),
+                    states: Arc::new(vec![[0.; 4], [0.5, 0., 0., 0.]]),
+                    pending_frame: None,
+                    loaded: HashMap::new(),
+                    selected: usize::MAX,
+                },
+            ));
+            handles.push(handle);
+            owners.push(owner);
+        }
+        app.update();
+        let materials = app.world().resource::<Assets<StandardMaterial>>();
+        assert_eq!(materials.get(&handles[0]).unwrap().emissive.red, 3.);
+        assert_eq!(
+            materials.get(&handles[0]).unwrap().emissive_exposure_weight,
+            1.
+        );
+        assert_eq!(materials.get(&handles[1]).unwrap().emissive.red, 2.);
+        app.world_mut()
+            .get_mut::<NativeArtInputs>(owners[0])
+            .unwrap()
+            .script_available = 0;
+        app.update();
+        assert_eq!(
+            app.world()
+                .resource::<Assets<StandardMaterial>>()
+                .get(&handles[0])
+                .unwrap()
+                .emissive
+                .red,
+            1.
+        );
     }
 }

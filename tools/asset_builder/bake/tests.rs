@@ -5,6 +5,7 @@ use super::*;
 #[test]
 fn scripted_emission_preserves_fritz_warp_alpha_glow_base_and_inclusive_thresholds() {
     let input = |pixel| Input {
+        transform: [1., 0., 0., 1., 0., 0.],
         width: 1,
         height: 1,
         sampler: 20,
@@ -16,6 +17,7 @@ fn scripted_emission_preserves_fritz_warp_alpha_glow_base_and_inclusive_threshol
         special_parms: [[0.5, 1., 0., 0.], [0., 0.5, 0., 0.], [0.; 4]],
         inputs: vec![
             Input {
+                transform: [1., 0., 0., 1., 0., 0.],
                 width: 2,
                 height: 1,
                 sampler: 20,
@@ -23,12 +25,14 @@ fn scripted_emission_preserves_fritz_warp_alpha_glow_base_and_inclusive_threshol
             },
             input([0.5, 0.5, 1., 1.]),
             Input {
+                transform: [1., 0., 0., 1., 0., 0.],
                 width: 2,
                 height: 1,
                 sampler: 20,
                 pixels: vec![[0.2, 0.3, 0.4, 0.7], [0.8, 0.6, 0.4, 0.1]],
             },
             Input {
+                transform: [1., 0., 0., 1., 0., 0.],
                 width: 2,
                 height: 1,
                 sampler: 20,
@@ -124,6 +128,7 @@ fn scripted_emission_preserves_fritz_warp_alpha_glow_base_and_inclusive_threshol
 #[test]
 fn phong_emission_push_and_flicker_controls_preserve_source_amplitude_and_hdr_response() {
     let input = |pixel| Input {
+        transform: [1., 0., 0., 1., 0., 0.],
         width: 1,
         height: 1,
         sampler: 20,
@@ -204,6 +209,7 @@ fn phong_emission_push_and_flicker_controls_preserve_source_amplitude_and_hdr_re
 #[test]
 fn special_surface_gpu_preserves_macro_mask_response_channels_and_bound_water_states() {
     let input = |pixel| Input {
+        transform: [1., 0., 0., 1., 0., 0.],
         width: 1,
         height: 1,
         sampler: 20,
@@ -460,6 +466,7 @@ fn gpu_matches_existing_material_equations_and_sampler_modes() {
         for sampler in [1, 20, 33, 65, 97, 42, 74, 106] {
             let inputs = (0..9)
                 .map(|input| Input {
+                    transform: [1., 0., 0., 1., 0., 0.],
                     width: 3,
                     height: 5,
                     sampler,
@@ -559,6 +566,7 @@ fn gpu_matches_existing_material_equations_and_sampler_modes() {
         modes.len()
     );
     let input = |value| Input {
+        transform: [1., 0., 0., 1., 0., 0.],
         width: 1,
         height: 1,
         sampler: 20,
@@ -637,6 +645,7 @@ fn gpu_matches_existing_material_equations_and_sampler_modes() {
 #[test]
 fn authored_specular_preserves_uv0_and_decal_gloss_order() {
     let input = |pixel| Input {
+        transform: [1., 0., 0., 1., 0., 0.],
         width: 1,
         height: 1,
         sampler: 20,
@@ -730,6 +739,7 @@ fn authored_specular_preserves_uv0_and_decal_gloss_order() {
 #[test]
 fn add_multiply_and_second_normal_follow_source_order() {
     let input = |pixel| Input {
+        transform: [1., 0., 0., 1., 0., 0.],
         width: 1,
         height: 1,
         sampler: 20,
@@ -865,6 +875,7 @@ fn add_multiply_and_second_normal_follow_source_order() {
 #[test]
 fn second_reveal_preserves_ordered_encoded_specular_and_independent_gloss() {
     let input = |pixel| Input {
+        transform: [1., 0., 0., 1., 0., 0.],
         width: 1,
         height: 1,
         sampler: 20,
@@ -952,6 +963,7 @@ fn second_reveal_preserves_ordered_encoded_specular_and_independent_gloss() {
 #[test]
 fn third_multiply_uses_vertex_alpha_and_layer_selection_uses_inclusive_half() {
     let input = |pixel| Input {
+        transform: [1., 0., 0., 1., 0., 0.],
         width: 1,
         height: 1,
         sampler: 20,
@@ -1144,6 +1156,7 @@ fn mixed_handedness_is_baked_into_a_consistent_output_frame() {
 #[test]
 fn multiply_layer_preserves_opaque_coverage_base_normal_and_transfer_order() {
     let input = |pixel| Input {
+        transform: [1., 0., 0., 1., 0., 0.],
         width: 1,
         height: 1,
         sampler: 20,
@@ -1203,6 +1216,7 @@ fn multiply_layer_preserves_opaque_coverage_base_normal_and_transfer_order() {
 #[test]
 fn second_multiply_layer_uses_blue_and_its_own_uv_before_transfer() {
     let input = |pixel| Input {
+        transform: [1., 0., 0., 1., 0., 0.],
         width: 1,
         height: 1,
         sampler: 20,
@@ -1226,6 +1240,7 @@ fn second_multiply_layer_uses_blue_and_its_own_uv_before_transfer() {
             input([0.75, 0.25, 1., 1.]),
             input([0.5, 0.25, 1., 0.]),
             Input {
+                transform: [1., 0., 0., 1., 0., 0.],
                 width: 2,
                 height: 1,
                 sampler: 10,
@@ -1273,6 +1288,7 @@ fn second_multiply_layer_uses_blue_and_its_own_uv_before_transfer() {
 #[test]
 fn multiply_gloss_uses_encoded_tint_luminance_and_base_alpha() {
     let input = |pixel| Input {
+        transform: [1., 0., 0., 1., 0., 0.],
         width: 1,
         height: 1,
         sampler: 20,
@@ -1421,6 +1437,7 @@ fn oversized_chart_rotation_preserves_geometry_and_directional_metric() {
 #[test]
 fn additive_layer_uses_alpha_green_and_preserves_base_gloss() {
     let input = |pixel| Input {
+        transform: [1., 0., 0., 1., 0., 0.],
         width: 1,
         height: 1,
         sampler: 20,
@@ -1542,6 +1559,7 @@ fn hdr_bake_preserves_linear_color_mips_and_runtime_color_space() {
 #[test]
 fn color_blend_uses_layer_alpha_green_and_preserves_base_normal_gloss() {
     let input = |pixel| Input {
+        transform: [1., 0., 0., 1., 0., 0.],
         width: 1,
         height: 1,
         sampler: 20,
@@ -1607,6 +1625,7 @@ fn color_blend_uses_layer_alpha_green_and_preserves_base_normal_gloss() {
 #[test]
 fn second_color_blend_uses_blue_alpha_uv2_and_ordered_encoded_composition() {
     let input = |pixel| Input {
+        transform: [1., 0., 0., 1., 0., 0.],
         width: 1,
         height: 1,
         sampler: 20,
@@ -1630,6 +1649,7 @@ fn second_color_blend_uses_blue_alpha_uv2_and_ordered_encoded_composition() {
             input([0.75, 0.25, 1., 1.]),
             input([0.2, 0.4, 0.8, 0.5]),
             Input {
+                transform: [1., 0., 0., 1., 0., 0.],
                 width: 2,
                 height: 1,
                 sampler: 20,
@@ -1679,6 +1699,7 @@ fn second_color_blend_uses_blue_alpha_uv2_and_ordered_encoded_composition() {
 #[test]
 fn diffuse_reveal_zero_exponent_blends_normals_without_replacing_base_gloss() {
     let input = |pixel| Input {
+        transform: [1., 0., 0., 1., 0., 0.],
         width: 1,
         height: 1,
         sampler: 20,
@@ -1739,6 +1760,7 @@ fn diffuse_reveal_zero_exponent_blends_normals_without_replacing_base_gloss() {
 #[test]
 fn base_alpha_reveal_preserves_mixed_native_gloss_and_zero_exponent() {
     let input = |pixel| Input {
+        transform: [1., 0., 0., 1., 0., 0.],
         width: 1,
         height: 1,
         sampler: 20,
@@ -1804,6 +1826,7 @@ fn base_alpha_reveal_preserves_mixed_native_gloss_and_zero_exponent() {
 #[test]
 fn layered_base_alpha_response_survives_complete_layer_coverage() {
     let input = |pixel| Input {
+        transform: [1., 0., 0., 1., 0., 0.],
         width: 1,
         height: 1,
         sampler: 20,
@@ -1859,6 +1882,7 @@ fn layered_base_alpha_response_survives_complete_layer_coverage() {
 #[test]
 fn reveal_decal_preserves_uv2_axis_addressing_and_encoded_composition() {
     let input = |pixel| Input {
+        transform: [1., 0., 0., 1., 0., 0.],
         width: 1,
         height: 1,
         sampler: 20,
@@ -1883,6 +1907,7 @@ fn reveal_decal_preserves_uv2_axis_addressing_and_encoded_composition() {
             input([0.8, 0.2, 0.4, 0.5]),
             input([0.75, 0.25, 1., 1.]),
             Input {
+                transform: [1., 0., 0., 1., 0., 0.],
                 width: 2,
                 height: 2,
                 sampler: 74,
@@ -1929,6 +1954,7 @@ fn reveal_decal_preserves_uv2_axis_addressing_and_encoded_composition() {
 #[test]
 fn diffuse_reveal_uses_four_inputs_and_green_only() {
     let input = |pixel| Input {
+        transform: [1., 0., 0., 1., 0., 0.],
         width: 1,
         height: 1,
         sampler: 20,
@@ -1985,6 +2011,7 @@ fn diffuse_reveal_uses_four_inputs_and_green_only() {
 #[test]
 fn alpha_reveal_gpu_uses_interpolated_alpha_without_changing_rgb_or_specular() {
     let input = |pixel| Input {
+        transform: [1., 0., 0., 1., 0., 0.],
         width: 1,
         height: 1,
         sampler: 20,

@@ -228,10 +228,8 @@ pub(super) fn layered(
                         _ => &layer_uv,
                     };
                     std::array::from_fn(|i| {
-                        [
-                            uv[i][0] * image.width as f32,
-                            uv[i][1] * image.height as f32,
-                        ]
+                        let uv = image.uv(uv[i]);
+                        [uv[0] * image.width as f32, uv[1] * image.height as f32]
                     })
                 })
                 .collect();

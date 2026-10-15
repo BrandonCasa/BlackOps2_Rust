@@ -137,9 +137,27 @@ pub(super) fn store(
         layer_cutout,
         multiply_gloss,
     } = family.output();
-    let [albedo, normals, response, specular] = outputs;
+    let [mut albedo, normals, response, specular] = outputs;
+    let emission_scale = if matches!(&family, Family::ScriptLayers(_)) {
+        let scale = albedo
+            .iter()
+            .flat_map(|pixel| &pixel[..3])
+            .copied()
+            .fold(1_f32, f32::max);
+        for pixel in &mut albedo {
+            for channel in &mut pixel[..3] {
+                *channel /= scale;
+            }
+        }
+        scale
+    } else {
+        1.
+    };
     let mut channels = Vec::new();
-    let mut outputs = vec![("color", albedo), ("normal", normals)];
+    let mut outputs = vec![("color", albedo)];
+    if !matches!(&family, Family::ScriptLayers(mode) if *mode != "normal_script") {
+        outputs.push(("normal", normals));
+    }
     if layer_specular || base_alpha_response {
         outputs.push(("response", response));
     }
@@ -148,20 +166,31 @@ pub(super) fn store(
     }
     let mut native_specular = Value::Null;
     for (role, pixels) in outputs {
-        let image = mip_chain(width, height, pixels, role)?;
-        let path = format!("{uri}/{role}.ktx2");
-        let srgb = role == "color" && image.format != 19;
-        let bytes = texture::encode(
-            &image,
-            srgb,
-            if role == "native-specular" {
-                "reflectance"
-            } else {
-                role
-            },
-        )?;
-        texture::validate(&bytes)?;
-        pack.entries.insert(path.clone(), Arc::new(bytes));
+        let static_normal = if role == "normal" && matches!(&family, Family::ScriptLayers(_)) {
+            uri.split_once("/frames/")
+                .map(|(base, _)| format!("{base}/normals/surface/normal.ktx2"))
+        } else {
+            None
+        };
+        let path = static_normal
+            .clone()
+            .unwrap_or_else(|| format!("{uri}/{role}.ktx2"));
+        let mut srgb = false;
+        if static_normal.is_none() || !pack.contains(&path) {
+            let image = mip_chain(width, height, pixels, role)?;
+            srgb = role == "color" && image.format != 19;
+            let bytes = texture::encode(
+                &image,
+                srgb,
+                if role == "native-specular" {
+                    "reflectance"
+                } else {
+                    role
+                },
+            )?;
+            texture::validate(&bytes)?;
+            pack.store(path.clone(), bytes)?;
+        }
         if role == "native-specular" {
             native_specular = json!({"uri":path,"specular_rgb":"linear","gloss_channel":"alpha"});
         } else {
@@ -202,6 +231,11 @@ pub(super) fn store(
     }
     if base_alpha_reveal {
         material["extras"]["surface"]["approximations"].as_array_mut().unwrap().push(json!("Source gloss mixes base color alpha and layer specular alpha with the authored reveal weight. Mixed linear RGB specular and encoded gloss retained in native-specular. The shared metallic/GGX fit cannot exactly reproduce the native probe Fresnel/mip response or direct-sun lobe geometry/amplitude; view-dependent lighting is not baked into albedo or emission"));
+    }
+    if let Family::ScriptLayers(mode) = family {
+        material["extras"]["surface"]["standard"]["emissive"] =
+            json!([emission_scale, emission_scale, emission_scale]);
+        script_layers::finish(native, mode, &mut material)?;
     }
     Ok(material)
 }
