@@ -3,11 +3,13 @@ import package::rendering::native_world::{
     native_world_vertex,
 };
 
-// T6 LIT only: lit_sm_r0c0n0x0_b1c1n1 and lit_sm_r0c0n0x0_b1c1n1s1v1.
+// T6 LIT only: lit_sm_r0c0n0x0_b1c1n1, b1c1n1v1 and b1c1n1s1v1.
 // Shared VS layer_lmap_c9b52d6f, SHA256:
 // 426a3d8625a1ef1a53ea0ae7bcf2e20e25ab872d32c7d559ab13b51480343a6f.
 // Plain PS layer_lmap_cd368409, SHA256:
 // ecd2546d039fee1fd49b7e5d41a8d5c3f5bf9306a63d89a0355bdc1d2799669c.
+// Reveal PS layer_lmap_18793676, LIT technique layer_lmap_278e410d, SHA256:
+// f6a7735540658474070253af697b4b27dc439725059d754839ec25ac5a1775ae.
 // Reveal/specular PS layer_lmap_7f753776, SHA256:
 // e8d9c313f784b9c395136138c3d5a043269c535d3c24552b7fbddbbff7bb171c.
 // Original DXBC/disassembly: evidence/rendering-20261012/{source,shaders}.
@@ -151,10 +153,55 @@ fn native_world_layer_fragment(
         strength * probe.linear_color, lightmap_secondary, lightmap_sampler);
 }
 
-// lit_sm_r0c0n0x0_b1c1n1s1v1 additionally binds native t4/s4 layer
-// specular/gloss and cb1[59].xy alphaRevealParms1. No other stored material
-// constants are bound by this pass; in particular colorTint is not applied.
+// The reveal threshold sequence is identical in PS18793676 and PS7f753776.
+// Keep native div_sat behavior without an epsilon or endpoint override.
+fn native_world_layer_reveal_weight(
+    blend: f32,
+    layer_alpha: f32,
+    material: NativeWorldRevealMaterial,
+) -> f32 {
+    let inset = fma(blend, 0.9980000257492065, 0.0010000000474974513);
+    let complement = 1.0 - inset;
+    let powers = vec2<f32>(-exp2(log2(inset) * material.alpha_reveal_parms1.y),
+        exp2(log2(complement) * material.alpha_reveal_parms1.y));
+    let thresholds = clamp(fma(vec2<f32>(material.alpha_reveal_parms1.x), powers,
+        vec2<f32>(complement)), vec2<f32>(0.0), vec2<f32>(1.0));
+    return clamp((layer_alpha - thresholds.x) / (thresholds.y - thresholds.x), 0.0, 1.0);
+}
+
+// lit_sm_r0c0n0x0_b1c1n1v1 binds native t0..3, t13, t15 and cb1[59].xy.
+// Its gloss remains C0.a and its reflection response matches the plain layer
+// family. This program never reads a layer specular texture.
 fn native_world_reveal_layer_fragment(
+    input: NativeWorldLayerVaryings,
+    scene: NativeWorldScene,
+    material: NativeWorldRevealMaterial,
+    color_map: texture_2d<f32>, color_sampler: sampler,
+    normal_map: texture_2d<f32>, normal_sampler: sampler,
+    layer_color_map: texture_2d<f32>, layer_color_sampler: sampler,
+    layer_normal_map: texture_2d<f32>, layer_normal_sampler: sampler,
+    lightmap_secondary: texture_2d<f32>, lightmap_sampler: sampler,
+    reflection_probe: texture_cube<f32>, reflection_sampler: sampler,
+) -> vec4<f32> {
+    let layer_color = textureSample(layer_color_map, layer_color_sampler, input.blend_uv.zw);
+    let weight = native_world_layer_reveal_weight(input.blend_uv.y, layer_color.a, material);
+    let layer_normal = textureSample(layer_normal_map, layer_normal_sampler, input.blend_uv.zw);
+    let base_normal = textureSample(normal_map, normal_sampler, input.uv_lightmap.xy);
+    let normal = native_world_layer_normal(input, base_normal.rg, layer_normal.rg, weight);
+    let base_color = textureSample(color_map, color_sampler, input.uv_lightmap.xy);
+    let gloss = base_color.a;
+    let probe = native_world_layer_probe(input, normal, gloss, reflection_probe, reflection_sampler);
+    let strength = fma(gloss, min(probe.fresnel, gloss * 0.4749999940395355),
+        fma(gloss, 0.027499999850988388, 0.014999999664723873));
+    let color_gamma = fma(vec3<f32>(weight), layer_color.rgb - base_color.rgb, base_color.rgb);
+    return native_world_layer_lighting(input, scene, normal, color_gamma,
+        strength * probe.linear_color, lightmap_secondary, lightmap_sampler);
+}
+
+// lit_sm_r0c0n0x0_b1c1n1s1v1 additionally binds native t4/s4 layer
+// specular/gloss. No other stored material constants are bound by this pass;
+// in particular colorTint is not applied.
+fn native_world_reveal_specular_layer_fragment(
     input: NativeWorldLayerVaryings,
     scene: NativeWorldScene,
     material: NativeWorldRevealMaterial,
@@ -168,15 +215,8 @@ fn native_world_reveal_layer_fragment(
 ) -> vec4<f32> {
     let layer_normal = textureSample(layer_normal_map, layer_normal_sampler, input.blend_uv.zw);
     let base_normal = textureSample(normal_map, normal_sampler, input.uv_lightmap.xy);
-    let inset = fma(input.blend_uv.y, 0.9980000257492065, 0.0010000000474974513);
-    let complement = 1.0 - inset;
-    let powers = vec2<f32>(-exp2(log2(inset) * material.alpha_reveal_parms1.y),
-        exp2(log2(complement) * material.alpha_reveal_parms1.y));
-    let thresholds = clamp(fma(vec2<f32>(material.alpha_reveal_parms1.x), powers,
-        vec2<f32>(complement)), vec2<f32>(0.0), vec2<f32>(1.0));
     let layer_color = textureSample(layer_color_map, layer_color_sampler, input.blend_uv.zw);
-    // Native div_sat: no epsilon, smoothstep, or endpoint override.
-    let weight = clamp((layer_color.a - thresholds.x) / (thresholds.y - thresholds.x), 0.0, 1.0);
+    let weight = native_world_layer_reveal_weight(input.blend_uv.y, layer_color.a, material);
     let normal = native_world_layer_normal(input, base_normal.rg, layer_normal.rg, weight);
     let layer_specular = textureSample(layer_specular_map, layer_specular_sampler, input.blend_uv.zw);
     let base_color = textureSample(color_map, color_sampler, input.uv_lightmap.xy);
