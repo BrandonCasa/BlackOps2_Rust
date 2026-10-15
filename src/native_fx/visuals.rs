@@ -1,9 +1,6 @@
-//! Stock Bevy bindings for source FX visual entities.
+//! Source FX model and sound dependencies.
 use crate::assets::GameDefinition;
-use bevy::{
-    pbr::decal::{ForwardDecal, ForwardDecalMaterial, ForwardDecalMaterialExt},
-    prelude::*,
-};
+use bevy::prelude::*;
 
 pub(super) fn model(
     commands: &mut Commands,
@@ -29,13 +26,6 @@ pub(super) fn model(
     Ok(scene)
 }
 
-pub(super) fn light(commands: &mut Commands, entity: Entity) {
-    commands.entity(entity).insert(PointLight {
-        shadow_maps_enabled: false,
-        ..default()
-    });
-}
-
 pub(super) fn sound(
     commands: &mut Commands,
     game: &GameDefinition,
@@ -50,23 +40,4 @@ pub(super) fn sound(
     }
     crate::audio::emit(commands, name, crate::audio::SoundSource::World(position));
     Ok(())
-}
-
-pub(super) fn decal(
-    commands: &mut Commands,
-    materials: &mut Assets<ForwardDecalMaterial<StandardMaterial>>,
-    entity: Entity,
-    material: StandardMaterial,
-) -> Handle<ForwardDecalMaterial<StandardMaterial>> {
-    let handle = materials.add(ForwardDecalMaterial {
-        base: material,
-        // No source depth-feather shader is reconstructed.
-        extension: ForwardDecalMaterialExt {
-            depth_fade_factor: 0.,
-        },
-    });
-    commands
-        .entity(entity)
-        .insert((ForwardDecal, MeshMaterial3d(handle.clone())));
-    handle
 }

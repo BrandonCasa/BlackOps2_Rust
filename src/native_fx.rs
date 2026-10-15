@@ -1,9 +1,14 @@
-//! Origins source-authored presentation using stock Bevy assets and materials.
+//! Origins source-authored effect timelines and original native draw inputs.
+mod geometry;
+mod material;
 mod visuals;
+use crate::rendering::native_effect::{
+    NativeEffectDraw, NativeEffectGeometry, NativeEffectMaterial, NativeEffectTransform,
+};
 use crate::{GameState, assets::GameDefinition, gameplay::SessionEntity};
 use bevy::{asset::RecursiveDependencyLoadState, math::Affine2, prelude::*};
 use serde::Deserialize;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 #[derive(Clone, Copy, Deserialize)]
 struct Range {
     base: f32,
@@ -74,7 +79,8 @@ struct Visual {
 }
 #[derive(Clone, Deserialize)]
 struct TrailVertex {
-    normal: [f32; 2],
+    #[serde(rename = "normal")]
+    _normal: [f32; 2],
     position: [f32; 2],
     texcoord: f32,
 }
@@ -85,6 +91,16 @@ struct Trail {
     split_distance: f32,
     repeat_distance: f32,
     scroll_ms: f32,
+}
+#[derive(Clone, Copy, Deserialize)]
+struct BillboardTrim {
+    bottom_width: f32,
+    top_width: f32,
+}
+impl BillboardTrim {
+    fn widths(self) -> [f32; 2] {
+        [self.bottom_width, self.top_width]
+    }
 }
 #[derive(Clone, Deserialize)]
 struct Element {
@@ -113,8 +129,11 @@ struct Element {
     emit_distance: Range,
     emit_distance_variance: Range,
     billboard_pivot: [f32; 2],
+    billboard_trim: Option<BillboardTrim>,
+    lighting_fraction: i8,
     trail: Option<Trail>,
-    cloud_density: Option<Range>,
+    #[serde(rename = "cloud_density")]
+    _cloud_density: Option<Range>,
 }
 #[derive(Deserialize)]
 struct SourceEffect {
@@ -124,70 +143,12 @@ struct SourceEffect {
     non_looping_life_ms: f32,
 }
 #[derive(Deserialize)]
-struct SourceMaterial {
-    image: String,
-    alpha: String,
-    alpha_cutoff: Option<f32>,
-}
+struct SourceMaterial {}
 #[derive(Resource, Deserialize)]
 struct Catalog {
     effects: BTreeMap<String, SourceEffect>,
     materials: BTreeMap<String, SourceMaterial>,
     random_table: Vec<f32>,
-}
-#[derive(Resource)]
-struct CloudPoints {
-    uniform: Vec<Vec3>,
-    gaussian: Vec<Vec3>,
-}
-impl CloudPoints {
-    fn native_initial_state() -> Self {
-        fn crt(state: &mut u32) -> f32 {
-            *state = state.wrapping_mul(214013).wrapping_add(2531011);
-            ((*state >> 16) & 32767) as f32
-        }
-        fn gaussian(state: &mut u32) -> (f32, f32) {
-            loop {
-                let x = 2. * crt(state) / 32768. - 1.;
-                let y = 2. * crt(state) / 32768. - 1.;
-                let square = x * x + y * y;
-                if square <= 1. {
-                    let factor = (-2. * square.ln() / square).sqrt();
-                    return (x * factor, y * factor);
-                }
-            }
-        }
-        fn quantize(v: Vec3) -> Vec3 {
-            v.map(|axis| ((axis.clamp(-1., 1.) * 32767.) as i16) as f32 / 32767.)
-        }
-        // 0043f4c0 / 00748c70; CRT's documented initial holdrand is 1.
-        let mut state = 1u32;
-        let mut permutation = 0x1ffu16;
-        let mut point_index = 0usize;
-        let mut uniform = vec![Vec3::ZERO; 1024];
-        let mut normal = Vec::with_capacity(1024);
-        for i in 0..8 {
-            for j in 0..8 {
-                for k in 0..16 {
-                    permutation = (0u16.wrapping_sub(permutation & 1) & 0x240) ^ (permutation >> 1);
-                    let point = Vec3::new(
-                        (crt(&mut state) / 32767. + i as f32) * 0.25 - 1.,
-                        (crt(&mut state) / 32767. + j as f32) * 0.25 - 1.,
-                        (crt(&mut state) / 32767. + k as f32) * 0.125 - 1.,
-                    );
-                    let (x, y) = gaussian(&mut state);
-                    let (z, _) = gaussian(&mut state);
-                    uniform[point_index] = quantize(point);
-                    normal.push(quantize(Vec3::new(x, y, z) * 0.25));
-                    point_index = permutation as usize;
-                }
-            }
-        }
-        Self {
-            uniform,
-            gaussian: normal,
-        }
-    }
 }
 #[derive(Component)]
 struct Emitter {
@@ -209,7 +170,7 @@ struct AttachedSource(Entity);
 struct Stopped;
 #[derive(Component)]
 struct Particle {
-    source: Element,
+    element: usize,
     initial: Transform,
     age: f32,
     life: f32,
@@ -219,8 +180,6 @@ struct Particle {
     rotation: f32,
     image: Option<Handle<Image>>,
     scene: Option<Handle<bevy::world_serialization::WorldAsset>>,
-    material: Option<Handle<StandardMaterial>>,
-    decal: Option<Handle<bevy::pbr::decal::ForwardDecalMaterial<StandardMaterial>>>,
     atlas_start: u32,
     emitted_at: Vec3,
     emit_step: f32,
@@ -238,12 +197,28 @@ impl Plugin for NativeFxPlugin {
                 .chain()
                 .run_if(in_state(GameState::Playing)),
         );
+        app.add_systems(
+            PostUpdate,
+            object_constants
+                .after(bevy::transform::TransformSystems::Propagate)
+                .after(bevy::camera::CameraUpdateSystems),
+        );
     }
 }
-fn load_catalog(mut commands: Commands, options: Res<crate::assets::LaunchOptions>) {
+fn load_catalog(
+    mut commands: Commands,
+    options: Res<crate::assets::LaunchOptions>,
+    server: Res<AssetServer>,
+    mut materials: ResMut<Assets<NativeEffectMaterial>>,
+) {
     let catalog: Catalog = crate::origins::read(&options.asset_root.join("fx_catalog.json"));
+    commands.insert_resource(material::Materials::load(
+        &options.asset_root,
+        catalog.materials.keys(),
+        &server,
+        &mut materials,
+    ));
     commands.insert_resource(catalog);
-    commands.insert_resource(CloudPoints::native_initial_state());
 }
 pub(crate) fn emit(
     commands: &mut Commands,
@@ -312,9 +287,9 @@ fn spawn(
     catalog: Option<Res<Catalog>>,
     server: Res<AssetServer>,
     game: Res<GameDefinition>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut decals: ResMut<Assets<bevy::pbr::decal::ForwardDecalMaterial<StandardMaterial>>>,
+    materials: Res<material::Materials>,
+    native_materials: Res<Assets<NativeEffectMaterial>>,
+    mut geometries: ResMut<Assets<NativeEffectGeometry>>,
     mut emitters: Query<(
         Entity,
         &mut Emitter,
@@ -324,13 +299,16 @@ fn spawn(
         Option<&Stopped>,
     )>,
     particles: Query<&Owned>,
+    mut occupied: Local<HashSet<Entity>>,
 ) {
     let Some(catalog) = catalog else {
         return;
     };
+    occupied.clear();
+    occupied.extend(particles.iter().map(|owner| owner.0));
     for (entity, mut emitter, global, local, attachment, stopped) in &mut emitters {
         if stopped.is_some() {
-            if !particles.iter().any(|owner| owner.0 == entity) {
+            if !occupied.contains(&entity) {
                 commands.entity(entity).despawn();
             }
             continue;
@@ -460,8 +438,9 @@ fn spawn(
                 let particle_entity = commands
                     .spawn((SessionEntity, Owned(entity), pose, Visibility::default()))
                     .id();
+                occupied.insert(entity);
                 let mut particle = Particle {
-                    source: e.clone(),
+                    element: i,
                     initial: pose,
                     age: (emitter.elapsed - born).max(0.),
                     life,
@@ -473,8 +452,6 @@ fn spawn(
                     trail_start: None,
                     image: None,
                     scene: None,
-                    material: None,
-                    decal: None,
                     atlas_start: e.atlas.index,
                     emitted_at: pose.translation,
                     emit_step: (e.emit_distance.sample(channel(&catalog, particle_seed, 14))
@@ -495,8 +472,11 @@ fn spawn(
                         _ => 0,
                     };
                 }
-                if e.kind == 8 {
-                    visuals::light(&mut commands, particle_entity);
+                if matches!(e.kind, 8 | 9) {
+                    panic!(
+                        "Original FX {} element {i}: the native dynamic-light pass (00410c30) is required before rendering type {}",
+                        emitter.name, e.kind
+                    );
                 } else if e.kind == 7 {
                     let Some(model) = visual.and_then(|v| v.model.as_ref()) else {
                         panic!(
@@ -529,54 +509,36 @@ fn spawn(
                             ),
                         );
                     };
-                    let Some(source) = catalog.materials.get(name.trim_start_matches(',')) else {
-                        panic!(
-                            "{}",
-                            format!("Required source effect material missing: {name}"),
-                        );
-                    };
-                    let image = server.load(source.image.clone());
-                    particle.image = Some(image.clone());
-                    let material = StandardMaterial {
-                        base_color_texture: Some(image),
-                        unlit: true,
-                        cull_mode: None,
-                        alpha_mode: match source.alpha.as_str() {
-                            "add" => AlphaMode::Add,
-                            "blend" => AlphaMode::Blend,
-                            "mask" => AlphaMode::Mask(match source.alpha_cutoff {
-                                Some(value) => value,
-                                None => {
-                                    panic!(
-                                        "{}",
-                                        format!(
-                                            "Source masked FX material has no alpha cutoff: {name}"
-                                        ),
-                                    );
-                                }
-                            }),
-                            "opaque" => AlphaMode::Opaque,
-                            other => {
-                                panic!(
-                                    "{}",
-                                    format!("Unsupported source effect alpha mode: {other}"),
-                                );
-                            }
-                        },
-                        ..default()
-                    };
                     if e.kind == 11 {
-                        particle.decal = Some(visuals::decal(
-                            &mut commands,
-                            &mut decals,
-                            particle_entity,
-                            material,
-                        ));
+                        panic!(
+                            "Original FX {} element {i}: decal {name} requires original world-triangle clipping (00446b30) and its selected decal technique",
+                            emitter.name
+                        );
                     } else {
-                        let handle = materials.add(material);
-                        particle.material = Some(handle.clone());
-                        let mesh = if e.kind == 5 {
-                            let Some(trail) = &e.trail else {
+                        if e.kind == 6 {
+                            panic!(
+                                "Original FX {} element {i}: particle clouds require the original PARTICLECLOUD declaration and selected cloud program",
+                                emitter.name
+                            );
+                        }
+                        if e.lighting_fraction != 0 {
+                            panic!(
+                                "Original FX {} element {i}: lighting fraction {} requires original particle light-probe inputs (005b4da0)",
+                                emitter.name, e.lighting_fraction as u8
+                            );
+                        }
+                        let handle = materials.get(name).unwrap_or_else(|error| {
+                            panic!("Original FX {} element {i}: {error}", emitter.name)
+                        });
+                        particle.image = Some(
+                            native_materials
+                                .get(&handle)
+                                .expect("FX material was inserted during loading")
+                                .color_map
+                                .clone(),
+                        );
+                        if e.kind == 5 {
+                            if e.trail.is_none() {
                                 panic!(
                                     "{}",
                                     format!(
@@ -588,18 +550,25 @@ fn spawn(
                             let start = emitter.trail_points[i].unwrap_or(pose.translation);
                             emitter.trail_points[i] = Some(pose.translation);
                             particle.trail_start = Some(start);
-                            match trail_mesh(trail, pose, start, Vec2::ZERO) {
-                                Ok(mesh) => mesh,
-                                Err(error) => {
-                                    panic!("{}", error);
-                                }
-                            }
-                        } else {
-                            Mesh::from(Rectangle::new(1., 1.))
-                        };
-                        commands
-                            .entity(particle_entity)
-                            .insert((Mesh3d(meshes.add(mesh)), MeshMaterial3d(handle)));
+                        }
+                        let (geometry, bounds, index_count) = geometry::quad(
+                            [255.; 4],
+                            Affine2::IDENTITY,
+                            e.billboard_trim
+                                .expect("billboard source trim is required")
+                                .widths(),
+                        );
+                        commands.entity(particle_entity).insert((
+                            bounds,
+                            NativeEffectDraw {
+                                geometry: geometries.add(geometry),
+                                material: handle,
+                                vertex_byte_offset: 0,
+                                first_index: 0,
+                                index_count,
+                                sort_center: pose.translation,
+                            },
+                        ));
                     }
                 }
                 commands.entity(particle_entity).insert(particle);
@@ -620,7 +589,7 @@ fn spawn(
         });
         if finished
             && emitter.elapsed >= effect.non_looping_life_ms * 0.001
-            && !particles.iter().any(|owner| owner.0 == entity)
+            && !occupied.contains(&entity)
         {
             commands.entity(entity).despawn();
         }
@@ -685,92 +654,6 @@ fn schedule_element(
     }
     births
 }
-fn trail_mesh(source: &Trail, pose: Transform, start: Vec3, size: Vec2) -> Result<Mesh, String> {
-    use bevy::mesh::{Indices, PrimitiveTopology};
-    let local_start = pose.rotation.inverse() * (start - pose.translation);
-    let length = local_start.length();
-    let sections = if source.split_distance > 0. {
-        (length / (source.split_distance * 0.0254)).ceil().max(1.) as usize
-    } else {
-        1
-    };
-    let mut vertices = Vec::new();
-    let mut normals = Vec::new();
-    let mut uv = Vec::new();
-    let mut indices = Vec::new();
-    for ring in 0..=sections {
-        let fraction = ring as f32 / sections as f32;
-        let center = local_start * (1. - fraction);
-        for v in &source.vertices {
-            vertices.push([
-                center.x + v.position[0] * size.x * 0.0254,
-                center.y + v.position[1] * size.y * 0.0254,
-                center.z,
-            ]);
-            normals.push([v.normal[0], v.normal[1], 0.]);
-            uv.push([
-                v.texcoord,
-                if source.repeat_distance > 0. {
-                    fraction * length / (source.repeat_distance * 0.0254)
-                } else {
-                    fraction
-                },
-            ]);
-        }
-    }
-    let count = source.vertices.len() as u32;
-    for ring in 0..sections as u32 {
-        for edge in source.indices.chunks_exact(2) {
-            let a = ring * count + edge[0];
-            let b = ring * count + edge[1];
-            let c = a + count;
-            let d = b + count;
-            indices.extend([a, b, c, b, d, c]);
-        }
-    }
-    let mesh = Mesh::new(
-        PrimitiveTopology::TriangleList,
-        bevy::asset::RenderAssetUsages::default(),
-    )
-    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uv)
-    .with_inserted_indices(Indices::U32(indices));
-    Ok(mesh)
-}
-fn cloud_mesh(points: &[Vec3], size: Vec2, scale: f32, source_to_view: Quat) -> Mesh {
-    use bevy::mesh::{Indices, PrimitiveTopology};
-    let mut positions = Vec::with_capacity(points.len() * 4);
-    let mut normals = Vec::with_capacity(points.len() * 4);
-    let mut uv = Vec::with_capacity(points.len() * 4);
-    let mut indices = Vec::with_capacity(points.len() * 6);
-    for point in points {
-        let center = source_to_view * native(point.to_array()) * scale;
-        let first = positions.len() as u32;
-        for corner in [
-            Vec2::new(-1., -1.),
-            Vec2::new(1., -1.),
-            Vec2::new(-1., 1.),
-            Vec2::new(1., 1.),
-        ] {
-            positions.push(
-                (center + Vec3::new(corner.x * size.x * 0.0254, corner.y * size.y * 0.0254, 0.))
-                    .to_array(),
-            );
-            normals.push([0., 0., 1.]);
-            uv.push([(corner.x + 1.) * 0.5, (corner.y + 1.) * 0.5]);
-        }
-        indices.extend([first, first + 1, first + 2, first + 2, first + 1, first + 3]);
-    }
-    Mesh::new(
-        PrimitiveTopology::TriangleList,
-        bevy::asset::RenderAssetUsages::default(),
-    )
-    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uv)
-    .with_inserted_indices(Indices::U32(indices))
-}
 fn indices(length: usize, age: f32) -> (usize, usize, f32) {
     let f = age.clamp(0., 1.) * length.saturating_sub(1) as f32;
     let a = f.floor() as usize;
@@ -828,31 +711,29 @@ fn animate(
     time: Res<Time>,
     server: Res<AssetServer>,
     catalog: Res<Catalog>,
-    cloud_points: Res<CloudPoints>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut mesh_assets: ResMut<Assets<Mesh>>,
+    mut geometries: ResMut<Assets<NativeEffectGeometry>>,
     collision: avian3d::prelude::SpatialQuery,
-    mut decals: ResMut<Assets<bevy::pbr::decal::ForwardDecalMaterial<StandardMaterial>>>,
-    emitters: Query<(), With<Emitter>>,
+    emitters: Query<&Emitter>,
     cameras: Query<&GlobalTransform, With<crate::rendering::GameCamera>>,
     mut particles: Query<(
         Entity,
         &Owned,
         &mut Particle,
         &mut Transform,
-        Option<&mut PointLight>,
-        Option<&Mesh3d>,
+        Option<&mut NativeEffectDraw>,
+        Option<&mut bevy::camera::primitives::Aabb>,
     )>,
 ) {
     let camera = cameras
         .iter()
         .next()
         .map(GlobalTransform::compute_transform);
-    for (entity, owner, mut p, mut pose, light, mesh) in &mut particles {
-        if !emitters.contains(owner.0) {
+    for (entity, owner, mut p, mut pose, draw, bounds) in &mut particles {
+        let Ok(emitter) = emitters.get(owner.0) else {
             commands.entity(entity).try_despawn();
             continue;
-        }
+        };
+        let e = &catalog.effects[&emitter.name].elements[p.element];
         let state = if let Some(image) = &p.image {
             server.get_recursive_dependency_load_state(image.id())
         } else if let Some(scene) = &p.scene {
@@ -867,24 +748,16 @@ fn animate(
                     format!("Required source effect dependency failed: {error}"),
                 );
             }
-            Some(RecursiveDependencyLoadState::Loaded) => {}
-            _ => continue,
+            _ => {}
         }
         p.age += time.delta_secs();
         if p.age >= p.life {
-            if let Some(child) = &p.source.effect_on_death {
+            if let Some(child) = &e.effect_on_death {
                 emit(&mut commands, child, *pose);
-            }
-            if let Some(m) = &p.material {
-                materials.remove(m.id());
-            }
-            if let Some(m) = &p.decal {
-                decals.remove(m.id());
             }
             commands.entity(entity).try_despawn();
             continue;
         }
-        let e = p.source.clone();
         let normalized = p.age / p.life;
         let mut displacement = Vec3::ZERO;
         let mut direction = Vec3::ZERO;
@@ -949,7 +822,6 @@ fn animate(
                 distance = pose.translation.distance(p.emitted_at);
             }
         }
-        let e = p.source.clone();
         let (mut color, mut size, mut rotation, mut scale) = ([255.; 4], Vec2::ONE, p.rotation, 1.);
         if !e.visual_samples.is_empty() {
             let (a, b, t) = indices(e.visual_samples.len(), normalized);
@@ -987,7 +859,7 @@ fn animate(
             let pivot = pose.rotation
                 * Vec3::new(
                     e.billboard_pivot[0] * size.x * 0.0254,
-                    e.billboard_pivot[1] * size.y * 0.0254,
+                    -e.billboard_pivot[1] * size.y * 0.0254,
                     0.,
                 );
             pose.translation += pivot;
@@ -995,61 +867,13 @@ fn animate(
         if e.kind == 5 {
             pose.rotation = p.initial.rotation;
             pose.scale = p.initial.scale;
-            if let (Some(source), Some(start), Some(mesh)) = (&e.trail, p.trail_start, mesh) {
-                match trail_mesh(source, p.initial, start, size) {
-                    Ok(updated) => {
-                        if let Some(mut existing) = mesh_assets.get_mut(&mesh.0) {
-                            *existing = updated;
-                        }
-                    }
-                    Err(error) => {
-                        panic!("{}", error);
-                    }
-                }
-            }
-        }
-        if e.kind == 6 {
-            let Some(density) = e.cloud_density else {
-                panic!("{}", "Source cloud has no density range",);
-            };
-            let count = integer_range(density, &catalog, p.seed, 23).clamp(1., 1024.) as usize;
-            let selection = channel(&catalog, p.seed, 23).to_bits() & 0xffff;
-            let start = ((1025 - count) * selection as usize) >> 16;
-            let points = if e.flags & (1 << 22) != 0 {
-                &cloud_points.gaussian
-            } else {
-                &cloud_points.uniform
-            };
-            if let Some(mesh) = mesh {
-                let updated = cloud_mesh(
-                    &points[start..start + count],
-                    size,
-                    scale,
-                    pose.rotation.inverse() * p.initial.rotation,
-                );
-                if let Some(mut existing) = mesh_assets.get_mut(&mesh.0) {
-                    *existing = updated;
-                }
-            }
-            pose.scale = p.initial.scale;
         }
         if e.kind == 7 {
             pose.scale = p.initial.scale * scale;
         }
-        if let Some(mut light) = light {
-            // Native 005b7af0/00410c30 submits linear RGB * normalized alpha * 32.
-            // Native brightness has no recovered SI unit. Treat it as candela
-            // and convert to Bevy lumens (4*pi); native falloff parity is not implied.
-            light.color = Color::srgb(color[0] / 255., color[1] / 255., color[2] / 255.)
-                .to_linear()
-                .into();
-            light.intensity = (color[3] / 255. * 32.) * (4. * std::f32::consts::PI);
-            light.range = size.x.clamp(0., 10000.) * 0.0254;
-            light.radius = 0.;
-        }
-        if p.material.is_none() && p.decal.is_none() {
+        let Some(mut draw) = draw else {
             continue;
-        }
+        };
         let mut uv = match atlas_transform(&e.atlas, p.atlas_start, p.age, p.life) {
             Ok(uv) => uv,
             Err(error) => {
@@ -1061,23 +885,74 @@ fn animate(
                 uv.translation.y += p.age * 1000. / trail.scroll_ms;
             }
         }
-        if let Some(mut m) = p.material.as_ref().and_then(|h| materials.get_mut(h)) {
-            m.base_color = Color::srgba(
-                color[0] / 255.,
-                color[1] / 255.,
-                color[2] / 255.,
-                color[3] / 255.,
-            );
-            m.uv_transform = uv;
+        let (updated, updated_bounds, index_count) = if e.kind == 5 {
+            geometry::trail(
+                e.trail.as_ref().expect("trail source validated at birth"),
+                p.initial,
+                p.trail_start.expect("trail start recorded at birth"),
+                size,
+                color,
+                uv,
+            )
+            .unwrap_or_else(|error| {
+                panic!(
+                    "Original FX {} element {}: {error}",
+                    emitter.name, p.element
+                )
+            })
+        } else {
+            geometry::quad(
+                color,
+                uv,
+                e.billboard_trim
+                    .expect("billboard source trim is required")
+                    .widths(),
+            )
+        };
+        *geometries
+            .get_mut(&draw.geometry)
+            .expect("particle owns its native geometry") = updated;
+        draw.index_count = index_count;
+        draw.sort_center = pose.translation;
+        if let Some(mut bounds) = bounds {
+            *bounds = updated_bounds;
         }
-        if let Some(mut m) = p.decal.as_ref().and_then(|h| decals.get_mut(h)) {
-            m.base.base_color = Color::srgba(
-                color[0] / 255.,
-                color[1] / 255.,
-                color[2] / 255.,
-                color[3] / 255.,
-            );
-            m.base.uv_transform = uv;
+    }
+}
+
+fn object_constants(
+    mut commands: Commands,
+    cameras: Query<Ref<GlobalTransform>, With<crate::rendering::GameCamera>>,
+    mut particles: Query<
+        (
+            Entity,
+            Ref<GlobalTransform>,
+            Option<&mut NativeEffectTransform>,
+        ),
+        With<NativeEffectDraw>,
+    >,
+    mut previous_eye: Local<Option<Vec3>>,
+) {
+    let Ok(camera) = cameras.single() else {
+        return;
+    };
+    let eye = camera.translation();
+    let eye_changed = *previous_eye != Some(eye);
+    *previous_eye = Some(eye);
+    let source_from_bevy = crate::rendering::world::source_frame().inverse();
+    let to_eye = source_from_bevy * Mat4::from_translation(-eye);
+    for (entity, transform, constants) in &mut particles {
+        if !eye_changed && !transform.is_changed() && constants.is_some() {
+            continue;
+        }
+        let matrix = to_eye * transform.to_matrix();
+        let updated = NativeEffectTransform {
+            world_rows: std::array::from_fn(|i| matrix.row(i)),
+        };
+        if let Some(mut constants) = constants {
+            *constants = updated;
+        } else {
+            commands.entity(entity).insert(updated);
         }
     }
 }
