@@ -1692477,7 +1692477,7 @@
     ]
   },
   "scene": "world.glb#Scene0",
-  "collision_scene": "collision.glb#Scene0",
+  "collision_scene": "collision-bevy.glb#Scene0",
   "spawn": [
     69.9008,
     -8.636,

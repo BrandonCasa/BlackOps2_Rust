@@ -101,6 +101,14 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
 
 pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
     let configuration = assets::AssetDirectory::discover(&options.asset_root);
+    // Large debug glTF loader futures exceed the default Windows worker stack.
+    bevy::tasks::IoTaskPool::get_or_init(|| {
+        bevy::tasks::TaskPoolBuilder::new()
+            .num_threads((bevy::tasks::available_parallelism() / 4).clamp(1, 4))
+            .stack_size(16 * 1024 * 1024)
+            .thread_name("IO Task Pool".into())
+            .build()
+    });
     let mut app = App::new();
     let asset_root = options.asset_root.to_string_lossy().into_owned();
     let benchmark = options.benchmark;
@@ -114,6 +122,8 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
     app.add_plugins(
         default_plugins
             .set(AssetPlugin { file_path: asset_root, ..default() })
+            .set(bevy::gltf::GltfPlugin::default()
+                .add_custom_vertex_attribute("_SURFACE", assets::ATTRIBUTE_SURFACE))
             .set(bevy::render::RenderPlugin {
                 render_creation: bevy::render::settings::RenderCreation::Automatic(Box::new(
                     bevy::render::settings::WgpuSettings {

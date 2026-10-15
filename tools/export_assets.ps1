@@ -162,6 +162,17 @@ if ($collisionExit -ne 0 -or !(Test-Path -LiteralPath $collision) -or !(Test-Pat
     throw "External collision export failed or required outputs are absent: $collisionLog"
 }
 Copy-Item -LiteralPath $collision -Destination (Join-Path $assets 'collision.glb') -Force
+# Official glTF-Transform converts only the unsupported scalar-byte metadata encoding.
+# Source values, positions, triangles and winding remain intact.
+$gltfTools = Join-Path $tools 'gltf-transform'
+$gltfCli = Join-Path $gltfTools 'node_modules/.bin/gltf-transform.cmd'
+if (!(Test-Path -LiteralPath $gltfCli)) {
+    & npm.cmd install --prefix $gltfTools --cache (Join-Path $tools 'npm-cache') --no-audit --no-fund '@gltf-transform/cli@4.5.0' *> (Join-Path $reports 'gltf-transform-install.log')
+    if ($LASTEXITCODE -ne 0) { throw 'glTF-Transform installation failed.' }
+}
+& $gltfCli dequantize $collision (Join-Path $assets 'collision-bevy.glb') --pattern '_SURFACE' *> (Join-Path $reports 'collision-bevy.log')
+if ($LASTEXITCODE -ne 0) { throw 'Collision surface encoding conversion failed.' }
+
 Copy-Item -LiteralPath $clipmap -Destination (Join-Path $assets 'clipmap.json') -Force
 Write-Host 'Staged external collision.glb and raw clipmap.json only. Full collision semantics remain subject to gameplay verification.'
 if (!$SkipOat) {

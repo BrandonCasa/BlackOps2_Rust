@@ -15,6 +15,17 @@ use crate::GameState;
 
 pub(crate) const SOURCE_UNIT_METERS: f32 = 0.0254;
 
+pub const ATTRIBUTE_SURFACE: bevy::mesh::MeshVertexAttribute =
+    bevy::mesh::MeshVertexAttribute::new("Surface", 0x4f52_4947_5355_5246, bevy::render::render_resource::VertexFormat::Float32);
+
+// Canonical IDs written by the unchanged upstream collision exporter.
+const ENGINE_SURFACES: [&str; 33] = [
+    "default", "bark", "brick", "carpet", "cloth", "concrete", "dirt", "flesh", "foliage", "glass", "grass",
+    "gravel", "ice", "metal", "mud", "paper", "plaster", "rock", "sand", "snow", "water", "wood",
+    "asphalt", "ceramic", "plastic", "rubber", "cushion", "fruit", "paintedmetal", "riotshield", "slush", "player", "tallgrass",
+];
+
+
 #[derive(Resource, Default)]
 pub struct LaunchOptions {
     pub asset_root: PathBuf,
@@ -465,6 +476,57 @@ fn world_mesh_collider(mesh: &Mesh) -> Option<Collider> {
             .clone()
             .with_inserted_indices(Indices::U32((0..count).collect())),
     )
+}
+
+// T6 appends riotshield after the T5 player/tallgrass entries. The
+// exporter's unified table inserts riotshield/slush before those two entries.
+fn native_surface_type(surface: usize) -> Result<u32, String> {
+    match surface {
+        0..=28 => Ok(surface as u32),
+        29 => Ok(31),
+        31 => Ok(29),
+        32 => Ok(30),
+        30 => Err("Exported slush surface has no native T6 surface type".into()),
+        _ => Err("Invalid exported surface type".into()),
+    }
+}
+
+fn world_surface_colliders(mesh: &Mesh) -> Result<Vec<(usize, Collider)>, String> {
+    use bevy::mesh::{Indices, PrimitiveTopology, VertexAttributeValues};
+    if mesh.primitive_topology() != PrimitiveTopology::TriangleList {
+        return Err("Required collision mesh is not a triangle list".into());
+    }
+    let Some(VertexAttributeValues::Float32x3(positions)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION) else {
+        return Err("Required collision mesh has no Float32x3 positions".into());
+    };
+    let Some(VertexAttributeValues::Float32(surfaces)) = mesh.attribute(ATTRIBUTE_SURFACE) else {
+        return Err("Required collision mesh has no Float32 _SURFACE attribute".into());
+    };
+    if surfaces.len() != positions.len() || surfaces.iter().any(|id| !id.is_finite() || *id < 0. || id.fract() != 0. || *id >= ENGINE_SURFACES.len() as f32) {
+        return Err("Required collision mesh contains invalid _SURFACE IDs or vertex count".into());
+    }
+    let indices: Vec<u32> = if let Some(indices) = mesh.indices() {
+        indices.iter().map(|index| u32::try_from(index).map_err(|_| "Collision vertex index exceeds u32".to_owned())).collect::<Result<_, _>>()?
+    } else {
+        (0..u32::try_from(positions.len()).map_err(|_| "Collision vertex count exceeds u32")?).collect()
+    };
+    if indices.is_empty() || indices.len() % 3 != 0 {
+        return Err("Required collision mesh contains no complete triangles".into());
+    }
+    let mut groups = std::collections::BTreeMap::<usize, Vec<u32>>::new();
+    for triangle in indices.chunks_exact(3) {
+        let ids = triangle.iter().map(|index| surfaces.get(*index as usize).copied()).collect::<Option<Vec<_>>>()
+            .ok_or("Collision triangle references a missing vertex")?;
+        if ids[0] != ids[1] || ids[0] != ids[2] {
+            return Err("Collision triangle has inconsistent source _SURFACE IDs".into());
+        }
+        groups.entry(ids[0] as usize).or_default().extend_from_slice(triangle);
+    }
+    groups.into_iter().map(|(surface, indices)| {
+        let group = mesh.clone().with_inserted_indices(Indices::U32(indices));
+        world_mesh_collider(&group).map(|collider| (surface, collider))
+            .ok_or_else(|| format!("Cannot construct collision surface {}", ENGINE_SURFACES[surface]))
+    }).collect()
 }
 
 #[cfg(test)]
@@ -1011,22 +1073,45 @@ fn scene_ready(
                 next.set(GameState::LoadError);
                 return;
             };
-            let Some(collider) = meshes.get(&mesh.0).and_then(world_mesh_collider) else {
-                failure.0 = format!("Cannot construct collider for {:?}", mesh.0.path());
+            let groups = match meshes.get(&mesh.0).ok_or_else(|| "Required collision mesh asset is missing".to_owned()).and_then(world_surface_colliders) {
+                Ok(groups) => groups,
+                Err(error) => {
+                    failure.0 = format!("Collision mesh {:?}: {error}", mesh.0.path());
+                    next.set(GameState::LoadError);
+                    return;
+                }
+            };
+            let source_flags = match metadata.get("surface_flags") {
+                None => 0,
+                Some(value) => match value.as_u64().and_then(|bits| u32::try_from(bits).ok())
+                    .or_else(|| value.as_str().and_then(|bits| u32::from_str_radix(bits.trim_start_matches("0x"), 16).ok())) {
+                    Some(bits) => bits,
+                    None => {
+                        failure.0 = format!("Collision mesh {:?} has invalid exported surface_flags", mesh.0.path());
+                        next.set(GameState::LoadError);
+                        return;
+                    }
+                },
+            };
+            if let Some(error) = groups.iter().find_map(|(surface, _)| native_surface_type(*surface).err()) {
+                failure.0 = error;
                 next.set(GameState::LoadError);
                 return;
-            };
-            commands.entity(entity).insert((
-                RigidBody::Static,
-                collider,
-                WorldCollider,
-                WorldContents(contents),
-                world_collision_layers(contents),
-            ));
-            if metadata["group"] == "soup" {
-                commands.entity(entity).insert(WorldTerrain);
             }
-            loading.colliders += 1;
+            // Keep the original mesh as the scene pivot; its children contain
+            // disjoint original triangle groups, so there is no duplicate collider.
+            commands.entity(entity).remove::<(Collider, RigidBody, WorldCollider, WorldContents, WorldTerrain, CollisionLayers)>();
+            for (surface, collider) in groups {
+                let mut child = commands.spawn((
+                    ChildOf(entity), Transform::default(), Visibility::default(),
+                    Name::new(format!("Collision surface {}", ENGINE_SURFACES[surface])),
+                    RigidBody::Static, collider, WorldCollider, WorldContents(contents),
+                    world_collision_layers(contents), crate::audio::SurfaceSound(ENGINE_SURFACES[surface].to_owned()),
+                    crate::movement::physics::SurfaceFlags((source_flags & !(0x3f << 20)) | (native_surface_type(surface).expect("surface type validated") << 20)),
+                ));
+                if metadata["group"] == "soup" { child.insert(WorldTerrain); }
+                loading.colliders += 1;
+            }
         }
     }
     if root.collision && loading.colliders == 0 {
