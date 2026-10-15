@@ -207,8 +207,6 @@ if (!$SkipOat) {
     }
 }
 
-& (Join-Path $checkout 'tools/export_fx_images.ps1') -Texconv $texconv
-
 # Normalize reserved URI characters with unchanged pygltflib, preserving DDS bytes.
 $uriSdk = Join-Path $tools 'uri-python'
 if (!(Test-Path -LiteralPath (Join-Path $uriSdk 'pygltflib'))) {
