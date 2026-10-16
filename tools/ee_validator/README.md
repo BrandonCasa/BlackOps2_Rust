@@ -48,7 +48,10 @@ success does not establish survival balance, economy or performance.
 
 `--until generators-tank` adds generator activation and defense, movement onto
 the tank, an ordinary paid ride, and the first lightning-part jump and pickup.
-Its visible validation is pending.
+The complete fresh-match prefix passed at 10x with seed 2818 in
+`reports/ee-validator/generators-20261016-al/summary.json`, including a recorded
+native jump from the tank, landing on the near bank, the narrow walking path,
+and player-owned part pickup.
 
 With a validator scene paused, inspect first-jump launch combinations through
 the read-only native collision query:

@@ -448,7 +448,7 @@ fn aiming_tracks_the_animated_torso_without_new_network_inputs() {
         &mut app,
         1,
         Command::Input {
-            ticks: 30,
+            ticks: 120,
             held: vec![],
             look: [0., 0.],
             aim: None,
@@ -511,6 +511,99 @@ fn aiming_tracks_the_animated_torso_without_new_network_inputs() {
             + 2_f32.to_radians())
         .abs()
             < 1e-6
+    );
+    let parent = app.world_mut().spawn(Transform::from_xyz(1., 0., 0.)).id();
+    app.world_mut().entity_mut(target).insert(ChildOf(parent));
+    frame(&mut app, 30);
+    let yaw = app
+        .world()
+        .get::<crate::player::Player>(player)
+        .unwrap()
+        .yaw;
+    assert!(
+        (yaw - ((-1_f32).atan2(5.) - 0.05 - 2_f32.to_radians())).abs() < 1e-6,
+        "Parented targets must use the current engine-computed world pose"
+    );
+}
+
+#[test]
+fn opportunity_rejection_is_ordinary_control_flow_and_failure_cancels_pending_choices() {
+    use crate::environment::weather::{Weather, WeatherKind};
+    let mut app = harness();
+    app.init_resource::<crate::navigation::Navigation>()
+        .init_resource::<crate::powerups::Drops>()
+        .init_resource::<crate::robots::Robots>()
+        .init_resource::<Weather>();
+    app.world_mut()
+        .resource_mut::<Weather>()
+        .overrides
+        .insert(1, WeatherKind::Snow);
+    let weather = serde_json::to_value(app.world().resource::<Weather>()).unwrap();
+    let seed = app.world().resource::<Session>().seed;
+    command(
+        &mut app,
+        1,
+        Command::WeatherChoice {
+            kind: WeatherKind::Rain,
+        },
+    );
+    frame(&mut app, 0);
+    assert_eq!(
+        app.world().resource::<Controller>().receipts[&(1, 1)].phase,
+        Phase::Rejected
+    );
+    assert!(app.world().resource::<Controller>().failure.is_none());
+    assert_eq!(
+        serde_json::to_value(app.world().resource::<Weather>()).unwrap(),
+        weather
+    );
+    assert_eq!(app.world().resource::<Session>().seed, seed);
+    command(
+        &mut app,
+        2,
+        Command::WeatherChoice {
+            kind: WeatherKind::Snow,
+        },
+    );
+    frame(&mut app, 0);
+    assert_eq!(
+        app.world().resource::<Weather>().selection,
+        Some((1, WeatherKind::Snow))
+    );
+    app.world_mut()
+        .resource_mut::<crate::navigation::Navigation>()
+        .selected_spawn = Some(0);
+    app.world_mut()
+        .resource_mut::<crate::powerups::Drops>()
+        .selection = Some(0);
+    app.world_mut()
+        .resource_mut::<crate::robots::Robots>()
+        .selection = Some((0, 0));
+    command(&mut app, 3, Command::Pause);
+    frame(&mut app, 0);
+    assert!(
+        app.world().resource::<Weather>().selection.is_some(),
+        "Pause retains pending opportunities"
+    );
+    fail(app.world_mut(), "runner terminated".into());
+    assert!(app.world().resource::<Weather>().selection.is_none());
+    assert!(
+        app.world()
+            .resource::<crate::navigation::Navigation>()
+            .selected_spawn
+            .is_none()
+    );
+    assert!(
+        app.world()
+            .resource::<crate::powerups::Drops>()
+            .selection
+            .is_none()
+    );
+    assert!(
+        app.world()
+            .resource::<crate::robots::Robots>()
+            .selection
+            .is_none()
     );
 }
 

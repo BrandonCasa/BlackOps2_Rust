@@ -124,6 +124,7 @@ pub(super) fn execute(world: &mut World, request: &Request) -> Result<bool, Stri
         }
         Command::Abort => {
             pause(world);
+            super::cancel_opportunities(world);
             let mut c = world.resource_mut::<Controller>();
             c.aborted = true;
             c.controls.clear();
@@ -146,6 +147,7 @@ pub(super) fn execute(world: &mut World, request: &Request) -> Result<bool, Stri
                 return Err("Finish requires a healthy run with no queued input".into());
             }
             pause(world);
+            super::cancel_opportunities(world);
             let mut c = world.resource_mut::<Controller>();
             c.session = None;
             c.suspended = None;
@@ -201,6 +203,43 @@ pub(super) fn execute(world: &mut World, request: &Request) -> Result<bool, Stri
             world
                 .run_system_cached_with(teleport, Vec3::from_array(*feet))
                 .map_err(|e| e.to_string())??;
+            Ok(true)
+        }
+        Command::SpawnChoice { candidate } => {
+            world
+                .resource_mut::<crate::navigation::Navigation>()
+                .select_spawn(*candidate)?;
+            Ok(true)
+        }
+        Command::RobotChoice { robot, foot } => {
+            let session = world.resource::<Session>();
+            let quest = world.resource::<crate::quests::MainQuest>();
+            let robots = world.resource::<crate::robots::Robots>();
+            let triple = session.round % 4 == 0 && robots.triple_round != session.round
+                || quest.enabled && quest.stage == crate::quests::QuestStage::BreakSeal;
+            let nml = world
+                .resource::<crate::access::ZoneAccess>()
+                .open
+                .iter()
+                .any(|id| id.0.contains("activate_zone_nml"));
+            world
+                .resource_mut::<crate::robots::Robots>()
+                .select(*robot, *foot, nml, triple)?;
+            Ok(true)
+        }
+        Command::WeatherChoice { kind } => {
+            let round = world.resource::<Session>().round;
+            world
+                .resource_mut::<crate::environment::weather::Weather>()
+                .select(round, *kind)?;
+            Ok(true)
+        }
+        Command::PowerupChoice { id } => {
+            world.resource_scope(|world, game: Mut<crate::assets::GameDefinition>| {
+                world
+                    .resource_mut::<crate::powerups::Drops>()
+                    .select(id, &game)
+            })?;
             Ok(true)
         }
         Command::Capture { name } => {

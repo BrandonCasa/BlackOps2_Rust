@@ -192,7 +192,7 @@ pub(crate) fn advance(
     >,
     mut commands: Commands,
     query: SpatialQuery,
-    navigation: Res<Navigation>,
+    mut navigation: ResMut<Navigation>,
     mut population: ResMut<Population>,
     mut evidence: ResMut<RoundEvidence>,
     events: (MessageWriter<RoundStarted>, MessageWriter<RoundEnding>),
@@ -307,7 +307,7 @@ pub(crate) fn advance(
         .min_by_key(|(_, health)| health.sequence);
     let candidate = (|| {
         players.single().ok()?;
-        let admission = navigation.choose_spawn(&mut session)?;
+        let admission = navigation.choose_spawn(&mut session)?.clone();
         let base = admission.position;
         let floor = query.cast_ray(
             base + Vec3::Y * 0.1,
@@ -386,7 +386,7 @@ pub(crate) fn advance(
         let entrance = if admission.find_flesh {
             None
         } else {
-            Some(navigation.choose_entrance(admission, spawner, &access, &mut session)?)
+            Some(navigation.choose_entrance(&admission, spawner, &access, &mut session)?)
         };
         let gait = session
             .difficulty
@@ -400,7 +400,7 @@ pub(crate) fn advance(
             admission.source.clone(),
             admission.zone.clone(),
             admission.rising,
-            admission.clone(),
+            admission,
             spawner.clone(),
             entrance,
         ))

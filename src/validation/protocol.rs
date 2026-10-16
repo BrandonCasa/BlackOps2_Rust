@@ -49,6 +49,19 @@ pub(super) enum Command {
     Teleport {
         feet: [f32; 3],
     },
+    SpawnChoice {
+        candidate: usize,
+    },
+    RobotChoice {
+        robot: usize,
+        foot: usize,
+    },
+    WeatherChoice {
+        kind: crate::environment::weather::WeatherKind,
+    },
+    PowerupChoice {
+        id: String,
+    },
     Capture {
         name: String,
     },

@@ -27,6 +27,8 @@ pub enum HatchState {
 }
 #[derive(Clone, Copy, Debug)]
 pub struct RobotPass {
+    #[cfg(feature = "dev-tools")]
+    selected_foot: Option<usize>,
     pub delay: f32,
     pub step: usize,
     pub clock: f32,
@@ -50,6 +52,8 @@ pub struct Occupancy {
 }
 #[derive(Resource)]
 pub struct Robots {
+    #[cfg(feature = "dev-tools")]
+    pub(crate) selection: Option<(usize, usize)>,
     pub passes: [Option<RobotPass>; 3],
     pub occupancy: Option<Occupancy>,
     pub entries: u32,
@@ -65,6 +69,8 @@ pub struct Robots {
 impl Default for Robots {
     fn default() -> Self {
         Self {
+            #[cfg(feature = "dev-tools")]
+            selection: None,
             passes: [None; 3],
             occupancy: None,
             entries: 0,
@@ -79,6 +85,59 @@ impl Default for Robots {
             latched: false,
         }
     }
+}
+#[cfg(feature = "dev-tools")]
+impl Robots {
+    pub(crate) fn cancel_selection(&mut self) {
+        self.selection = None;
+        for pass in self.passes.iter_mut().flatten() {
+            pass.selected_foot = None;
+        }
+    }
+    pub(crate) fn select(
+        &mut self,
+        robot: usize,
+        foot: usize,
+        nml: bool,
+        triple: bool,
+    ) -> Result<(), String> {
+        if robot >= 3
+            || foot >= 2
+            || self.selection.is_some()
+            || self.passes.iter().any(Option::is_some)
+            || !triple && (!nml && robot == 2 || self.last == Some(robot))
+        {
+            return Err(
+                "Robot/foot choice is unavailable or a pass is already pending or active".into(),
+            );
+        }
+        self.selection = Some((robot, foot));
+        Ok(())
+    }
+}
+
+#[cfg(all(test, feature = "dev-tools"))]
+#[test]
+fn opportunity_robot_selection_preserves_pass_timing_and_rejections() {
+    let mut robots = Robots::default();
+    assert!(robots.select(2, 0, false, false).is_err());
+    assert!(robots.select(0, 2, true, false).is_err());
+    assert!(robots.selection.is_none());
+    robots.select(0, 1, false, false).unwrap();
+    assert!(robots.select(1, 0, true, false).is_err());
+    assert_eq!(robots.selection, Some((0, 1)));
+    assert_eq!(robots.next, 5.);
+    assert_eq!(
+        (robots.entries, robots.evacuations, robots.stomps),
+        (0, 0, 0)
+    );
+    assert!(robots.passes.iter().all(Option::is_none));
+    robots.cancel_selection();
+    robots.last = Some(0);
+    assert!(robots.select(0, 0, true, false).is_err());
+    robots.passes[1] = Some(pass(10., true));
+    assert!(robots.select(2, 0, true, true).is_err());
+    assert_eq!(robots.passes[1].unwrap().delay, 10.);
 }
 #[derive(Message, Clone, Copy)]
 pub struct RobotStomp(pub Vec3);
@@ -115,9 +174,9 @@ fn foot_action(event: &str) -> Option<(usize, FootAction)> {
 }
 #[derive(Component)]
 #[require(crate::animation::SceneClips)]
-struct Foot {
-    robot: usize,
-    side: usize,
+pub(crate) struct Foot {
+    pub(crate) robot: usize,
+    pub(crate) side: usize,
     kill: Collider,
     active: bool,
     finish: f32,
@@ -268,6 +327,8 @@ impl Plugin for RobotPlugin {
 }
 fn pass(delay: f32, eligible: bool) -> RobotPass {
     RobotPass {
+        #[cfg(feature = "dev-tools")]
+        selected_foot: None,
         delay,
         step: 0,
         clock: 0.,
@@ -642,19 +703,26 @@ fn tick(
             robots.triple_active = false;
             let triple = session.round % 4 == 0 && robots.triple_round != session.round
                 || quest.enabled && quest.stage == QuestStage::BreakSeal;
+            let nml = access
+                .open
+                .iter()
+                .any(|id| id.0.contains("activate_zone_nml"));
+            #[cfg(feature = "dev-tools")]
+            let selection = robots
+                .selection
+                .take()
+                .filter(|(i, _)| triple || (nml || *i < 2) && robots.last != Some(*i));
             if triple {
                 robots.triple_active = true;
                 let eligible = session.random() as usize % 3;
+                #[cfg(feature = "dev-tools")]
+                let eligible = selection.map_or(eligible, |(i, _)| i);
                 robots.passes[2] = Some(pass(10., eligible == 2));
                 robots.passes[0] = Some(pass(15., eligible == 0));
                 robots.passes[1] = Some(pass(20., eligible == 1));
                 robots.triple_round = session.round;
                 robots.last = None;
             } else {
-                let nml = access
-                    .open
-                    .iter()
-                    .any(|id| id.0.contains("activate_zone_nml"));
                 let index = if !nml {
                     session.random() as usize % 2
                 } else {
@@ -665,8 +733,16 @@ fn tick(
                         }
                     }
                 };
+                #[cfg(feature = "dev-tools")]
+                let index = selection.map_or(index, |(i, _)| i);
                 robots.passes[index] = Some(pass(10., true));
                 robots.last = Some(index);
+            }
+            #[cfg(feature = "dev-tools")]
+            if let Some((robot, foot)) = selection
+                && let Some(pass) = robots.passes[robot].as_mut()
+            {
+                pass.selected_foot = Some(foot);
             }
             robots.next = 5.;
         }
@@ -685,12 +761,20 @@ fn tick(
             p.delay = (p.delay - dt).max(0.);
             if p.delay == 0. && p.eligible == Some(2) {
                 p.eligible = Some(session.random() as usize % 2);
+                #[cfg(feature = "dev-tools")]
+                if let Some(side) = p.selected_foot.take() {
+                    p.eligible = Some(side);
+                }
             }
             robots.passes[body.index] = Some(p);
             continue;
         }
         if p.eligible == Some(2) {
             p.eligible = Some(session.random() as usize % 2);
+            #[cfg(feature = "dev-tools")]
+            if let Some(side) = p.selected_foot.take() {
+                p.eligible = Some(side);
+            }
         }
         let phase = if p.intro { 3 } else { p.step };
         let animation = &game.content.animations[body.clips[phase]];

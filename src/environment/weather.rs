@@ -26,6 +26,8 @@ const SUN_COLOR_SECONDS: f32 = 10.;
 
 #[derive(Resource, Serialize)]
 pub struct Weather {
+    #[cfg(feature = "dev-tools")]
+    pub(crate) selection: Option<(u32, WeatherKind)>,
     pub kind: WeatherKind,
     pub intensity: u32,
     pub presented: WeatherKind,
@@ -61,6 +63,21 @@ pub struct Weather {
     audio: Option<Entity>,
 }
 impl Weather {
+    #[cfg(feature = "dev-tools")]
+    pub(crate) fn select(&mut self, round: u32, kind: WeatherKind) -> Result<(), String> {
+        let eligible = if let Some(&fixed) = self.overrides.get(&round) {
+            kind == fixed
+        } else {
+            kind == WeatherKind::Snow
+                || round.saturating_sub(self.last_snow) <= 3
+                    && (kind == WeatherKind::Rain || round.saturating_sub(self.last_rain) <= 4)
+        };
+        if self.selection.is_some() || !eligible {
+            return Err("Weather choice is ineligible or a selection is already pending".into());
+        }
+        self.selection = Some((round, kind));
+        Ok(())
+    }
     /// zm_tomb_quest_ice changes rain/snow levels, then calls the ordinary
     /// player callback without changing level.weather_vision. It clears both
     /// levels after five seconds rather than restoring the preceding weather.
@@ -151,6 +168,8 @@ impl Weather {
 impl Default for Weather {
     fn default() -> Self {
         Self {
+            #[cfg(feature = "dev-tools")]
+            selection: None,
             kind: WeatherKind::Clear,
             intensity: 0,
             presented: WeatherKind::Clear,
@@ -243,6 +262,12 @@ fn round_weather(
                     WeatherKind::Clear
                 }
             });
+        #[cfg(feature = "dev-tools")]
+        let kind = weather
+            .selection
+            .take()
+            .filter(|(round, _)| *round == event.round)
+            .map_or(kind, |(_, kind)| kind);
         weather.kind = kind;
         weather.next_vision = kind;
         weather.intensity = if kind == WeatherKind::Clear {
@@ -460,6 +485,24 @@ fn sound(commands: &mut Commands, game: &GameDefinition, alias: &str, position: 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "dev-tools")]
+    #[test]
+    fn opportunity_weather_rejections_preserve_schedule_and_timers() {
+        let mut weather = Weather::default();
+        weather.overrides.insert(10, WeatherKind::Snow);
+        weather.delay = 1.75;
+        let before = serde_json::to_value(&weather).unwrap();
+        assert!(weather.select(10, WeatherKind::Clear).is_err());
+        assert!(weather.select(5, WeatherKind::Rain).is_err());
+        assert_eq!(serde_json::to_value(&weather).unwrap(), before);
+        weather.select(2, WeatherKind::Clear).unwrap();
+        let before = serde_json::to_value(&weather).unwrap();
+        assert!(weather.select(2, WeatherKind::Snow).is_err());
+        assert_eq!(serde_json::to_value(&weather).unwrap(), before);
+        assert_eq!(weather.kind, WeatherKind::Clear);
+        assert_eq!(weather.delay, 1.75);
+    }
 
     fn close(actual: Vec3, expected: Vec3) {
         assert!(

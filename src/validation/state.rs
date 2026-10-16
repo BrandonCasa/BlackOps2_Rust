@@ -118,6 +118,19 @@ pub(super) fn snapshot(world: &mut World) -> Value {
         };
         Some(json!({"entity":e.to_bits(),"target":target,"position":t.translation.to_array()}))
     }));
+    targets.extend(
+        world
+            .query::<(Entity, &crate::portals::Target, &Transform)>()
+            .iter(world)
+            .map(|(e, t, pose)| {
+                let target = match t {
+                    crate::portals::Target::Gramophone(i) => json!({"kind":"gramophone","value":i}),
+                    crate::portals::Target::Entrance => json!({"kind":"portal_entrance"}),
+                    crate::portals::Target::Return(i) => json!({"kind":"portal_return","value":i}),
+                };
+                json!({"entity":e.to_bits(),"target":target,"position":pose.translation.to_array()})
+            }),
+    );
     let tank_uses: std::collections::BTreeMap<_, _> = world
         .get_resource::<crate::assets::GameDefinition>()
         .map(|game| {
@@ -143,6 +156,31 @@ pub(super) fn snapshot(world: &mut World) -> Value {
     let mut result = json!({"session":world.resource::<crate::session::SessionId>().0,"seed":c.seed,"game_state":format!("{:?}",world.resource::<State<GameState>>().get()),"ready":matches!(world.resource::<State<GameState>>().get(),GameState::Playing|GameState::Paused)&&player.is_some(),"control":{"owned":c.owns_input(),"paused":c.paused,"aborted":c.aborted,"failure":c.failure,"tick":c.tick,"simulation_seconds":c.simulation_seconds,"label":c.label,"queued":c.queue.len(),"active":c.active.as_ref().map(|(r,n)|json!({"id":r.id,"remaining":n})),"god":c.god},"player":player,"round":{"number":session.round,"pending":session.pending,"points":session.points},"interaction":{"target":focus.target.map(Entity::to_bits),"accepted":focus.accepted,"prompt":focus.prompt,"rejection":focus.rejection.map(|r|format!("{r:?}"))},"enemies":enemies,"targets":targets,"evidence":c.evidence});
     result["process_id"] = json!(std::process::id());
     result["firing"] = firing.unwrap_or(Value::Null);
+    if let Some(crafting) = world.get_resource::<crate::crafting::Crafting>() {
+        result["crafting"] = json!({"crafted":crafting.crafted,"consumed":crafting.consumed,
+            "records":crafting.records,"gramophone":crafting.gramophone});
+    }
+    if let Some(portals) = world.get_resource::<crate::portals::Portals>() {
+        result["portals"] = json!({"gramophone":portals.gramophone,"entrances":portals.entrances.map(|p|format!("{p:?}")),
+            "returns":portals.returns,"excavation_open":portals.excavation_open,"trips":portals.trips,
+            "visited":portals.visited,"return_unlocked":portals.return_unlocked,"crystals_ready":portals.crystals_ready});
+    }
+    if let Some(weather) = world.get_resource::<crate::environment::weather::Weather>() {
+        result["weather"] = json!({"kind":weather.kind,"presented":weather.presented,"intensity":weather.intensity,
+            "selection":weather.selection});
+    }
+    if let Some(navigation) = world.get_resource::<crate::navigation::Navigation>() {
+        result["spawn_candidates"] = json!(navigation.spawn_candidates().map(|(i,s)|
+            json!({"candidate":i,"position":s.position.to_array(),"zone":s.zone.0,"source":s.source})).collect::<Vec<_>>());
+    }
+    if let Some(robots) = world.get_resource::<crate::robots::Robots>() {
+        result["robots"] = json!({"selection":robots.selection,"entries":robots.entries,"evacuations":robots.evacuations,
+            "passes":robots.passes.map(|p|p.map(|p|json!({"delay":p.delay,"step":p.step,"clock":p.clock,
+                "eligible":p.eligible,"hatch":format!("{:?}",p.hatch)}))),
+            "occupancy":robots.occupancy.map(|o|json!({"robot":o.robot,"remaining":o.remaining,"exit":o.exit.to_array()}))});
+    }
+    result["robot_feet"] = json!(world.query::<(Entity,&crate::robots::Foot,&GlobalTransform)>().iter(world)
+        .map(|(e,f,t)|json!({"entity":e.to_bits(),"robot":f.robot,"side":f.side,"position":t.translation().to_array()})).collect::<Vec<_>>());
     if let Some(game) = world.get_resource::<crate::assets::GameDefinition>() {
         let tuning = &game.tuning;
         result["movement"] = json!({"walk_speed":tuning.walk_speed,"sprint_speed":tuning.sprint_speed,

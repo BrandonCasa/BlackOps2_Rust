@@ -383,7 +383,13 @@ fn validate_request(world: &World, request: &Request) -> Result<Option<Value>, S
     if !world.resource::<Controller>().owns_input()
         && matches!(
             request.action,
-            Command::Input { .. } | Command::Assist { .. } | Command::Teleport { .. }
+            Command::Input { .. }
+                | Command::Assist { .. }
+                | Command::Teleport { .. }
+                | Command::SpawnChoice { .. }
+                | Command::RobotChoice { .. }
+                | Command::WeatherChoice { .. }
+                | Command::PowerupChoice { .. }
         )
     {
         return Err("Start a validator session before submitting gameplay actions".into());
@@ -428,7 +434,15 @@ fn control(world: &mut World) {
             Ok(false) => {}
             Err(reason) => {
                 reject(world, &request, reason.clone());
-                if owns_input(world) {
+                if owns_input(world)
+                    && !matches!(
+                        request.action,
+                        Command::SpawnChoice { .. }
+                            | Command::RobotChoice { .. }
+                            | Command::WeatherChoice { .. }
+                            | Command::PowerupChoice { .. }
+                    )
+                {
                     fail(world, reason);
                 }
             }
@@ -507,17 +521,22 @@ fn tick_input(world: &mut World) {
         };
         let target = aim.map(Vec3::from_array).or_else(|| {
             aim_entity.and_then(Entity::try_from_bits).and_then(|e| {
-                world.get::<Transform>(e).map(|t| {
-                    let local = aim_offset
-                        .map(Vec3::from_array)
-                        .or_else(|| {
-                            world
-                                .get::<crate::hit_regions::Hitboxes>(e)
-                                .and_then(state::aim_point)
-                        })
-                        .unwrap_or(Vec3::ZERO);
-                    t.transform_point(local)
-                })
+                let local = aim_offset
+                    .map(Vec3::from_array)
+                    .or_else(|| {
+                        world
+                            .get::<crate::hit_regions::Hitboxes>(e)
+                            .and_then(state::aim_point)
+                    })
+                    .unwrap_or(Vec3::ZERO);
+                if world.get::<ChildOf>(e).is_some() {
+                    world
+                        .run_system_cached_with(target_point, (e, local))
+                        .ok()
+                        .flatten()
+                } else {
+                    world.get::<Transform>(e).map(|t| t.transform_point(local))
+                }
             })
         });
         if arrival_radius
@@ -554,6 +573,31 @@ fn tick_input(world: &mut World) {
     });
     if arrival_expired {
         fail(world, "Input arrival waypoint deadline expired".into());
+    }
+}
+
+fn target_point(
+    In((entity, point)): In<(Entity, Vec3)>,
+    transforms: bevy::transform::helper::TransformHelper,
+) -> Option<Vec3> {
+    transforms
+        .compute_global_transform(entity)
+        .ok()
+        .map(|pose| pose.transform_point(point))
+}
+
+pub(super) fn cancel_opportunities(world: &mut World) {
+    if let Some(mut navigation) = world.get_resource_mut::<crate::navigation::Navigation>() {
+        navigation.selected_spawn = None;
+    }
+    if let Some(mut weather) = world.get_resource_mut::<crate::environment::weather::Weather>() {
+        weather.selection = None;
+    }
+    if let Some(mut drops) = world.get_resource_mut::<crate::powerups::Drops>() {
+        drops.selection = None;
+    }
+    if let Some(mut robots) = world.get_resource_mut::<crate::robots::Robots>() {
+        robots.cancel_selection();
     }
 }
 
@@ -664,6 +708,7 @@ pub(crate) fn fail(world: &mut World, reason: String) {
         return;
     }
     pause(world);
+    cancel_opportunities(world);
     {
         let mut c = world.resource_mut::<Controller>();
         c.failure = Some(reason.clone());

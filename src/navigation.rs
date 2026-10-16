@@ -64,6 +64,8 @@ pub struct Admission {
 }
 #[derive(Resource, Default)]
 pub struct Navigation {
+    #[cfg(feature = "dev-tools")]
+    pub(crate) selected_spawn: Option<usize>,
     nodes: Vec<Node>,
     edges: Vec<Vec<Edge>>,
     spawns: Vec<Admission>,
@@ -429,8 +431,28 @@ impl Navigation {
             })
             .unwrap_or(position)
     }
-    pub fn choose_spawn(&self, session: &mut Session) -> Option<&Admission> {
+    #[cfg(feature = "dev-tools")]
+    pub(crate) fn spawn_candidates(&self) -> impl Iterator<Item = (usize, &Admission)> {
+        self.admissions
+            .iter()
+            .filter_map(|&i| self.spawns.get(i).map(|s| (i, s)))
+    }
+    #[cfg(feature = "dev-tools")]
+    pub(crate) fn select_spawn(&mut self, index: usize) -> Result<(), String> {
+        if self.selected_spawn.is_some() || !self.admissions.contains(&index) {
+            return Err("Spawn candidate is unavailable or a selection is already pending".into());
+        }
+        self.selected_spawn = Some(index);
+        Ok(())
+    }
+    pub fn choose_spawn(&mut self, session: &mut Session) -> Option<&Admission> {
         let index = self.admissions[session.spawn_index(self.admissions.len())?];
+        #[cfg(feature = "dev-tools")]
+        let index = self
+            .selected_spawn
+            .take()
+            .filter(|i| self.admissions.contains(i))
+            .unwrap_or(index);
         self.spawns.get(index)
     }
     pub(crate) fn choose_entrance(
@@ -525,6 +547,10 @@ fn reset(
     nav.cache.clear();
     nav.order.clear();
     nav.admissions.clear();
+    #[cfg(feature = "dev-tools")]
+    {
+        nav.selected_spawn = None;
+    }
     nav.revision = 0;
     nav.chamber_blocked.clear();
     nav.perk_blocked.clear();
@@ -639,6 +665,38 @@ fn refresh(mut nav: ResMut<Navigation>, access: Res<ZoneAccess>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "dev-tools")]
+    #[test]
+    fn opportunity_spawn_selection_preserves_native_admission_accounting() {
+        let mut nav = Navigation::default();
+        nav.spawns = [Vec3::ZERO, Vec3::X]
+            .map(|position| Admission {
+                position,
+                zone: ZoneId("zone.test".into()),
+                source: "test".into(),
+                rising: false,
+                find_flesh: true,
+                yaw: 0.,
+                desired_origin: None,
+            })
+            .to_vec();
+        nav.admissions = vec![0, 1];
+        assert!(nav.select_spawn(9).is_err());
+        assert_eq!(nav.selected_spawn, None);
+        nav.select_spawn(1).unwrap();
+        assert!(nav.select_spawn(0).is_err());
+        assert_eq!(nav.selected_spawn, Some(1));
+        let mut session = Session::default();
+        let mut ordinary = session.clone();
+        ordinary.spawn_index(2).unwrap();
+        assert_eq!(nav.choose_spawn(&mut session).unwrap().position, Vec3::X);
+        assert_eq!(
+            (session.seed, session.spawn_cursor, session.pending),
+            (ordinary.seed, ordinary.spawn_cursor, ordinary.pending)
+        );
+        assert_eq!(nav.selected_spawn, None);
+    }
 
     #[test]
     #[ignore = "requires exported installed Origins assets"]

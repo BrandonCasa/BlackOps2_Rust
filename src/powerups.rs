@@ -38,6 +38,8 @@ pub struct Pickup {
 }
 #[derive(Resource)]
 pub struct Drops {
+    #[cfg(feature = "dev-tools")]
+    pub(crate) selection: Option<usize>,
     pub spawned: u32,
     pub collected: u32,
     pub expired: u32,
@@ -51,6 +53,8 @@ pub struct Drops {
 impl Default for Drops {
     fn default() -> Self {
         Self {
+            #[cfg(feature = "dev-tools")]
+            selection: None,
             spawned: 0,
             collected: 0,
             expired: 0,
@@ -62,6 +66,72 @@ impl Default for Drops {
             cycle: Vec::new(),
         }
     }
+}
+#[cfg(feature = "dev-tools")]
+impl Drops {
+    pub(crate) fn select(&mut self, id: &str, game: &GameDefinition) -> Result<(), String> {
+        let index = game
+            .content
+            .powerups
+            .iter()
+            .position(|p| {
+                p.id.0 == id
+                    && supported(p)
+                    && p.presentation.as_ref().is_some_and(|id| {
+                        game.content
+                            .presentations
+                            .iter()
+                            .any(|p| p.id == *id && p.scene.is_some())
+                    })
+            })
+            .ok_or("Powerup has no supported native pickup")?;
+        if self.selection.is_some()
+            || self.count >= 4
+            || !self.cycle.is_empty() && !self.cycle.contains(&index)
+        {
+            return Err(
+                "Powerup budget or cycle rejects this choice, or a selection is already pending"
+                    .into(),
+            );
+        }
+        self.selection = Some(index);
+        Ok(())
+    }
+}
+
+#[cfg(all(test, feature = "dev-tools"))]
+#[test]
+fn opportunity_powerup_rejections_preserve_budget_cycle_and_threshold() {
+    let game: GameDefinition = serde_json::from_slice(
+        &std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("gameplay/origins/game.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let mut drops = Drops::default();
+    let blood = game
+        .content
+        .powerups
+        .iter()
+        .position(|p| p.id.0 == "powerup.zombie_blood")
+        .unwrap();
+    drops.cycle = vec![blood];
+    assert!(drops.select("powerup.full_ammo", &game).is_err());
+    drops.count = 4;
+    assert!(drops.select("powerup.zombie_blood", &game).is_err());
+    assert_eq!(
+        (drops.threshold, drops.increment, drops.earned, drops.count),
+        (2500., 2000., false, 4)
+    );
+    assert_eq!(drops.cycle, vec![blood]);
+    assert_eq!(drops.selection, None);
+    drops.count = 0;
+    drops.select("powerup.zombie_blood", &game).unwrap();
+    assert!(drops.select("powerup.zombie_blood", &game).is_err());
+    assert_eq!(drops.selection, Some(blood));
+    assert_eq!(drops.cycle, vec![blood]);
+    assert_eq!(drops.spawned, 0);
 }
 #[derive(Component)]
 struct Nuke {
@@ -335,6 +405,13 @@ fn drop_powerups(
                 let j = session.random() as usize % (i + 1);
                 drops.cycle.swap(i, j);
             }
+        }
+        #[cfg(feature = "dev-tools")]
+        if let Some(index) = drops.selection.take()
+            && let Some(position) = drops.cycle.iter().position(|&i| i == index)
+        {
+            let last = drops.cycle.len() - 1;
+            drops.cycle.swap(position, last);
         }
         let Some(index) = drops.cycle.pop() else {
             continue;
