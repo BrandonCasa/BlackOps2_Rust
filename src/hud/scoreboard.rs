@@ -43,7 +43,7 @@ fn label(parent: &mut ChildSpawnerCommands, value: &str, size: f32, node: Node, 
             ..NativeText::new(value, size)
         }
         .color(if dim {
-            Color::srgba(1., 1., 1., 0.5)
+            Color::linear_rgba(1., 1., 1., 0.5)
         } else {
             Color::WHITE
         }),
@@ -68,8 +68,8 @@ fn slot(
                 border: UiRect::all(px(1.)),
                 ..rect(x, y, width, 48.)
             },
-            BorderColor::all(Color::srgba(1., 1., 1., 0.1)),
-            BackgroundColor(Color::srgba(0., 0., 0., 0.3)),
+            BorderColor::all(Color::linear_rgba(1., 1., 1., 0.1)),
+            BackgroundColor(Color::linear_rgba(0., 0., 0., 0.3)),
         ))
         .with_children(|parent| {
             parent.spawn((
@@ -84,7 +84,7 @@ fn setup(
     mut commands: Commands,
     game: Option<Res<GameDefinition>>,
     server: Res<AssetServer>,
-    cameras: Query<Entity, With<crate::rendering::GameCamera>>,
+    cameras: Query<Entity, With<crate::rendering::display::GameUiCamera>>,
     roots: Query<(), With<ScoreboardRoot>>,
 ) {
     let (Some(game), Ok(camera)) = (game, cameras.single()) else {
@@ -122,11 +122,11 @@ fn setup(
                     ] {
                         parent.spawn((
                             rect(x, 0., width, 32.),
-                            BackgroundColor(Color::srgba(0., 0., 0., 0.7)),
+                            BackgroundColor(Color::linear_rgba(0., 0., 0., 0.7)),
                         ));
                         parent.spawn((
                             rect(x, 38., width, 103.),
-                            BackgroundColor(Color::srgba(0., 0., 0., 0.7)),
+                            BackgroundColor(Color::linear_rgba(0., 0., 0., 0.7)),
                         ));
                         label(
                             parent,
@@ -194,7 +194,7 @@ fn setup(
                         let x = 181.25 + index as f32 * 53.;
                         parent.spawn((
                             rect(x, 89., 48., 48.),
-                            BackgroundColor(Color::srgba(0., 0., 0., 0.3)),
+                            BackgroundColor(Color::linear_rgba(0., 0., 0., 0.3)),
                         ));
                         parent.spawn((
                             QuestIcon(index),
@@ -294,7 +294,7 @@ fn setup(
 
                     parent.spawn((
                         rect(0., 150., 864., 32.),
-                        BackgroundColor(Color::srgba(0., 0., 0., 0.75)),
+                        BackgroundColor(Color::linear_rgba(0., 0., 0., 0.75)),
                     ));
                     label(
                         parent,
@@ -315,7 +315,7 @@ fn setup(
                     for row in 0..4 {
                         parent.spawn((
                             rect(0., 188. + row as f32 * 29., 864., 27.),
-                            BackgroundColor(Color::srgba(
+                            BackgroundColor(Color::linear_rgba(
                                 0.,
                                 0.,
                                 0.,
@@ -326,7 +326,7 @@ fn setup(
                     for x in [500., 632., 764.] {
                         parent.spawn((
                             rect(x, 188., 66., 114.),
-                            BackgroundColor(Color::srgba(0., 0.5, 1., 0.2)),
+                            BackgroundColor(Color::linear_rgba(0., 0.5, 1., 0.2)),
                         ));
                     }
                     parent.spawn((
@@ -334,7 +334,7 @@ fn setup(
                             border: UiRect::all(px(2.)),
                             ..rect(188., 188., 643., 27.)
                         },
-                        BorderColor::all(Color::srgb(0.96, 0.58, 0.11)),
+                        BorderColor::all(Color::linear_rgb(0.96, 0.58, 0.11)),
                     ));
                     text(
                         parent,
@@ -461,7 +461,8 @@ fn update(
                 "record.lightning" => [0.75, 0.3, 1.],
                 _ => [1.; 3],
             };
-            image.color = Color::srgba(rgb[0], rgb[1], rgb[2], if acquired { 1. } else { 0.2 });
+            image.color =
+                Color::linear_rgba(rgb[0], rgb[1], rgb[2], if acquired { 1. } else { 0.2 });
             if icon.key == "gem" {
                 image.color.set_alpha(0.);
                 for element in ["fire", "air", "lightning", "water"] {
@@ -496,7 +497,7 @@ fn update(
                     )
                 );
             let rgb = colors[piece.element];
-            image.color = Color::srgba(
+            image.color = Color::linear_rgba(
                 rgb[0],
                 rgb[1],
                 rgb[2],
@@ -546,7 +547,7 @@ fn update(
             } else {
                 colors[quest.0]
             };
-            image.color = Color::srgba(
+            image.color = Color::linear_rgba(
                 rgb[0],
                 rgb[1],
                 rgb[2],
@@ -571,9 +572,9 @@ fn update(
                 .find(|g| g.number as usize == sector.0 + 1)
                 .is_some_and(|g| generators.powered(&g.id));
             image.color = if active {
-                Color::srgba(0., 0.5, 1., 0.3)
+                Color::linear_rgba(0., 0.5, 1., 0.3)
             } else {
-                Color::srgba(0., 0., 0., 0.25)
+                Color::linear_rgba(0., 0., 0., 0.25)
             };
         } else if eyes.is_some() {
             image.color.set_alpha(if generators.active_count() == 6 {
@@ -602,7 +603,7 @@ fn preview(
     game: Option<Res<GameDefinition>>,
     server: Res<AssetServer>,
     players: Query<Entity, With<Player>>,
-    cameras: Query<Entity, With<crate::rendering::GameCamera>>,
+    cameras: Query<Entity, With<crate::rendering::display::GameUiCamera>>,
     mut roots: Query<(
         Entity,
         &InventoryPreview,

@@ -307550,59 +307550,171 @@
     "ui_assets": [
       {
         "id": "ui.zm_tm_wth_dog",
-        "path": "images/zm_tm_wth_dog.dds"
+        "path": "images/zm_tm_wth_dog.dds",
+        "material": "zm_tm_wth_dog",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.chalkmarks_0",
-        "path": "images/chalkmarks_0.dds"
+        "path": "images/chalkmarks_0.dds",
+        "material": "hud_chalk_0",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.chalkmarks_1",
-        "path": "images/chalkmarks_1.dds"
+        "path": "images/chalkmarks_1.dds",
+        "material": "hud_chalk_1",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.chalkmarks_2",
-        "path": "images/chalkmarks_2.dds"
+        "path": "images/chalkmarks_2.dds",
+        "material": "hud_chalk_2",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.chalkmarks_3",
-        "path": "images/chalkmarks_3.dds"
+        "path": "images/chalkmarks_3.dds",
+        "material": "hud_chalk_3",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.chalkmarks_4",
-        "path": "images/chalkmarks_4.dds"
+        "path": "images/chalkmarks_4.dds",
+        "material": "hud_chalk_4",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.chalkmarks_5",
-        "path": "images/chalkmarks_5.dds"
+        "path": "images/chalkmarks_5.dds",
+        "material": "hud_chalk_5",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.chalkmarks_hellcatraz_1",
-        "path": "images/chalkmarks_hellcatraz_1.dds"
+        "path": "images/chalkmarks_hellcatraz_1.dds",
+        "material": "chalkmarks_hellcatraz_1",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.chalkmarks_hellcatraz_2",
-        "path": "images/chalkmarks_hellcatraz_2.dds"
+        "path": "images/chalkmarks_hellcatraz_2.dds",
+        "material": "chalkmarks_hellcatraz_2",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.chalkmarks_hellcatraz_3",
-        "path": "images/chalkmarks_hellcatraz_3.dds"
+        "path": "images/chalkmarks_hellcatraz_3.dds",
+        "material": "chalkmarks_hellcatraz_3",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.chalkmarks_hellcatraz_4",
-        "path": "images/chalkmarks_hellcatraz_4.dds"
+        "path": "images/chalkmarks_hellcatraz_4.dds",
+        "material": "chalkmarks_hellcatraz_4",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.chalkmarks_hellcatraz_5",
-        "path": "images/chalkmarks_hellcatraz_5.dds"
+        "path": "images/chalkmarks_hellcatraz_5.dds",
+        "material": "chalkmarks_hellcatraz_5",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.damage_feedback",
-        "path": "images/damage_feedback.dds"
+        "path": "images/damage_feedback.dds",
+        "material": "damage_feedback",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.directional_damage_feedback",
-        "path": "images/directional_damage_feedback.dds"
+        "path": "images/directional_damage_feedback.dds",
+        "material": "directional_damage_feedback",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.gamefonts_pc_720",
@@ -307610,175 +307722,519 @@
       },
       {
         "id": "ui.hud_40mmgrenade_32x32",
-        "path": "images/hud_40mmgrenade_32x32.dds"
+        "path": "images/hud_40mmgrenade_32x32.dds",
+        "material": "hud_icon_40mm_grenade_mp",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.hud_ak47",
-        "path": "images/hud_ak47.dds"
+        "path": "images/hud_ak47.dds",
+        "material": "hud_icon_ak47",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.hud_arrow_down",
-        "path": "images/hud_arrow_down.dds"
+        "path": "images/hud_arrow_down.dds",
+        "material": "hud_arrow_down",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.hud_arrow_right",
-        "path": "images/hud_arrow_right.dds"
+        "path": "images/hud_arrow_right.dds",
+        "material": "hud_arrow_right",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.hud_claymore",
-        "path": "images/hud_claymore.dds"
+        "path": "images/hud_claymore.dds",
+        "material": "hud_icon_claymore_256",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.hud_claymore_32",
-        "path": "images/hud_claymore_32.dds"
+        "path": "images/hud_claymore_32.dds",
+        "material": "hud_icon_claymore",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.hud_colt",
-        "path": "images/hud_colt.dds"
+        "path": "images/hud_colt.dds",
+        "material": "hud_icon_colt",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.hud_cymbal_monkey",
-        "path": "images/hud_cymbal_monkey.dds"
+        "path": "images/hud_cymbal_monkey.dds",
+        "material": "hud_cymbal_monkey",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.hud_dpad_blood",
-        "path": "images/hud_dpad_blood.dds"
+        "path": "images/hud_dpad_blood.dds",
+        "material": "hud_dpad_blood",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.hud_homing_beacon",
-        "path": "images/hud_homing_beacon.dds"
+        "path": "images/hud_homing_beacon.dds",
+        "material": "zom_hud_homing_beacon",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.hud_m16a4_grenade",
-        "path": "images/hud_m16a4_grenade.dds"
+        "path": "images/hud_m16a4_grenade.dds",
+        "material": "hud_icon_m16a4_grenade",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.hud_mk_generic",
-        "path": "images/hud_mk_generic.dds"
+        "path": "images/hud_mk_generic.dds",
+        "material": "hud_icon_m249saw_mounted",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.hud_mp40",
-        "path": "images/hud_mp40.dds"
+        "path": "images/hud_mp40.dds",
+        "material": "hud_mp40",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.hud_mp_firerate_auto",
-        "path": "images/hud_mp_firerate_auto.dds"
+        "path": "images/hud_mp_firerate_auto.dds",
+        "material": "hud_mp_firerate_auto",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.hud_mp_firerate_bolt",
-        "path": "images/hud_mp_firerate_bolt.dds"
+        "path": "images/hud_mp_firerate_bolt.dds",
+        "material": "hud_mp_firerate_bolt",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.hud_mp_firerate_pump",
-        "path": "images/hud_mp_firerate_pump.dds"
+        "path": "images/hud_mp_firerate_pump.dds",
+        "material": "hud_mp_firerate_pump",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.hud_obit_grenade_launcher_attach",
-        "path": "images/hud_obit_grenade_launcher_attach.dds"
+        "path": "images/hud_obit_grenade_launcher_attach.dds",
+        "material": "hud_obit_grenade_launcher_attach",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.hud_python",
-        "path": "images/hud_python.dds"
+        "path": "images/hud_python.dds",
+        "material": "hud_python",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.hud_quadrotor_tomb",
-        "path": "images/hud_quadrotor_tomb.dds"
+        "path": "images/hud_quadrotor_tomb.dds",
+        "material": "hud_quadrotor_tomb",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.hud_select_fire_bullet_stack01",
-        "path": "images/hud_select_fire_bullet_stack01.dds"
+        "path": "images/hud_select_fire_bullet_stack01.dds",
+        "material": "hud_select_fire_bullet_stack_big",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.hud_server_locked",
-        "path": "images/hud_server_locked.dds"
+        "path": "images/hud_server_locked.dds",
+        "material": "hud_server_locked",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.hud_staff_dpad_icon",
-        "path": "images/hud_staff_dpad_icon.dds"
+        "path": "images/hud_staff_dpad_icon.dds",
+        "material": "zom_hud_staff_dpad_icon",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.hud_status_connecting",
-        "path": "images/hud_status_connecting.dds"
+        "path": "images/hud_status_connecting.dds",
+        "material": "hud_status_connecting",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.hud_status_dead",
-        "path": "images/hud_status_dead.dds"
+        "path": "images/hud_status_dead.dds",
+        "material": "hud_status_dead",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.hud_sticky_grenade",
-        "path": "images/hud_sticky_grenade.dds"
+        "path": "images/hud_sticky_grenade.dds",
+        "material": "hud_icon_sticky_grenade_256",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.hud_sticky_grenade_32",
-        "path": "images/hud_sticky_grenade_32.dds"
+        "path": "images/hud_sticky_grenade_32.dds",
+        "material": "hud_icon_sticky_grenade",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.hud_tomb_dpad",
-        "path": "images/hud_tomb_dpad.dds"
+        "path": "images/hud_tomb_dpad.dds",
+        "material": "hud_zm_tomb_dpad",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.hud_tomb_dpad_bar",
-        "path": "images/hud_tomb_dpad_bar.dds"
+        "path": "images/hud_tomb_dpad_bar.dds",
+        "material": "hud_zm_tomb_dpad_bar",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.hud_tomb_zom_num_0",
-        "path": "images/hud_tomb_zom_num_0.dds"
+        "path": "images/hud_tomb_zom_num_0.dds",
+        "material": "hud_zm_num_tomb_0",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.hud_tomb_zom_num_1",
-        "path": "images/hud_tomb_zom_num_1.dds"
+        "path": "images/hud_tomb_zom_num_1.dds",
+        "material": "hud_zm_num_tomb_1",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.hud_tomb_zom_num_2",
-        "path": "images/hud_tomb_zom_num_2.dds"
+        "path": "images/hud_tomb_zom_num_2.dds",
+        "material": "hud_zm_num_tomb_2",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.hud_tomb_zom_num_3",
-        "path": "images/hud_tomb_zom_num_3.dds"
+        "path": "images/hud_tomb_zom_num_3.dds",
+        "material": "hud_zm_num_tomb_3",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.hud_tomb_zom_num_4",
-        "path": "images/hud_tomb_zom_num_4.dds"
+        "path": "images/hud_tomb_zom_num_4.dds",
+        "material": "hud_zm_num_tomb_4",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.hud_tomb_zom_num_5",
-        "path": "images/hud_tomb_zom_num_5.dds"
+        "path": "images/hud_tomb_zom_num_5.dds",
+        "material": "hud_zm_num_tomb_5",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.hud_tomb_zom_num_6",
-        "path": "images/hud_tomb_zom_num_6.dds"
+        "path": "images/hud_tomb_zom_num_6.dds",
+        "material": "hud_zm_num_tomb_6",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.hud_tomb_zom_num_7",
-        "path": "images/hud_tomb_zom_num_7.dds"
+        "path": "images/hud_tomb_zom_num_7.dds",
+        "material": "hud_zm_num_tomb_7",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.hud_tomb_zom_num_8",
-        "path": "images/hud_tomb_zom_num_8.dds"
+        "path": "images/hud_tomb_zom_num_8.dds",
+        "material": "hud_zm_num_tomb_8",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.hud_tomb_zom_num_9",
-        "path": "images/hud_tomb_zom_num_9.dds"
+        "path": "images/hud_tomb_zom_num_9.dds",
+        "material": "hud_zm_num_tomb_9",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.hud_tomb_zom_num_line",
-        "path": "images/hud_tomb_zom_num_line.dds"
+        "path": "images/hud_tomb_zom_num_line.dds",
+        "material": "hud_zm_num_tomb_line",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.hud_tomb_zom_num_slash",
-        "path": "images/hud_tomb_zom_num_slash.dds"
+        "path": "images/hud_tomb_zom_num_slash.dds",
+        "material": "hud_zm_num_tomb_slash",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.hud_us_grenade",
-        "path": "images/hud_us_grenade.dds"
+        "path": "images/hud_us_grenade.dds",
+        "material": "hud_us_grenade",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.hud_zm_shoutcasting_change_tab",
-        "path": "images/hud_zm_shoutcasting_change_tab.dds"
+        "path": "images/hud_zm_shoutcasting_change_tab.dds",
+        "material": "hud_spectating_change_tab_zm",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.hud_zm_shoutcasting_viewing_box_dead",
-        "path": "images/hud_zm_shoutcasting_viewing_box_dead.dds"
+        "path": "images/hud_zm_shoutcasting_viewing_box_dead.dds",
+        "material": "hud_spectating_viewing_box_dead_zm",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.loadscreen_zombie_le_tombeau",
@@ -307794,283 +308250,843 @@
       },
       {
         "id": "ui.overlay_low_health",
-        "path": "images/overlay_low_health.dds"
+        "path": "images/overlay_low_health.dds",
+        "material": "overlay_low_health",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.scorebar_zom_1",
-        "path": "images/scorebar_zom_5.dds"
+        "path": "images/scorebar_zom_5.dds",
+        "material": "scorebar_zom_1",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.scorebar_zom_5",
-        "path": "images/scorebar_zom_5.dds"
+        "path": "images/scorebar_zom_5.dds",
+        "material": "scorebar_zom_1",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.specialty_2x_zombies",
-        "path": "images/specialty_2x_zombies.dds"
+        "path": "images/specialty_2x_zombies.dds",
+        "material": "specialty_doublepoints_zombies",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.specialty_ads_zombies",
-        "path": "images/specialty_ads_zombies.dds"
+        "path": "images/specialty_ads_zombies.dds",
+        "material": "specialty_ads_zombies",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.specialty_cherry_zombies",
-        "path": "images/minimap_icon_electric_cherry.dds"
+        "path": "images/minimap_icon_electric_cherry.dds",
+        "material": "specialty_electric_cherry_zombie",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.specialty_divetonuke_zombies",
-        "path": "images/specialty_divetonuke_zombies.dds"
+        "path": "images/specialty_divetonuke_zombies.dds",
+        "material": "specialty_divetonuke_zombies",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.specialty_doubletap_zombies",
-        "path": "images/specialty_doubletap_zombies.dds"
+        "path": "images/specialty_doubletap_zombies.dds",
+        "material": "specialty_doubletap_zombies",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.specialty_fastreload_zombies",
-        "path": "images/specialty_fastreload_zombies.dds"
+        "path": "images/specialty_fastreload_zombies.dds",
+        "material": "specialty_fastreload_zombies",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.specialty_fastreload_zombies_pro",
-        "path": "images/specialty_fastreload_zombies_pro.dds"
+        "path": "images/specialty_fastreload_zombies_pro.dds",
+        "material": "specialty_fastreload_zombies_pro",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.specialty_firesale_zombies",
-        "path": "images/specialty_firesale_zombies.dds"
+        "path": "images/specialty_firesale_zombies.dds",
+        "material": "specialty_firesale_zombies",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.specialty_instakill_zombies",
-        "path": "images/specialty_instakill_zombies.dds"
+        "path": "images/specialty_instakill_zombies.dds",
+        "material": "specialty_instakill_zombies",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.specialty_juggernaut_zombies",
-        "path": "images/specialty_juggernaut_zombies.dds"
+        "path": "images/specialty_juggernaut_zombies.dds",
+        "material": "specialty_juggernaut_zombies",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.specialty_juggernaut_zombies_pro",
-        "path": "images/specialty_juggernaut_zombies_pro.dds"
+        "path": "images/specialty_juggernaut_zombies_pro.dds",
+        "material": "specialty_juggernaut_zombies_pro",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.specialty_marathon_zombies",
-        "path": "images/specialty_marathon_zombies.dds"
+        "path": "images/specialty_marathon_zombies.dds",
+        "material": "specialty_marathon_zombies",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.specialty_mulekick_zombies",
-        "path": "images/specialty_mulekick_zombies.dds"
+        "path": "images/specialty_mulekick_zombies.dds",
+        "material": "specialty_additionalprimaryweapon_zombies",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "nearest",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.specialty_quickrevive_zombies",
-        "path": "images/specialty_quickrevive_zombies.dds"
+        "path": "images/specialty_quickrevive_zombies.dds",
+        "material": "specialty_quickrevive_zombies",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.specialty_quickrevive_zombies_pro",
-        "path": "images/specialty_quickrevive_zombies_pro.dds"
+        "path": "images/specialty_quickrevive_zombies_pro.dds",
+        "material": "specialty_quickrevive_zombies_pro",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.specialty_zomblood_zombies",
-        "path": "images/specialty_zomblood_zombies.dds"
+        "path": "images/specialty_zomblood_zombies.dds",
+        "material": "specialty_zomblood_zombies",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.tomb_capture_spin",
-        "path": "images/tomb_capture_spin.dds"
+        "path": "images/tomb_capture_spin.dds",
+        "material": "hud_zm_tomb_capture_spin",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.tomb_capture_spin_glow",
-        "path": "images/tomb_capture_spin_glow.dds"
+        "path": "images/tomb_capture_spin_glow.dds",
+        "material": "hud_zm_tomb_capture_spin_glow",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.tomb_medal_economy",
-        "path": "images/tomb_medal_economy.dds"
+        "path": "images/tomb_medal_economy.dds",
+        "material": "tomb_medal_economy",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.tomb_medal_glow_big",
-        "path": "images/tomb_medal_glow_big.dds"
+        "path": "images/tomb_medal_glow_big.dds",
+        "material": "tomb_medal_glow_big",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.tomb_medal_glow_small",
-        "path": "images/tomb_medal_glow_small.dds"
+        "path": "images/tomb_medal_glow_small.dds",
+        "material": "tomb_medal_glow_small",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.tomb_medal_kill",
-        "path": "images/tomb_medal_kill.dds"
+        "path": "images/tomb_medal_kill.dds",
+        "material": "tomb_medal_kill",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.tomb_medal_level",
-        "path": "images/tomb_medal_level.dds"
+        "path": "images/tomb_medal_level.dds",
+        "material": "tomb_medal_level",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.tomb_medal_team",
-        "path": "images/tomb_medal_team.dds"
+        "path": "images/tomb_medal_team.dds",
+        "material": "tomb_medal_team",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.tomb_spinner_1_glow",
-        "path": "images/tomb_spinner_1_glow.dds"
+        "path": "images/tomb_spinner_1_glow.dds",
+        "material": "tomb_spinner_1_glow",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.tomb_spinner_1_shadow",
-        "path": "images/tomb_spinner_1_shadow.dds"
+        "path": "images/tomb_spinner_1_shadow.dds",
+        "material": "tomb_spinner_1_shadow",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.tomb_spinner_2_glow",
-        "path": "images/tomb_spinner_2_glow.dds"
+        "path": "images/tomb_spinner_2_glow.dds",
+        "material": "tomb_spinner_2_glow",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.tomb_spinner_2_shadow",
-        "path": "images/tomb_spinner_2_shadow.dds"
+        "path": "images/tomb_spinner_2_shadow.dds",
+        "material": "tomb_spinner_2_shadow",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.tomb_spinner_3_glow",
-        "path": "images/tomb_spinner_3_glow.dds"
+        "path": "images/tomb_spinner_3_glow.dds",
+        "material": "tomb_spinner_3_glow",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.tomb_spinner_3_shadow",
-        "path": "images/tomb_spinner_3_shadow.dds"
+        "path": "images/tomb_spinner_3_shadow.dds",
+        "material": "tomb_spinner_3_shadow",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.tomb_spinner_4_glow",
-        "path": "images/tomb_spinner_4_glow.dds"
+        "path": "images/tomb_spinner_4_glow.dds",
+        "material": "tomb_spinner_4_glow",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.tomb_spinner_4_shadow",
-        "path": "images/tomb_spinner_4_shadow.dds"
+        "path": "images/tomb_spinner_4_shadow.dds",
+        "material": "tomb_spinner_4_shadow",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.tomb_spinner_5_glow",
-        "path": "images/tomb_spinner_5_glow.dds"
+        "path": "images/tomb_spinner_5_glow.dds",
+        "material": "tomb_spinner_5_glow",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.tomb_spinner_5_shadow",
-        "path": "images/tomb_spinner_5_shadow.dds"
+        "path": "images/tomb_spinner_5_shadow.dds",
+        "material": "tomb_spinner_5_shadow",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.tomb_spinner_6_glow",
-        "path": "images/tomb_spinner_6_glow.dds"
+        "path": "images/tomb_spinner_6_glow.dds",
+        "material": "tomb_spinner_6_glow",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.tomb_spinner_6_shadow",
-        "path": "images/tomb_spinner_6_shadow.dds"
+        "path": "images/tomb_spinner_6_shadow.dds",
+        "material": "tomb_spinner_6_shadow",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.waypoint_arrow_tomb",
-        "path": "images/waypoint_arrow_tomb.dds"
+        "path": "images/waypoint_arrow_tomb.dds",
+        "material": "waypoint_arrow_tomb",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.zm_capture_meter_back",
-        "path": "images/zm_capture_meter_back.dds"
+        "path": "images/zm_capture_meter_back.dds",
+        "material": "zm_capture_meter_back",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.zm_capture_meter_dial",
-        "path": "images/zm_capture_meter_dial.dds"
+        "path": "images/zm_capture_meter_dial.dds",
+        "material": "zm_capture_meter_dial",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.zm_capture_meter_eyes",
-        "path": "images/zm_capture_meter_eyes.dds"
+        "path": "images/zm_capture_meter_eyes.dds",
+        "material": "zm_capture_meter_eyes",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.zm_capture_meter_wedge",
-        "path": "images/zm_capture_meter_wedge.dds"
+        "path": "images/zm_capture_meter_wedge.dds",
+        "material": "zm_capture_meter_wedge",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.zm_hud_icon_evil_crusade",
-        "path": "images/zm_hud_icon_evil_crusade.dds"
+        "path": "images/zm_hud_icon_evil_crusade.dds",
+        "material": "zm_hud_icon_evil_crusade",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.zm_hud_icon_oneinch_clean",
-        "path": "images/zm_hud_icon_oneinch_clean.dds"
+        "path": "images/zm_hud_icon_oneinch_clean.dds",
+        "material": "zm_hud_icon_oneinch_clean",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.zm_hud_icon_oneinch_dirty",
-        "path": "images/zm_hud_icon_oneinch_dirty.dds"
+        "path": "images/zm_hud_icon_oneinch_dirty.dds",
+        "material": "zm_hud_icon_oneinch_dirty",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.zm_hud_icon_staff_pieces",
-        "path": "images/zm_hud_icon_staff_pieces.dds"
+        "path": "images/zm_hud_icon_staff_pieces.dds",
+        "material": "zm_hud_icon_staff_piece",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.zom_hud_craftable_element_fire",
-        "path": "images/zom_hud_craftable_element_fire.dds"
+        "path": "images/zom_hud_craftable_element_fire.dds",
+        "material": "zom_hud_craftable_element_fire",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.zom_hud_craftable_element_lightning",
-        "path": "images/zom_hud_craftable_element_lightning.dds"
+        "path": "images/zom_hud_craftable_element_lightning.dds",
+        "material": "zom_hud_craftable_element_lightning",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.zom_hud_craftable_element_water",
-        "path": "images/zom_hud_craftable_element_water.dds"
+        "path": "images/zom_hud_craftable_element_water.dds",
+        "material": "zom_hud_craftable_element_water",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.zom_hud_craftable_element_wind",
-        "path": "images/zom_hud_craftable_element_wind.dds"
+        "path": "images/zom_hud_craftable_element_wind.dds",
+        "material": "zom_hud_craftable_element_wind",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.zom_hud_craftable_gramophone",
-        "path": "images/zom_hud_craftable_gramophone.dds"
+        "path": "images/zom_hud_craftable_gramophone.dds",
+        "material": "zom_hud_craftable_gramophone",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.zom_hud_craftable_grunge",
-        "path": "images/zom_hud_craftable_grunge.dds"
+        "path": "images/zom_hud_craftable_grunge.dds",
+        "material": "zom_hud_craftable_grunge",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.zom_hud_craftable_record",
-        "path": "images/zom_hud_craftable_record.dds"
+        "path": "images/zom_hud_craftable_record.dds",
+        "material": "zom_hud_craftable_record",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.zom_hud_craftable_record_blank",
-        "path": "images/zom_hud_craftable_record_blank.dds"
+        "path": "images/zom_hud_craftable_record_blank.dds",
+        "material": "zom_hud_craftable_rec_blank",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.zom_hud_craftable_staff",
-        "path": "images/zom_hud_craftable_staff.dds"
+        "path": "images/zom_hud_craftable_staff.dds",
+        "material": "zom_hud_craftable_staff",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.zom_hud_craftable_staff_glow",
-        "path": "images/zom_hud_craftable_staff_glow.dds"
+        "path": "images/zom_hud_craftable_staff_glow.dds",
+        "material": "zom_hud_craftable_staff_glow",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.zom_hud_craftable_tank_shovel",
-        "path": "images/zom_hud_craftable_tank_shovel.dds"
+        "path": "images/zom_hud_craftable_tank_shovel.dds",
+        "material": "zom_hud_craftable_tank_shovel",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.zom_hud_craftable_zquad_body",
-        "path": "images/zom_hud_craftable_zquad_body.dds"
+        "path": "images/zom_hud_craftable_zquad_body.dds",
+        "material": "zom_hud_craftable_zquad_body",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.zom_hud_craftable_zquad_brain",
-        "path": "images/zom_hud_craftable_zquad_brain.dds"
+        "path": "images/zom_hud_craftable_zquad_brain.dds",
+        "material": "zom_hud_craftable_zquad_brain",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.zom_hud_craftable_zquad_engine",
-        "path": "images/zom_hud_craftable_zquad_engine.dds"
+        "path": "images/zom_hud_craftable_zquad_engine.dds",
+        "material": "zom_hud_craftable_zquad_engine",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.zom_hud_craftable_zshield_tomb_body",
-        "path": "images/zom_hud_craftable_zshield_tomb_body.dds"
+        "path": "images/zom_hud_craftable_zshield_tomb_body.dds",
+        "material": "zom_hud_craftable_zshield_body",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.zom_hud_craftable_zshield_tomb_feet",
-        "path": "images/zom_hud_craftable_zshield_tomb_feet.dds"
+        "path": "images/zom_hud_craftable_zshield_tomb_feet.dds",
+        "material": "zom_hud_craftable_zshield_feet",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.zom_hud_craftable_zshield_tomb_vizor",
-        "path": "images/zom_hud_craftable_zshield_tomb_vizor.dds"
+        "path": "images/zom_hud_craftable_zshield_tomb_vizor.dds",
+        "material": "zom_hud_craftable_zshield_vizor",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.zom_hud_helmet_gold",
-        "path": "images/zom_hud_helmet_gold.dds"
+        "path": "images/zom_hud_helmet_gold.dds",
+        "material": "zom_hud_helmet_gold",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.zom_hud_icon_buried_keycard",
-        "path": "images/zom_hud_icon_buried_keycard.dds"
+        "path": "images/zom_hud_icon_buried_keycard.dds",
+        "material": "zm_hud_icon_sq_keycard_buried",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.zom_hud_icon_sq_keycard",
-        "path": "images/zom_hud_icon_sq_keycard.dds"
+        "path": "images/zom_hud_icon_sq_keycard.dds",
+        "material": "zm_hud_icon_sq_keycard",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.zom_hud_icon_sq_keycard_highrise",
-        "path": "images/zom_hud_icon_sq_keycard_highrise.dds"
+        "path": "images/zom_hud_icon_sq_keycard_highrise.dds",
+        "material": "zm_hud_icon_sq_keycard_2",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.zom_hud_shovel_gold",
-        "path": "images/zom_hud_shovel_gold.dds"
+        "path": "images/zom_hud_shovel_gold.dds",
+        "material": "zom_hud_shovel_gold",
+        "sampler": {
+          "clampU": true,
+          "clampV": true,
+          "clampW": true,
+          "filter": "linear",
+          "mipMap": "disabled"
+        }
       },
       {
         "id": "ui.font.normal",
@@ -312511,6 +313527,14 @@
               ]
             }
           ]
+        },
+        "material": "fonts/720/gamefonts_pc",
+        "sampler": {
+          "clampU": false,
+          "clampV": false,
+          "clampW": false,
+          "filter": "linear",
+          "mipMap": "disabled"
         }
       },
       {
@@ -316952,6 +317976,14 @@
               ]
             }
           ]
+        },
+        "material": "fonts/720/gamefonts_pc",
+        "sampler": {
+          "clampU": false,
+          "clampV": false,
+          "clampW": false,
+          "filter": "linear",
+          "mipMap": "disabled"
         }
       },
       {
@@ -321393,6 +322425,14 @@
               ]
             }
           ]
+        },
+        "material": "fonts/720/gamefonts_pc",
+        "sampler": {
+          "clampU": false,
+          "clampV": false,
+          "clampW": false,
+          "filter": "linear",
+          "mipMap": "disabled"
         }
       },
       {
@@ -325834,6 +326874,14 @@
               ]
             }
           ]
+        },
+        "material": "fonts/720/gamefonts_pc",
+        "sampler": {
+          "clampU": false,
+          "clampV": false,
+          "clampW": false,
+          "filter": "linear",
+          "mipMap": "disabled"
         }
       },
       {
@@ -330275,6 +331323,14 @@
               ]
             }
           ]
+        },
+        "material": "fonts/720/gamefonts_pc",
+        "sampler": {
+          "clampU": false,
+          "clampV": false,
+          "clampW": false,
+          "filter": "linear",
+          "mipMap": "disabled"
         }
       },
       {
@@ -334716,6 +335772,14 @@
               ]
             }
           ]
+        },
+        "material": "fonts/720/gamefonts_pc",
+        "sampler": {
+          "clampU": false,
+          "clampV": false,
+          "clampW": false,
+          "filter": "linear",
+          "mipMap": "disabled"
         }
       },
       {
@@ -339157,6 +340221,14 @@
               ]
             }
           ]
+        },
+        "material": "fonts/720/gamefonts_pc",
+        "sampler": {
+          "clampU": false,
+          "clampV": false,
+          "clampW": false,
+          "filter": "linear",
+          "mipMap": "disabled"
         }
       },
       {
@@ -343598,6 +344670,14 @@
               ]
             }
           ]
+        },
+        "material": "fonts/720/gamefonts_pc",
+        "sampler": {
+          "clampU": false,
+          "clampV": false,
+          "clampW": false,
+          "filter": "linear",
+          "mipMap": "disabled"
         }
       }
     ],
@@ -347506,7 +348586,7 @@
       {
         "id": "string.MENU_BETA_SETUP_CAPS",
         "key": "MENU_BETA_SETUP_CAPS",
-        "text": "Welcome to Call of DutyÂ®: Black Ops II"
+        "text": "Welcome to Call of Duty\u00c3\u201a\u00c2\u00ae: Black Ops II"
       },
       {
         "id": "string.MENU_BETA_SETUP_INSTRUCTIONS",
@@ -349061,7 +350141,7 @@
       {
         "id": "string.MENU_CONTENT_WARNING",
         "key": "MENU_CONTENT_WARNING",
-        "text": "Call of DutyÂ®: Black Ops II contains graphic content and historical footage which some players may find disturbing. Player discretion is advised."
+        "text": "Call of Duty\u00c3\u201a\u00c2\u00ae: Black Ops II contains graphic content and historical footage which some players may find disturbing. Player discretion is advised."
       },
       {
         "id": "string.MENU_CONTEXTUAL_VOTING_TITLE",
@@ -350476,7 +351556,7 @@
       {
         "id": "string.MENU_DESCRIPTION_RANKEDMATCH",
         "key": "MENU_DESCRIPTION_RANKEDMATCH",
-        "text": "Play competitive matches to improve your TrueSkillâ„¢ rankings."
+        "text": "Play competitive matches to improve your TrueSkill\u00c3\u00a2\u00e2\u20ac\u017e\u00c2\u00a2 rankings."
       },
       {
         "id": "string.MENU_DESELECT",
@@ -350641,12 +351721,12 @@
       {
         "id": "string.MENU_DIRECTX_7",
         "key": "MENU_DIRECTX_7",
-        "text": "DirectXÂ® 7"
+        "text": "DirectX\u00c3\u201a\u00c2\u00ae 7"
       },
       {
         "id": "string.MENU_DIRECTX_9",
         "key": "MENU_DIRECTX_9",
-        "text": "DirectXÂ® 9"
+        "text": "DirectX\u00c3\u201a\u00c2\u00ae 9"
       },
       {
         "id": "string.MENU_DISABLED",
@@ -350981,7 +352061,7 @@
       {
         "id": "string.MENU_DOYOUWANT_MATURE_CONTENT",
         "key": "MENU_DOYOUWANT_MATURE_CONTENT",
-        "text": "Call of DutyÂ®: Black Ops II contains graphic content, historical footage and language which some players may find disturbing. Player discretion is advised.\n\nWould you like to enable graphic content?"
+        "text": "Call of Duty\u00c3\u201a\u00c2\u00ae: Black Ops II contains graphic content, historical footage and language which some players may find disturbing. Player discretion is advised.\n\nWould you like to enable graphic content?"
       },
       {
         "id": "string.MENU_DOYOUWISHTOCONTINUE",
@@ -353116,7 +354196,7 @@
       {
         "id": "string.MENU_FORCE_DX7_MODE",
         "key": "MENU_FORCE_DX7_MODE",
-        "text": "Force DirectXÂ® 7 Mode"
+        "text": "Force DirectX\u00c3\u201a\u00c2\u00ae 7 Mode"
       },
       {
         "id": "string.MENU_FORCE_RESPAWN",
@@ -353331,7 +354411,7 @@
       {
         "id": "string.MENU_GAME_INVITE_MESSAGE",
         "key": "MENU_GAME_INVITE_MESSAGE",
-        "text": "&&1 invites you to play Call of DutyÂ®: Black Ops II."
+        "text": "&&1 invites you to play Call of Duty\u00c3\u201a\u00c2\u00ae: Black Ops II."
       },
       {
         "id": "string.MENU_GAME_MODE_CAPS",
@@ -357091,7 +358171,7 @@
       {
         "id": "string.MENU_NEED_PLAYER_PROFILE",
         "key": "MENU_NEED_PLAYER_PROFILE",
-        "text": "You need a player profile to play Call of DutyÂ®: Black Ops II."
+        "text": "You need a player profile to play Call of Duty\u00c3\u201a\u00c2\u00ae: Black Ops II."
       },
       {
         "id": "string.MENU_NETLINK_CAPS",
@@ -358281,7 +359361,7 @@
       {
         "id": "string.MENU_PLAYING_COD",
         "key": "MENU_PLAYING_COD",
-        "text": "Playing Call of DutyÂ®: Black Ops II"
+        "text": "Playing Call of Duty\u00c3\u201a\u00c2\u00ae: Black Ops II"
       },
       {
         "id": "string.MENU_PLAYLISTS_CAPS",
@@ -360041,7 +361121,7 @@
       {
         "id": "string.MENU_R_CIRCLE",
         "key": "MENU_R_CIRCLE",
-        "text": "Â®"
+        "text": "\u00c3\u201a\u00c2\u00ae"
       },
       {
         "id": "string.MENU_SAFE",
@@ -360926,7 +362006,7 @@
       {
         "id": "string.MENU_SETUP_CAPS",
         "key": "MENU_SETUP_CAPS",
-        "text": "Welcome to Call of DutyÂ®: Black Ops II"
+        "text": "Welcome to Call of Duty\u00c3\u201a\u00c2\u00ae: Black Ops II"
       },
       {
         "id": "string.MENU_SETUP_INSTRUCTIONS",
@@ -361876,7 +362956,7 @@
       {
         "id": "string.MENU_STORE_PS3_CAPS",
         "key": "MENU_STORE_PS3_CAPS",
-        "text": "PlayStationÂ®Store"
+        "text": "PlayStation\u00c3\u201a\u00c2\u00aeStore"
       },
       {
         "id": "string.MENU_STORE_THEMES_CATEGORY",
@@ -368106,7 +369186,7 @@
       {
         "id": "string.MPUI_DIGITAL_UNLOCK_IW_GHOST_DESC",
         "key": "MPUI_DIGITAL_UNLOCK_IW_GHOST_DESC",
-        "text": "Call of DutyÂ®: Ghosts Bonus Reward"
+        "text": "Call of Duty\u00c3\u201a\u00c2\u00ae: Ghosts Bonus Reward"
       },
       {
         "id": "string.MPUI_DIG_CAPS",
@@ -368396,7 +369476,7 @@
       {
         "id": "string.MPUI_DSPPROMOTION_BODY",
         "key": "MPUI_DSPPROMOTION_BODY",
-        "text": "Hey &&1,\n\nIt looks like you have the Revolution Map Pack. We have the Season Pass available for you at a 20% discount!\n\nBuy the Call of DutyÂ®: Black Ops II Season Pass and get access to three additional downloadable Map Packs, plus Nuketown Zombies, and an exclusive Calling Card - \"The Deuce\".\n\nDon't miss out on currently available content:"
+        "text": "Hey &&1,\n\nIt looks like you have the Revolution Map Pack. We have the Season Pass available for you at a 20% discount!\n\nBuy the Call of Duty\u00c3\u201a\u00c2\u00ae: Black Ops II Season Pass and get access to three additional downloadable Map Packs, plus Nuketown Zombies, and an exclusive Calling Card - \"The Deuce\".\n\nDon't miss out on currently available content:"
       },
       {
         "id": "string.MPUI_DSPPROMOTION_SUBTITLE",
@@ -368621,7 +369701,7 @@
       {
         "id": "string.MPUI_ELITE_BENEFITS_1",
         "key": "MPUI_ELITE_BENEFITS_1",
-        "text": "Connect with friends, track your stats, get tips & strategies to improve your skills, and much moreâ€¦\n\nSign-up for FREE and join over 10 million Call of Duty fans around the world!"
+        "text": "Connect with friends, track your stats, get tips & strategies to improve your skills, and much more\u00c3\u00a2\u00e2\u201a\u00ac\u00c2\u00a6\n\nSign-up for FREE and join over 10 million Call of Duty fans around the world!"
       },
       {
         "id": "string.MPUI_ELITE_BENEFITS_2",
@@ -392851,7 +393931,7 @@
       {
         "id": "string.XBOXLIVE_GENERICDISCONNECT",
         "key": "XBOXLIVE_GENERICDISCONNECT",
-        "text": "You have been disconnected from the Call of DutyÂ®: Black Ops II servers."
+        "text": "You have been disconnected from the Call of Duty\u00c3\u201a\u00c2\u00ae: Black Ops II servers."
       },
       {
         "id": "string.XBOXLIVE_GUEST_SIGNIN",

@@ -2185,7 +2185,7 @@ pub(crate) fn queue_native_world(
     let draw_function = draw_functions
         .read()
         .id::<(SetItemPipeline, DrawNativeWorld)>();
-    for (view, visible, target, msaa) in &views {
+    for (view, visible, _target, msaa) in &views {
         let Some(phase) = phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
@@ -2204,7 +2204,7 @@ pub(crate) fn queue_native_world(
                 continue;
             };
             let key = NativePipelineKey {
-                target: target.main_texture_format(),
+                target: super::frame::NATIVE_COLOR_FORMAT,
                 samples: msaa.samples(),
                 state: surface.state,
                 family: material.family,
@@ -2341,7 +2341,7 @@ fn draw_surface<'w>(
 pub(crate) fn render_ordered<const PASS: u8>(
     view: ViewQuery<(
         &ExtractedView,
-        &ViewTarget,
+        &super::frame::NativeSceneColor,
         &ViewDepthStencilTexture,
         &ExtractedCamera,
         Option<&bevy::camera::MainPassResolutionOverride>,
@@ -2386,7 +2386,7 @@ pub(crate) fn render_ordered<const PASS: u8>(
     let (Some((_, scene_group)), Some((_, object_group))) = (&groups.scene, &groups.object) else {
         return;
     };
-    let attachments = [Some(target.get_color_attachment())];
+    let attachments = [Some(target.attachment())];
     let mut pass = ctx.begin_tracked_render_pass(RenderPassDescriptor {
         label: Some(label),
         color_attachments: &attachments,

@@ -943,7 +943,7 @@ fn queue_effects(
     let draw_function = draw_functions
         .read()
         .id::<(SetItemPipeline, DrawNativeEffect)>();
-    for (view, effect_view, visible, target, msaa, cloud_view) in &views {
+    for (view, effect_view, visible, _target, msaa, cloud_view) in &views {
         let Some(phase) = phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
@@ -997,7 +997,7 @@ fn queue_effects(
                 &pipeline,
                 EffectPipelineKey {
                     program: material.program,
-                    target: target.main_texture_format(),
+                    target: super::frame::NATIVE_COLOR_FORMAT,
                     samples: msaa.samples(),
                     depth_filtering: if material.program.cloud_outdoor() {
                         filtering(&cloud_view.expect("cloud view selected").sampler)

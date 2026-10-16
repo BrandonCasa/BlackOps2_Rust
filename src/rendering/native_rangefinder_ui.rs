@@ -4,7 +4,7 @@ use avian3d::prelude::SpatialQuery;
 use bevy::{
     asset::{RenderAssetUsages, embedded_asset, load_embedded_asset},
     camera::primitives::Frustum,
-    core_pipeline::{Core3dSystems, core_3d::main_opaque_pass_3d, schedule::Core3d},
+    core_pipeline::schedule::Core3d,
     image::ImageLoaderSettings,
     platform::collections::HashMap,
     prelude::*,
@@ -87,12 +87,12 @@ struct RangefinderBones {
 #[derive(Default)]
 struct TargetVisibility {
     visible: bool,
-    next_check: f64,
+    next_check: i32,
 }
 #[derive(Resource, Default)]
 struct RangefinderTargets {
     visible: HashMap<Entity, TargetVisibility>,
-    latched_at: Option<f64>,
+    latched_at: Option<i32>,
 }
 
 #[derive(Resource, Default)]
@@ -143,8 +143,8 @@ impl Plugin for NativeRangefinderUiPlugin {
             .add_systems(
                 Core3d,
                 render_ui
-                    .before(main_opaque_pass_3d)
-                    .in_set(Core3dSystems::MainPass),
+                    .before(super::frame::render_native_opaque)
+                    .in_set(super::frame::NativeMainPass),
             );
     }
 }
@@ -205,6 +205,7 @@ fn update_ui(
     server: Res<AssetServer>,
     mut images: ResMut<Assets<Image>>,
     time: Res<Time<Virtual>>,
+    clock: Res<crate::session::SessionClock>,
     mut session: ResMut<crate::gameplay::Session>,
     cameras: Query<(&GlobalTransform, &Frustum), With<super::GameCamera>>,
     inventories: Query<(Entity, &crate::weapons::WeaponInventory)>,
@@ -234,7 +235,7 @@ fn update_ui(
         return;
     };
     let eye = camera.translation();
-    let now = time.elapsed_secs_f64();
+    let now = clock.milliseconds(&time);
     // Source CG[84434] latch is set only at full ADS; alternate art begins later
     // than the latch timestamp (0052b080 /00527c40).
     let locked = inventory.ads == 1.
@@ -347,8 +348,7 @@ fn update_ui(
                     } else {
                         (100, 51)
                     };
-                    visibility.next_check =
-                        now + f64::from(base + session.random() % spread) * 0.001;
+                    visibility.next_check = now + (base + session.random() % spread) as i32;
                 }
                 if visibility.visible {
                     let point = pose.translation

@@ -112,7 +112,7 @@ fn setup(
     mut commands: Commands,
     game: Option<Res<GameDefinition>>,
     server: Res<AssetServer>,
-    cameras: Query<Entity, With<crate::rendering::GameCamera>>,
+    cameras: Query<Entity, With<crate::rendering::display::GameUiCamera>>,
     roots: Query<(), With<HudRoot>>,
 ) {
     let (Some(game), Ok(camera)) = (game, cameras.single()) else {
@@ -154,7 +154,7 @@ fn setup(
             ));
             parent.spawn((
                 ImageNode {
-                    color: Color::srgb(0.21, 0., 0.),
+                    color: Color::linear_rgb(0.21, 0., 0.),
                     ..native::image(&game, &server, "scorebar_zom_1")
                 },
                 SafeAnchor::right(1092.),
@@ -545,11 +545,11 @@ fn update(
         } else {
             0.6
         };
-        icon.color = Color::srgba(1., 1., 1., alpha);
+        icon.color = Color::linear_rgba(1., 1., 1., alpha);
     }
     for (level, mut color) in &mut charges {
         color.0 = if inventory.charge_level >= level.0 {
-            Color::srgb(0.3, 0.85, 1.)
+            Color::linear_rgb(0.3, 0.85, 1.)
         } else {
             Color::NONE
         };
@@ -713,7 +713,7 @@ fn icons(
                         .and_then(|id| game.content.ui_assets.iter().find(|a| a.id == *id))
                     {
                         parent.spawn((
-                            ImageNode::new(server.load(asset.path.clone())),
+                            ImageNode::new(native::load_image(&server, asset)),
                             Node {
                                 width: px(36.),
                                 height: px(36.),
@@ -755,7 +755,7 @@ fn icons(
         } else {
             Visibility::Hidden
         };
-        image.color = Color::srgba(
+        image.color = Color::linear_rgba(
             1.,
             1.,
             1.,
@@ -778,7 +778,7 @@ fn icons(
         } else {
             0.
         };
-        image.color = Color::srgb(1., 1. - red, 1. - red);
+        image.color = Color::linear_rgb(1., 1. - red, 1. - red);
     }
 }
 
@@ -825,7 +825,7 @@ fn round_animation(
     for (mut node, mut anchor, mut text) in &mut numbers {
         node.top = px(y);
         anchor.x = x;
-        text.color = Color::srgba(rgb[0], rgb[1], rgb[2], alpha);
+        text.color = Color::linear_rgba(rgb[0], rgb[1], rgb[2], alpha);
         text.value = if cache.drawn_round > 10 {
             cache.drawn_round.to_string()
         } else {
@@ -833,7 +833,7 @@ fn round_animation(
         };
     }
     for mut text in &mut title {
-        text.color = Color::srgba(
+        text.color = Color::linear_rgba(
             0.21,
             0.,
             0.,
@@ -847,7 +847,7 @@ fn round_animation(
     for children in &children {
         for child in children.iter() {
             if let Ok(mut image) = chalks.get_mut(child) {
-                image.color = Color::srgba(rgb[0], rgb[1], rgb[2], alpha);
+                image.color = Color::linear_rgba(rgb[0], rgb[1], rgb[2], alpha);
             }
         }
     }
@@ -1023,9 +1023,9 @@ fn combat_feedback(
                         motion: Vec2::new(-110., (session.points % 101) as f32),
                     },
                     NativeText::new(format!("{delta:+}"), 23.).color(if delta > 0 {
-                        Color::srgb(0.9, 0.9, 0.)
+                        Color::linear_rgb(0.9, 0.9, 0.)
                     } else {
-                        Color::srgb(0.21, 0., 0.)
+                        Color::linear_rgb(0.21, 0., 0.)
                     }),
                     rect(1102., 550., 120., 30.),
                 ));
@@ -1136,6 +1136,6 @@ fn robot_fade(
             Visibility::Hidden
         };
         let value = if black { 0. } else { 1. };
-        color.0 = Color::srgba(value, value, value, opacity.clamp(0., 1.));
+        color.0 = Color::linear_rgba(value, value, value, opacity.clamp(0., 1.));
     }
 }

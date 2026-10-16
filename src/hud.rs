@@ -24,7 +24,7 @@ impl Plugin for HudPlugin {
 
 fn setup(
     mut commands: Commands,
-    cameras: Query<Entity, With<crate::rendering::GameCamera>>,
+    cameras: Query<Entity, With<crate::rendering::display::GameUiCamera>>,
     server: Res<AssetServer>,
     game: Res<crate::assets::GameDefinition>,
     existing: Query<Entity, With<DamageEdge>>,
@@ -43,9 +43,10 @@ fn setup(
     };
     commands.spawn((
         PlayerOverlay,
+        native::NativeUiRoot,
         DamageEdge,
         ImageNode {
-            image: server.load(image.path.clone()),
+            image: native::load_image(&server, image),
             color: Color::NONE,
             ..default()
         },
@@ -93,6 +94,6 @@ fn damage_feedback(
         0.
     };
     for mut image in &mut edges {
-        image.color = Color::srgba(1., 1., 1., alpha);
+        image.color = Color::linear_rgba(1., 1., 1., alpha);
     }
 }

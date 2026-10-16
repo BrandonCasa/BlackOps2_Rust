@@ -168,6 +168,18 @@ impl WorldBrushes {
             .map(|(_, brush)| {
                 let midpoint = brush.bounds.mid.array();
                 let half = brush.bounds.half.array();
+                if midpoint.iter().any(|value| !value.is_finite())
+                    || half.iter().any(|value| !value.is_finite() || *value < 0.)
+                {
+                    return Err("External clipmap contains invalid brush bounds".into());
+                }
+                if brush.sides.iter().any(|side| {
+                    !side.dist.is_finite()
+                        || !Vec3::from_array(side.normal).is_finite()
+                        || (Vec3::from_array(side.normal).length_squared() - 1.).abs() > 0.001
+                }) {
+                    return Err("External clipmap contains an invalid brush side plane".into());
+                }
                 let mut planes = Vec::with_capacity(6 + brush.sides.len());
                 for axis in 0..3 {
                     let mut normal = [0.; 3];

@@ -432,17 +432,12 @@ impl NativeFilmPipeline {
                 address_mode_w: AddressMode::Repeat,
                 mag_filter: FilterMode::Linear,
                 min_filter: FilterMode::Linear,
-                mipmap_filter: FilterMode::Nearest,
+                mipmap_filter: MipmapFilterMode::Nearest,
                 lod_min_clamp: 0.0,
                 lod_max_clamp: 0.0,
                 ..default()
             }),
         }
-    }
-    pub fn is_ready(&self, cache: &PipelineCache) -> bool {
-        self.pipelines
-            .iter()
-            .all(|id| cache.get_render_pipeline(*id).is_some())
     }
 }
 

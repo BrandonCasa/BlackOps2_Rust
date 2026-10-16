@@ -412,7 +412,7 @@ fn prepare_sky(
     if geometries.get(sky.geometry.id()).is_none() {
         return;
     }
-    for (entity, scene, target, msaa, prepared) in &mut views {
+    for (entity, scene, _target, msaa, prepared) in &mut views {
         let constants = SkyUniform {
             scene: *scene,
             world_rows: rotation_rows(sky.rotation_degrees),
@@ -422,7 +422,7 @@ fn prepare_sky(
         let id = variants.specialize(
             &cache,
             &pipeline,
-            (target.main_texture_format(), msaa.samples()),
+            (super::frame::NATIVE_COLOR_FORMAT, msaa.samples()),
         );
         let mut prepared = match prepared {
             Some(prepared) => prepared,
@@ -474,7 +474,7 @@ fn prepare_sky(
 /// ordinary emissive geometry and before the water's scene/floatZ snapshots.
 pub(crate) fn render_sky(
     view: ViewQuery<(
-        &ViewTarget,
+        &super::frame::NativeSceneColor,
         &ViewDepthStencilTexture,
         &ExtractedCamera,
         &PreparedSky,
@@ -495,7 +495,7 @@ pub(crate) fn render_sky(
     ) else {
         return;
     };
-    let attachments = [Some(target.get_color_attachment())];
+    let attachments = [Some(target.attachment())];
     let mut pass = ctx.begin_tracked_render_pass(RenderPassDescriptor {
         label: Some("T6 sky emissiveOpaque sortKey4"),
         color_attachments: &attachments,

@@ -130,6 +130,8 @@ struct Foot {
 struct FootTarget(Entity);
 #[derive(Component)]
 struct FootSocket(Entity);
+// Additional membership lets character movement recognize the existing solid foot clips.
+pub(crate) const FOOT_COLLISION_LAYER: u32 = 512;
 #[derive(Component)]
 struct SafeSpot;
 #[derive(Component)]
@@ -521,7 +523,10 @@ fn ready(
                 })
                 .and_then(|b| b.collider())
             {
-                commands.entity(root).insert(shape);
+                commands.entity(root).insert((
+                    shape,
+                    CollisionLayers::new(1u32 | FOOT_COLLISION_LAYER, LayerMask::ALL),
+                ));
             }
         }
     } else if feet.contains(event.entity) {

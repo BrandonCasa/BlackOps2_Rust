@@ -74,7 +74,7 @@ fn setup(
     mut commands: Commands,
     game: Option<Res<GameDefinition>>,
     server: Res<AssetServer>,
-    cameras: Query<Entity, With<crate::rendering::GameCamera>>,
+    cameras: Query<Entity, With<crate::rendering::display::GameUiCamera>>,
     roots: Query<(), With<WidgetRoot>>,
     mut materials: ResMut<Assets<CaptureProgress>>,
 ) {
@@ -337,11 +337,11 @@ fn update(
     for (layer, mut image) in &mut wheel_images {
         if let Some(index) = layer.0 {
             image.color = if index == 6 {
-                Color::srgba(1., 1., 1., if powered.iter().all(|b| *b) { 1. } else { 0. })
+                Color::linear_rgba(1., 1., 1., if powered.iter().all(|b| *b) { 1. } else { 0. })
             } else if powered[index] {
-                Color::srgba(0., 0.5, 1., 0.3)
+                Color::linear_rgba(0., 0.5, 1., 0.3)
             } else {
-                Color::srgba(0., 0., 0., 0.25)
+                Color::linear_rgba(0., 0., 0., 0.25)
             };
         }
     }
@@ -447,7 +447,7 @@ fn update(
         match layer.layer {
             1 => {
                 image.color =
-                    Color::srgba(rgb[0], rgb[1], rgb[2], if capturing { pulse } else { 0. })
+                    Color::linear_rgba(rgb[0], rgb[1], rgb[2], if capturing { pulse } else { 0. })
             }
             2 | 3 => {
                 let inset = if large { 42. } else { 20. };
@@ -470,13 +470,15 @@ fn update(
         let (large, size, value, occupied, _) = data[progress.0 as usize - 1];
         let width = if large && value > 0. { 68. } else { 28. };
         *node = rect((size - width) * 0.5, (size - width) * 0.5, width, width);
-        let color = if occupied {
-            Color::srgb(0.68, 0.86, 1.)
-        } else {
-            Color::srgb(1., 0.19, 0.19)
-        }
-        .to_linear()
-        .to_vec4();
+        let color = native::packed_rgba(
+            if occupied {
+                Color::linear_rgb(0.68, 0.86, 1.)
+            } else {
+                Color::linear_rgb(1., 0.19, 0.19)
+            }
+            .to_linear()
+            .to_vec4(),
+        );
         if let Some(material) = materials.get(&handle.0)
             && (material.value != value || material.color != color)
         {

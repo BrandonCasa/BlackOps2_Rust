@@ -1,5 +1,5 @@
-use crate::hud::native::{self, Canvas, NativeText, rect};
 use crate::GameState;
+use crate::hud::native::{self, Canvas, NativeText, rect};
 use bevy::picking::{events::PointerPress, hover::Hovered, pointer::PointerButton};
 use bevy::prelude::*;
 use bevy::ui_widgets::Button as UiButton;
@@ -69,7 +69,6 @@ struct FrontendButton(FrontendAction, usize);
 #[derive(Resource, Default)]
 struct FrontendSelection(usize);
 
-
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct ApplyFrontendActions;
 
@@ -103,7 +102,7 @@ fn show(
     mut commands: Commands,
     state: Res<State<GameState>>,
     difficulty: Res<Difficulty>,
-    cameras: Query<Entity, With<crate::rendering::GameCamera>>,
+    cameras: Query<Entity, With<crate::rendering::display::GameUiCamera>>,
     game: Option<Res<crate::assets::GameDefinition>>,
     server: Res<AssetServer>,
     mut selected: ResMut<FrontendSelection>,
@@ -141,13 +140,17 @@ fn show(
             BackgroundColor(if **state == GameState::GameOver {
                 Color::NONE
             } else {
-                Color::srgb(0.015, 0.015, 0.015)
+                Color::linear_rgb(0.015, 0.015, 0.015)
             }),
         ))
         .with_children(|parent| {
             if !matches!(**state, GameState::GameOver) {
                 if let Some(game) = &game
-                    && game.content.ui_assets.iter().any(|asset| asset.id.0 == "ui.menu_zm_map_tomb")
+                    && game
+                        .content
+                        .ui_assets
+                        .iter()
+                        .any(|asset| asset.id.0 == "ui.menu_zm_map_tomb")
                 {
                     parent.spawn((
                         native::image(game, &server, "menu_zm_map_tomb"),
@@ -313,7 +316,7 @@ fn selection(
     }
     for (button, _, mut background) in &mut buttons {
         background.0 = if button.1 == selected.0 {
-            Color::srgba(0.85, 0.3, 0.02, 0.8)
+            Color::linear_rgba(0.85, 0.3, 0.02, 0.8)
         } else {
             Color::NONE
         };

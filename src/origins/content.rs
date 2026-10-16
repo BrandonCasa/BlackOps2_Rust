@@ -980,7 +980,21 @@ pub struct UiAsset {
     pub id: ContentId,
     pub path: String,
     #[serde(default)]
+    pub material: Option<String>,
+    #[serde(default)]
+    pub sampler: Option<UiImageSampler>,
+    #[serde(default)]
     pub font: Option<BitmapFont>,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UiImageSampler {
+    pub clamp_u: bool,
+    pub clamp_v: bool,
+    pub clamp_w: bool,
+    pub filter: String,
+    pub mip_map: String,
 }
 #[derive(Clone, Deserialize)]
 pub struct BitmapFont {

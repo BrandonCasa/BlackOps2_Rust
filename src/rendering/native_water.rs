@@ -921,7 +921,7 @@ fn prepare_water(
             ),
         ));
     }
-    for (entity, view, visible, target, msaa, previous) in &mut views {
+    for (entity, view, visible, _target, msaa, previous) in &mut views {
         let (Some(depth), Some(scene)) =
             (images.get(view.float_z), images.get(view.resolved_post_sun))
         else {
@@ -936,7 +936,7 @@ fn prepare_water(
         );
         assert_eq!(
             scene.texture_descriptor.format,
-            target.main_texture_format(),
+            super::frame::NATIVE_COLOR_FORMAT,
             "Water code9 snapshot must match the encoded main attachment"
         );
         assert_eq!(
@@ -1084,7 +1084,7 @@ fn prepare_water(
                     &cache,
                     &pipeline,
                     WaterPipelineKey {
-                        target: target.main_texture_format(),
+                        target: super::frame::NATIVE_COLOR_FORMAT,
                         samples: msaa.samples(),
                         state: surface.state,
                         light: light.kind,
@@ -1109,7 +1109,7 @@ fn prepare_water(
 /// resolve geometry; it writes depth before the ordinary translucent effects.
 pub(crate) fn render_water(
     view: ViewQuery<(
-        &ViewTarget,
+        &super::frame::NativeSceneColor,
         &ViewDepthStencilTexture,
         &ExtractedCamera,
         &DynamicUniformIndex<WaterScene>,
@@ -1130,7 +1130,7 @@ pub(crate) fn render_water(
     if prepared.draws.is_empty() {
         return;
     }
-    let attachments = [Some(target.get_color_attachment())];
+    let attachments = [Some(target.attachment())];
     let mut pass = ctx.begin_tracked_render_pass(RenderPassDescriptor {
         label: Some("T6 water opaque post-resolve"),
         color_attachments: &attachments,

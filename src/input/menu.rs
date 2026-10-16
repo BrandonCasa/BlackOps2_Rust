@@ -182,14 +182,13 @@ pub(super) fn install(app: &mut App) {
                 .run_if(in_state(GameState::Paused)),
         );
 
-        app.add_systems(
-            Update,
-            navigate
-                .before(rebuild)
-                .before(crate::frontend::ApplyFrontendActions)
-                .run_if(in_state(GameState::Paused)),
-        );
-    
+    app.add_systems(
+        Update,
+        navigate
+            .before(rebuild)
+            .before(crate::frontend::ApplyFrontendActions)
+            .run_if(in_state(GameState::Paused)),
+    );
 }
 fn open(mut menu: ResMut<ControlMenu>) {
     *menu = ControlMenu {
@@ -219,7 +218,7 @@ fn rebuild(
     menu: Res<ControlMenu>,
     settings: Res<ControlSettings>,
     roots: Query<Entity, With<MenuRoot>>,
-    cameras: Query<Entity, With<crate::rendering::GameCamera>>,
+    cameras: Query<Entity, With<crate::rendering::display::GameUiCamera>>,
     mut built: Local<Option<u64>>,
 ) {
     if *built == Some(menu.revision) && !roots.is_empty() {
@@ -240,7 +239,7 @@ fn rebuild(
             UiTargetCamera(camera),
             GlobalZIndex(100),
             rect(0., 0., 1280., 720.),
-            BackgroundColor(Color::srgba(0., 0., 0., 0.62)),
+            BackgroundColor(Color::linear_rgba(0., 0., 0., 0.62)),
         ))
         .with_children(|parent| {
             parent
@@ -269,7 +268,7 @@ fn rebuild(
                     ));
                     parent.spawn((
                         NativeText::new("Origins - Excavation Site 64", 24.)
-                            .color(Color::srgb(0.7, 0.7, 0.7)),
+                            .color(Color::linear_rgb(0.7, 0.7, 0.7)),
                         Node {
                             width: px(550.),
                             height: px(38.),
@@ -306,7 +305,7 @@ fn rebuild(
                             });
                     }
                     parent.spawn((
-                        NativeText::new("", 18.).color(Color::srgb(1., 0.65, 0.25)),
+                        NativeText::new("", 18.).color(Color::linear_rgb(1., 0.65, 0.25)),
                         MenuNotice,
                         Node {
                             width: px(550.),
@@ -589,7 +588,7 @@ fn labels(
 ) {
     for (row, mut background) in &mut rows {
         let color = if row.index == menu.selected {
-            Color::srgba(0.85, 0.3, 0.02, 0.8)
+            Color::linear_rgba(0.85, 0.3, 0.02, 0.8)
         } else {
             Color::NONE
         };

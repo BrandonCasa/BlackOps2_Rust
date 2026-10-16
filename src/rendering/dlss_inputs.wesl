@@ -17,9 +17,7 @@ struct Output {
 fn fragment(input: Input) -> Output {
     let pixel = vec2<i32>(input.position.xy);
     let encoded = textureLoad(scene, pixel, 0);
-    let linear = select(encoded.rgb / vec3<f32>(12.92),
-        pow((max(encoded.rgb, vec3<f32>(0.0)) + vec3<f32>(0.055)) / vec3<f32>(1.055), vec3<f32>(2.4)),
-        encoded.rgb > vec3<f32>(0.04045));
+    let linear = encoded.rgb * encoded.rgb;
     let z = textureLoad(depth, pixel, 0);
     let ndc = input.position.xy / reprojection.render_size.xy * vec2<f32>(2.0, -2.0) + vec2<f32>(-1.0, 1.0);
     // Homogeneous reconstruction also handles the sky (reverse-Z zero).

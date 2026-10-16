@@ -4405,7 +4405,7 @@ fn queue_models(
                 &cache,
                 &pipeline,
                 ModelPipelineKey {
-                    target: target.main_texture_format(),
+                    target: super::frame::NATIVE_COLOR_FORMAT,
                     samples: msaa.samples(),
                     state: surface.state,
                     family: material.family,

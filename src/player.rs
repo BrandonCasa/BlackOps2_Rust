@@ -414,17 +414,19 @@ pub(crate) fn move_player(
         &ShapeCastConfig::from_max_distance(tuning.physics.ground_probe),
         &filter,
     );
-    let support = slide.spatial_query.cast_ray(
+    let support = slide.spatial_query.cast_ray_predicate(
         transform.translation - Vec3::Y * (player.height * 0.5 - tuning.physics.skin_width),
         Dir3::NEG_Y,
         tuning.physics.ground_probe + tuning.physics.skin_width,
         false,
         &filter,
+        &|entity| !crate::movement::physics::is_robot_foot(&slide, entity),
     );
     let ground_normal = ground
         .and_then(|hit| {
             crate::movement::physics::walkable_surface(
-                &slide.spatial_query,
+                &slide,
+                hit.entity,
                 hit.point1,
                 hit.normal1,
                 &filter,

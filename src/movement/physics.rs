@@ -234,12 +234,17 @@ mod projection_tests {
 }
 
 pub fn walkable_surface(
-    query: &SpatialQuery,
+    slide: &MoveAndSlide,
+    entity: Entity,
     point: Vec3,
     normal: Vec3,
     filter: &SpatialQueryFilter,
     tuning: &PhysicsTuning,
 ) -> Option<(Vec3, f32)> {
+    // Animated feet remain solid obstacles, but cannot supply floor or stair support.
+    if is_robot_foot(slide, entity) {
+        return None;
+    }
     if normal.y >= tuning.ground_normal_min {
         return Some((normal, point.y));
     }
@@ -248,11 +253,24 @@ pub fn walkable_surface(
     }
     let origin = point - normal.with_y(0.).normalize_or_zero() * tuning.skin_width
         + Vec3::Y * tuning.ground_probe;
-    let surface = query.cast_ray(origin, Dir3::NEG_Y, tuning.ground_probe * 2., false, filter)?;
+    let surface = slide.spatial_query.cast_ray_predicate(
+        origin,
+        Dir3::NEG_Y,
+        tuning.ground_probe * 2.,
+        false,
+        filter,
+        &|entity| !is_robot_foot(slide, entity),
+    )?;
     let height = origin.y - surface.distance;
     (surface.normal.y >= tuning.ground_normal_min
         && (height - point.y).abs() <= tuning.ground_probe)
         .then_some((surface.normal, height))
+}
+
+pub(crate) fn is_robot_foot(slide: &MoveAndSlide, entity: Entity) -> bool {
+    slide.colliders.get(entity).is_ok_and(|(_, _, _, layers)| {
+        layers.is_some_and(|layers| layers.memberships.0 & crate::robots::FOOT_COLLISION_LAYER != 0)
+    })
 }
 
 pub fn move_and_slide(
@@ -276,9 +294,9 @@ pub fn move_and_slide(
         &config,
         filter,
         |hit| {
-            if motor.grounded
-                && hit.normal.y > 0.
-                && hit.normal.y < tuning.ground_normal_min
+            if hit.normal.y > 0.
+                && (is_robot_foot(slide, hit.entity)
+                    || motor.grounded && hit.normal.y < tuning.ground_normal_min)
                 && let Ok(wall) = Dir3::new(hit.normal.as_vec3().with_y(0.))
             {
                 *hit.normal = wall;
@@ -327,7 +345,7 @@ pub fn move_and_slide(
                 );
                 step_normal = down.map(|hit| hit.normal1);
                 step_surface = down.and_then(|hit| {
-                    walkable_surface(query, hit.point1, hit.normal1, filter, tuning)
+                    walkable_surface(slide, hit.entity, hit.point1, hit.normal1, filter, tuning)
                 });
                 if let Some(hit) = down
                     && let Some((normal, height)) = step_surface
@@ -351,7 +369,7 @@ pub fn move_and_slide(
             &ShapeCastConfig::from_max_distance(tuning.step_down),
             filter,
         ) && let Some((normal, _)) =
-            walkable_surface(query, hit.point1, hit.normal1, filter, tuning)
+            walkable_surface(slide, hit.entity, hit.point1, hit.normal1, filter, tuning)
         {
             result.position.y -= (hit.distance - config.skin_width).max(0.);
             result.projected_velocity = ground_velocity(result.projected_velocity, normal);
@@ -363,5 +381,192 @@ pub fn move_and_slide(
         step_normal,
         step_surface,
         slide: result,
+    }
+}
+
+#[cfg(test)]
+mod collision_tests {
+    use super::*;
+
+    const HEIGHT: f32 = 1.8;
+    const RADIUS: f32 = 0.35;
+    const START_Y: f32 = HEIGHT * 0.5 + 0.00635;
+
+    #[derive(Resource)]
+    struct Walker {
+        position: Vec3,
+        velocity: Vec3,
+        wish_x: f32,
+        highest: f32,
+    }
+
+    fn walk(slide: MoveAndSlide, mut walker: ResMut<Walker>) {
+        let collider = Collider::cuboid(RADIUS * 2., HEIGHT, RADIUS * 2.);
+        let tuning = PhysicsTuning::default();
+        let filter = SpatialQueryFilter::from_mask(1u32);
+        let ground = slide.spatial_query.cast_shape(
+            &collider,
+            walker.position,
+            Quat::IDENTITY,
+            Dir3::NEG_Y,
+            &ShapeCastConfig::from_max_distance(tuning.ground_probe),
+            &filter,
+        );
+        let grounded = ground
+            .and_then(|hit| {
+                walkable_surface(
+                    &slide,
+                    hit.entity,
+                    hit.point1,
+                    hit.normal1,
+                    &filter,
+                    &tuning,
+                )
+            })
+            .is_some();
+        let velocity = Vec3::new(
+            walker.wish_x,
+            if grounded {
+                0.
+            } else {
+                walker.velocity.y - 17.78 / 60.
+            },
+            0.,
+        );
+        let motion = move_and_slide(
+            &slide,
+            &slide.spatial_query,
+            crate::player::MotionShape {
+                collider: &collider,
+                radius: RADIUS,
+                step_height: 0.4572,
+                grounded,
+            },
+            walker.position,
+            velocity,
+            std::time::Duration::from_secs_f32(1. / 60.),
+            &filter,
+            &tuning,
+        );
+        walker.position = motion.slide.position;
+        walker.velocity = motion.slide.projected_velocity;
+        walker.highest = walker.highest.max(walker.position.y);
+    }
+
+    fn scene(collider: Collider, pose: Transform, foot: bool) -> (App, Entity) {
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            TransformPlugin,
+            AssetPlugin::default(),
+            PhysicsPlugins::new(Update),
+        ));
+        app.init_asset::<Mesh>();
+        app.world_mut().spawn((
+            RigidBody::Static,
+            Collider::cuboid(100., 0.2, 100.),
+            Transform::from_xyz(0., -0.1, 0.),
+        ));
+        let obstacle = app
+            .world_mut()
+            .spawn((
+                RigidBody::Kinematic,
+                collider,
+                pose,
+                CollisionLayers::new(
+                    1u32 | if foot {
+                        crate::robots::FOOT_COLLISION_LAYER
+                    } else {
+                        0
+                    },
+                    LayerMask::ALL,
+                ),
+            ))
+            .id();
+        app.insert_resource(Walker {
+            position: Vec3::new(2., START_Y, 0.),
+            velocity: Vec3::ZERO,
+            wish_x: -2.,
+            highest: START_Y,
+        });
+        app.finish();
+        app.cleanup();
+        app.update();
+        (app, obstacle)
+    }
+
+    #[test]
+    fn rising_robot_foot_blocks_without_lifting_or_trapping_the_player() {
+        let (mut app, foot) = scene(
+            Collider::cuboid(2., 4., 4.),
+            Transform::from_xyz(0., 1., 0.).with_rotation(Quat::from_rotation_z(0.3)),
+            true,
+        );
+        for tick in 0..120 {
+            app.world_mut()
+                .entity_mut(foot)
+                .get_mut::<Transform>()
+                .unwrap()
+                .translation
+                .y = 1. + tick as f32 * 0.02;
+            app.update();
+            app.world_mut().run_system_cached(walk).unwrap();
+        }
+        let walker = app.world().resource::<Walker>();
+        assert!(
+            walker.highest < START_Y + 0.0254,
+            "foot lifted player to {}",
+            walker.highest
+        );
+        assert!(
+            walker.position.x > 1.5,
+            "player passed through the solid foot"
+        );
+        let blocked_x = walker.position.x;
+        app.world_mut().resource_mut::<Walker>().wish_x = 2.;
+        for _ in 0..30 {
+            app.update();
+            app.world_mut().run_system_cached(walk).unwrap();
+        }
+        assert!(
+            app.world().resource::<Walker>().position.x > blocked_x + 0.9,
+            "player could not move away from the foot"
+        );
+    }
+
+    #[test]
+    fn normal_stairs_remain_walkable() {
+        let (mut app, _) = scene(
+            Collider::cuboid(2., 0.3, 4.),
+            Transform::from_xyz(0., 0.15, 0.),
+            false,
+        );
+        for _ in 0..60 {
+            app.update();
+            app.world_mut().run_system_cached(walk).unwrap();
+        }
+        let walker = app.world().resource::<Walker>();
+        assert!(walker.position.x < 0.5, "player could not climb the step");
+        assert!((walker.position.y - (START_Y + 0.3)).abs() < 0.0254);
+    }
+
+    #[test]
+    fn normal_slopes_remain_walkable() {
+        let (mut app, _) = scene(
+            Collider::cuboid(8., 0.3, 4.),
+            Transform::from_xyz(0., 0.55, 0.).with_rotation(Quat::from_rotation_z(-0.15)),
+            false,
+        );
+        app.world_mut().resource_mut::<Walker>().position.x = 4.5;
+        for _ in 0..120 {
+            app.update();
+            app.world_mut().run_system_cached(walk).unwrap();
+        }
+        let walker = app.world().resource::<Walker>();
+        assert!(walker.position.x < 1., "player could not ascend the slope");
+        assert!(
+            walker.position.y > START_Y + 0.5,
+            "player did not follow the slope"
+        );
     }
 }

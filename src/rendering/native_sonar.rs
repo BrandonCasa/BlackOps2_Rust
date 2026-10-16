@@ -9,7 +9,7 @@ use super::{
 };
 use bevy::{
     asset::{embedded_asset, load_embedded_asset},
-    core_pipeline::{Core3dSystems, core_3d::main_opaque_pass_3d, schedule::Core3d},
+    core_pipeline::schedule::Core3d,
     ecs::system::{SystemParamItem, lifetimeless::SRes},
     mesh::VertexBufferLayout,
     platform::collections::HashMap,
@@ -483,8 +483,8 @@ impl Plugin for NativeSonarPlugin {
             .add_systems(
                 Core3d,
                 render_sonar
-                    .before(main_opaque_pass_3d)
-                    .in_set(Core3dSystems::MainPass),
+                    .before(super::frame::render_native_opaque)
+                    .in_set(super::frame::NativeMainPass),
             );
     }
 }

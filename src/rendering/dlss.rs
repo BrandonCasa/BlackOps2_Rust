@@ -42,11 +42,17 @@ impl Plugin for NativeDlssPlugin {
                     prepare_inputs.in_set(RenderSystems::PrepareBindGroups),
                 ),
             )
-            .configure_sets(Core3d, Core3dSystems::Prepass.run_if(stock_prepass))
+            .configure_sets(
+                Core3d,
+                (
+                    Core3dSystems::Prepass.run_if(stock_prepass),
+                    Core3dSystems::MainPass.run_if(stock_prepass),
+                ),
+            )
             .add_systems(
                 Core3d,
                 write_inputs
-                    .after(Core3dSystems::MainPass)
+                    .after(super::frame::NativeMainPass)
                     .before(Core3dSystems::EarlyPostProcess),
             );
     }
@@ -101,8 +107,8 @@ struct Reprojection {
 
 #[derive(Component)]
 struct DlssInputs {
-    source_ids: [TextureViewId; 3],
-    groups: [BindGroup; 2],
+    source_ids: [TextureViewId; 2],
+    group: BindGroup,
     uniforms: UniformBuffer<Reprojection>,
     previous_clip_from_world: Mat4,
     size: UVec2,
@@ -120,6 +126,7 @@ fn prepare_inputs(
             Entity,
             &ExtractedView,
             &ViewTarget,
+            &super::frame::NativeSceneColor,
             &ViewDepthStencilTexture,
             &MainPassResolutionOverride,
             &TemporalJitter,
@@ -200,7 +207,7 @@ fn prepare_inputs(
         }));
         pipeline.layout = Some(layout);
     }
-    for (entity, view, target, depth, size, jitter, dlss, previous) in &mut views {
+    for (entity, view, _target, color, depth, size, jitter, dlss, previous) in &mut views {
         let view_from_world = view.world_from_view.to_matrix().inverse();
         let clip_from_world = view.clip_from_view * view_from_world;
         let mut projection = view.clip_from_view;
@@ -222,8 +229,8 @@ fn prepare_inputs(
             .depth_stencil_views()
             .depth_only_view()
             .expect("native depth aspect");
-        let sources = [target.main_texture_view(), target.main_texture_other_view()];
-        let ids = [sources[0].id(), sources[1].id(), depth.id()];
+        let source = &color.image.default_view;
+        let ids = [source.id(), depth.id()];
         if let Some(mut previous) = previous.filter(|previous| previous.source_ids == ids) {
             previous.uniforms.set(data);
             previous.uniforms.write_buffer(&device, &queue);
@@ -233,16 +240,14 @@ fn prepare_inputs(
         }
         let mut uniforms = UniformBuffer::from(data);
         uniforms.write_buffer(&device, &queue);
-        let groups = sources.map(|source| {
-            device.create_bind_group(
-                "Origins DLSS source",
-                &cache.get_bind_group_layout(pipeline.layout.as_ref().unwrap()),
-                &BindGroupEntries::sequential((source, depth, uniforms.binding().unwrap())),
-            )
-        });
+        let group = device.create_bind_group(
+            "Origins DLSS source",
+            &cache.get_bind_group_layout(pipeline.layout.as_ref().unwrap()),
+            &BindGroupEntries::sequential((source, depth, uniforms.binding().unwrap())),
+        );
         commands.entity(entity).insert(DlssInputs {
             source_ids: ids,
-            groups,
+            group,
             uniforms,
             previous_clip_from_world: clip_from_world,
             size: size.0,
@@ -266,7 +271,6 @@ fn write_inputs(
     let (Some(depth), Some(motion)) = (&prepass.depth, &prepass.motion_vectors) else {
         return;
     };
-    let index = usize::from(target.main_texture_view().id() != inputs.source_ids[0]);
     let output = target.post_process_write();
     let attachments = [
         Some(RenderPassColorAttachment {
@@ -307,6 +311,6 @@ fn write_inputs(
         });
     pass.set_viewport(0., 0., inputs.size.x as f32, inputs.size.y as f32, 0., 1.);
     pass.set_pipeline(pipeline);
-    pass.set_bind_group(0, &inputs.groups[index], &[]);
+    pass.set_bind_group(0, &inputs.group, &[]);
     pass.draw(0..3, 0..1);
 }

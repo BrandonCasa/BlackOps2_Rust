@@ -6,23 +6,25 @@ use bevy::{
     camera::{CameraOutputMode, CameraUpdateSystems},
     core_pipeline::{
         Core3dSystems, FullscreenShader,
-        core_3d::{main_opaque_pass_3d, main_transparent_pass_3d, prepare_core_3d_depth_textures},
+        core_3d::{AlphaMask3d, Opaque3d, Transparent3d, prepare_core_3d_depth_textures},
         schedule::Core3d,
         tonemapping::Tonemapping,
         upscaling::upscaling,
     },
     ecs::query::QueryItem,
+    image::ToExtents,
     prelude::*,
     render::{
         Extract, ExtractSchedule, Render, RenderApp, RenderSystems,
         camera::{CameraMainPassTextureFormats, ExtractedCamera, extract_cameras},
         extract_component::{ExtractComponent, ExtractComponentPlugin},
         render_asset::RenderAssets,
+        render_phase::{ViewBinnedRenderPhases, ViewSortedRenderPhases},
         render_resource::*,
         renderer::{RenderContext, RenderDevice, ViewQuery},
         sync_component::SyncComponent,
         sync_world::RenderEntity,
-        texture::{DepthStencilAttachment, GpuImage, TextureCache},
+        texture::{CachedTexture, DepthStencilAttachment, GpuImage, TextureCache},
         view::{
             ExtractedView, ViewDepthStencilTexture, ViewTarget, prepare_view_attachments,
             prepare_view_targets,
@@ -34,11 +36,43 @@ use bevy::{
 /// Native 00428840 chooses D32_FLOAT_S8X24_UINT. All native scene pipelines
 /// sharing this attachment must use this format and reverse-Z comparisons.
 pub const NATIVE_DEPTH_FORMAT: TextureFormat = TextureFormat::Depth32FloatStencil8;
+pub(crate) const NATIVE_COLOR_FORMAT: TextureFormat = TextureFormat::Rgba8Unorm;
+
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct NativeMainPass;
+
+/// Native blending always quantizes to UNORM8, including when DLSS uses HDR.
+#[derive(Component)]
+pub(crate) struct NativeSceneColor {
+    pub image: CachedTexture,
+    pub size: UVec2,
+}
+
+impl NativeSceneColor {
+    pub(crate) fn attachment(&self) -> RenderPassColorAttachment<'_> {
+        RenderPassColorAttachment {
+            view: &self.image.default_view,
+            depth_slice: None,
+            resolve_target: None,
+            ops: Operations {
+                load: LoadOp::Load,
+                store: StoreOp::Store,
+            },
+        }
+    }
+}
+
+/// Full-resolution encoded E for the source film and later UI camera.
+#[derive(Resource)]
+pub(crate) struct NativeEncodedScene {
+    pub image: CachedTexture,
+    pub size: UVec2,
+}
 
 /// Camera owner marker, also present in the render world. The plugin maintains
 /// its ordinary floatZ Image through NativeEffectView.
 #[derive(Component, Clone, Copy)]
-pub struct NativeRenderView;
+pub(crate) struct NativeRenderView;
 
 #[derive(Component)]
 pub struct NativeDepthImage {
@@ -54,6 +88,7 @@ impl SyncComponent<RenderApp> for NativeRenderView {
         Self,
         NativeDepthImage,
         NativeDepthAttachment,
+        NativeSceneColor,
         PreparedNativeFrame,
     );
 }
@@ -109,13 +144,21 @@ impl Plugin for NativeFramePlugin {
                     prepare_source_depth
                         .after(prepare_core_3d_depth_textures)
                         .in_set(RenderSystems::PrepareResources),
+                    prepare_source_color.in_set(RenderSystems::PrepareResources),
                     prepare_frame_groups.in_set(RenderSystems::PrepareBindGroups),
                 ),
+            )
+            .configure_sets(
+                Core3d,
+                NativeMainPass
+                    .after(Core3dSystems::MainPass)
+                    .before(Core3dSystems::EarlyPostProcess),
             )
             .add_systems(
                 Core3d,
                 (
                     (
+                        render_native_opaque,
                         super::native::render_ordered::<
                             { super::native::NativeWorldPass::QuasiOpaque as u8 },
                         >,
@@ -130,12 +173,11 @@ impl Plugin for NativeFramePlugin {
                         super::native::render_ordered::<
                             { super::native::NativeWorldPass::Translucent as u8 },
                         >,
+                        render_native_transparent,
                     )
                         .chain()
-                        .after(main_opaque_pass_3d)
-                        .before(main_transparent_pass_3d)
-                        .in_set(Core3dSystems::MainPass),
-                    output_scene
+                        .in_set(NativeMainPass),
+                    encode_scene
                         .after(Core3dSystems::PostProcess)
                         .after(upscaling),
                 ),
@@ -172,14 +214,13 @@ pub(crate) fn maintain_float_z(
             &mut Camera,
             &Projection,
             &mut Tonemapping,
-            Has<bevy::anti_alias::dlss::Dlss>,
             Option<&mut NativeEffectView>,
             Option<&NativeSceneImage>,
         ),
         With<NativeRenderView>,
     >,
 ) {
-    for (entity, mut camera, projection, mut tone, dlss, input, scene) in &mut cameras {
+    for (entity, mut camera, projection, mut tone, input, scene) in &mut cameras {
         // Acquire the window output normally. The render-world preparation
         // suppresses only the built-in final blit after attachment creation.
         if matches!(camera.output_mode, CameraOutputMode::Skip) {
@@ -224,11 +265,7 @@ pub(crate) fn maintain_float_z(
             let mut image = Image::new_uninit(
                 extent,
                 TextureDimension::D2,
-                if dlss {
-                    TextureFormat::Rgba16Float
-                } else {
-                    TextureFormat::Rgba8Unorm
-                },
+                NATIVE_COLOR_FORMAT,
                 RenderAssetUsages::default(),
             );
             image.texture_descriptor.label = Some("T6 resolved scene / resolvedPostSun alias");
@@ -283,7 +320,10 @@ pub(crate) fn maintain_float_z(
 // restricted to Bevy's 2D path; set our format before UI derives its subview.
 fn extract_native_target_format(
     cameras: Extract<
-        Query<(RenderEntity, Has<bevy::anti_alias::dlss::Dlss>), With<NativeRenderView>>,
+        Query<
+            (RenderEntity, Has<bevy::anti_alias::dlss::Dlss>),
+            Or<(With<NativeRenderView>, With<super::display::GameUiCamera>)>,
+        >,
     >,
     mut commands: Commands,
     mut formats: ResMut<CameraMainPassTextureFormats>,
@@ -314,6 +354,155 @@ fn prepare_native_blit(mut views: Query<&mut ExtractedCamera, With<NativeRenderV
         // suppresses Bevy's blit while our encoded output pass uses the attachment.
         camera.output_mode = CameraOutputMode::Skip;
     }
+}
+
+fn prepare_source_color(
+    mut commands: Commands,
+    device: Res<RenderDevice>,
+    mut cache: ResMut<TextureCache>,
+    encoded: Option<Res<NativeEncodedScene>>,
+    views: Query<
+        (Entity, &ExtractedCamera, &Msaa, Option<&NativeSceneColor>),
+        With<NativeRenderView>,
+    >,
+) {
+    let Ok((entity, camera, msaa, previous)) = views.single() else {
+        assert!(views.is_empty(), "Origins requires one native game view");
+        commands.remove_resource::<NativeEncodedScene>();
+        return;
+    };
+    assert_eq!(
+        msaa.samples(),
+        1,
+        "Native source attachments require Msaa::Off"
+    );
+    let Some(size) = camera.physical_target_size else {
+        return;
+    };
+    let descriptor = TextureDescriptor {
+        label: Some("T6 UNORM8 scene accumulation"),
+        size: size.to_extents(),
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: TextureDimension::D2,
+        format: NATIVE_COLOR_FORMAT,
+        usage: TextureUsages::RENDER_ATTACHMENT
+            | TextureUsages::TEXTURE_BINDING
+            | TextureUsages::COPY_SRC,
+        view_formats: &[],
+    };
+    if previous.is_none_or(|previous| previous.size != size) {
+        commands.entity(entity).insert(NativeSceneColor {
+            image: cache.get(&device, descriptor.clone()),
+            size,
+        });
+    }
+    if encoded.as_ref().is_none_or(|encoded| encoded.size != size) {
+        commands.insert_resource(NativeEncodedScene {
+            image: cache.get(
+                &device,
+                TextureDescriptor {
+                    label: Some("T6 encoded film input"),
+                    ..descriptor
+                },
+            ),
+            size,
+        });
+    }
+}
+
+pub(crate) fn render_native_opaque(
+    world: &World,
+    view: ViewQuery<(
+        &ExtractedCamera,
+        &ExtractedView,
+        &NativeSceneColor,
+        &ViewDepthStencilTexture,
+        Option<&bevy::camera::MainPassResolutionOverride>,
+    )>,
+    opaque: Res<ViewBinnedRenderPhases<Opaque3d>>,
+    masked: Res<ViewBinnedRenderPhases<AlphaMask3d>>,
+    clear: Res<ClearColor>,
+    mut ctx: RenderContext,
+) {
+    let entity = view.entity();
+    let (camera, view, color, depth, resolution) = view.into_inner();
+    let clear = match camera.clear_color {
+        ClearColorConfig::Custom(color) => color,
+        ClearColorConfig::None => Color::BLACK,
+        ClearColorConfig::Default => clear.0,
+    };
+    let attachments = [Some(RenderPassColorAttachment {
+        view: &color.image.default_view,
+        depth_slice: None,
+        resolve_target: None,
+        ops: Operations {
+            load: LoadOp::Clear(clear.to_linear().into()),
+            store: StoreOp::Store,
+        },
+    })];
+    let mut pass = ctx.begin_tracked_render_pass(RenderPassDescriptor {
+        label: Some("T6 UNORM8 opaque scene"),
+        color_attachments: &attachments,
+        depth_stencil_attachment: Some(depth.get_attachment(StoreOp::Store)),
+        timestamp_writes: None,
+        occlusion_query_set: None,
+        multiview_mask: None,
+    });
+    if let Some(viewport) =
+        bevy::camera::Viewport::from_viewport_and_override(camera.viewport.as_ref(), resolution)
+    {
+        pass.set_camera_viewport(&viewport);
+    }
+    if let Some(phase) = opaque.get(&view.retained_view_entity) {
+        phase
+            .render(&mut pass, world, entity)
+            .expect("native opaque phase");
+    }
+    if let Some(phase) = masked.get(&view.retained_view_entity) {
+        phase
+            .render(&mut pass, world, entity)
+            .expect("native alpha-mask phase");
+    }
+}
+
+fn render_native_transparent(
+    world: &World,
+    view: ViewQuery<(
+        &ExtractedCamera,
+        &ExtractedView,
+        &NativeSceneColor,
+        &ViewDepthStencilTexture,
+        Option<&bevy::camera::MainPassResolutionOverride>,
+    )>,
+    phases: Res<ViewSortedRenderPhases<Transparent3d>>,
+    mut ctx: RenderContext,
+) {
+    let entity = view.entity();
+    let (camera, view, color, depth, resolution) = view.into_inner();
+    let Some(phase) = phases
+        .get(&view.retained_view_entity)
+        .filter(|phase| !phase.items.is_empty())
+    else {
+        return;
+    };
+    let attachments = [Some(color.attachment())];
+    let mut pass = ctx.begin_tracked_render_pass(RenderPassDescriptor {
+        label: Some("T6 UNORM8 transparent effects"),
+        color_attachments: &attachments,
+        depth_stencil_attachment: Some(depth.get_attachment(StoreOp::Store)),
+        timestamp_writes: None,
+        occlusion_query_set: None,
+        multiview_mask: None,
+    });
+    if let Some(viewport) =
+        bevy::camera::Viewport::from_viewport_and_override(camera.viewport.as_ref(), resolution)
+    {
+        pass.set_camera_viewport(&viewport);
+    }
+    phase
+        .render(&mut pass, world, entity)
+        .expect("native transparent phase");
 }
 
 #[derive(Component)]
@@ -439,7 +628,7 @@ impl NativeFramePipeline {
 #[derive(Clone, PartialEq, Eq, Hash)]
 enum NativeFrameKey {
     Depth { multisampled: bool },
-    Output { format: TextureFormat, linear: bool },
+    Encode { linear: bool },
 }
 
 impl SpecializedRenderPipeline for NativeFramePipeline {
@@ -454,19 +643,15 @@ impl SpecializedRenderPipeline for NativeFramePipeline {
                 TextureFormat::R32Float,
                 vec![ShaderDefVal::Bool("MULTISAMPLED".into(), multisampled)],
             ),
-            NativeFrameKey::Output { format, linear } => (
+            NativeFrameKey::Encode { linear } => (
                 &self.output_layout,
                 &self.output_shader,
-                if linear && format.is_srgb() {
-                    "fragment"
-                } else if linear {
-                    "fragment_encode"
-                } else if format.is_srgb() {
-                    "fragment_srgb"
+                if linear {
+                    "fragment_reencode"
                 } else {
                     "fragment"
                 },
-                format,
+                NATIVE_COLOR_FORMAT,
                 vec![],
             ),
         };
@@ -502,6 +687,7 @@ pub struct PreparedNativeFrame {
     depth_pipeline: CachedRenderPipelineId,
     output_pipeline: CachedRenderPipelineId,
     output_groups: [(TextureViewId, BindGroup); 2],
+    linear: bool,
 }
 
 fn prepare_frame_groups(
@@ -518,6 +704,7 @@ fn prepare_frame_groups(
             &NativeDepthImage,
             &ViewDepthStencilTexture,
             &ViewTarget,
+            &NativeSceneColor,
             Option<&PreparedNativeFrame>,
             Has<bevy::anti_alias::dlss::Dlss>,
         ),
@@ -527,11 +714,8 @@ fn prepare_frame_groups(
     if pipeline.fullscreen.is_none() {
         pipeline.fullscreen = Some(fullscreen.clone());
     }
-    for (entity, float_z, depth, target, previous, dlss) in &views {
-        let (Some(image), Some(output_format)) = (
-            images.get(float_z.float_z),
-            target.out_texture_view_format(),
-        ) else {
+    for (entity, float_z, depth, target, color, previous, dlss) in &views {
+        let Some(image) = images.get(float_z.float_z) else {
             continue;
         };
         assert!(
@@ -546,15 +730,13 @@ fn prepare_frame_groups(
         let multisampled = depth.texture().sample_count() > 1;
         let depth_pipeline =
             variants.specialize(&cache, &pipeline, NativeFrameKey::Depth { multisampled });
-        let output_pipeline = variants.specialize(
-            &cache,
-            &pipeline,
-            NativeFrameKey::Output {
-                format: output_format,
-                linear: dlss,
-            },
-        );
-        let views = [target.main_texture_view(), target.main_texture_other_view()];
+        let output_pipeline =
+            variants.specialize(&cache, &pipeline, NativeFrameKey::Encode { linear: dlss });
+        let views = if dlss {
+            [target.main_texture_view(), target.main_texture_other_view()]
+        } else {
+            [&color.image.default_view, &color.image.default_view]
+        };
         if previous.is_some_and(|previous| {
             previous.depth_source == depth_view.id()
                 && previous.depth_target == image.texture_view.id()
@@ -591,6 +773,7 @@ fn prepare_frame_groups(
             depth_pipeline,
             output_pipeline,
             output_groups,
+            linear: dlss,
         });
     }
 }
@@ -661,7 +844,11 @@ fn resolve_depth(
 }
 
 fn snapshot_scene(
-    view: ViewQuery<(&ViewTarget, &NativeDepthImage, Option<&PreparedWaterView>)>,
+    view: ViewQuery<(
+        &NativeSceneColor,
+        &NativeDepthImage,
+        Option<&PreparedWaterView>,
+    )>,
     images: Res<RenderAssets<GpuImage>>,
     mut ctx: RenderContext,
 ) {
@@ -672,7 +859,7 @@ fn snapshot_scene(
     let Some(resolved) = images.get(frame.resolved_scene) else {
         return;
     };
-    let source = target.main_texture();
+    let source = &target.image.texture;
     assert!(
         source.sample_count() == 1 && source.size() == resolved.texture_descriptor.size,
         "Original resolved scene must match the resolved main attachment"
@@ -696,44 +883,48 @@ fn snapshot_scene(
     );
 }
 
-fn output_scene(
-    view: ViewQuery<(&ViewTarget, &ExtractedCamera, &PreparedNativeFrame), With<NativeRenderView>>,
+fn encode_scene(
+    view: ViewQuery<(&ViewTarget, &NativeSceneColor, &PreparedNativeFrame), With<NativeRenderView>>,
+    encoded: Option<Res<NativeEncodedScene>>,
     cache: Res<PipelineCache>,
     mut ctx: RenderContext,
 ) {
-    let (target, camera, prepared) = view.into_inner();
+    let (target, color, prepared) = view.into_inner();
+    let Some(encoded) = encoded else { return };
+    let source_id = if prepared.linear {
+        target.main_texture_view().id()
+    } else {
+        color.image.default_view.id()
+    };
     let Some(pipeline) = cache.get_render_pipeline(prepared.output_pipeline) else {
         return;
     };
     let Some((_, bind_group)) = prepared
         .output_groups
         .iter()
-        .find(|(id, _)| *id == target.main_texture_view().id())
+        .find(|(id, _)| *id == source_id)
     else {
         return;
     };
-    let Some(attachment) = target.out_texture_color_attachment(None) else {
-        return;
-    };
-    let attachments = [Some(attachment)];
+    let attachments = [Some(RenderPassColorAttachment {
+        view: &encoded.image.default_view,
+        depth_slice: None,
+        resolve_target: None,
+        ops: Operations {
+            load: LoadOp::Clear(default()),
+            store: StoreOp::Store,
+        },
+    })];
     let mut pass = ctx
         .command_encoder()
         .begin_render_pass(&RenderPassDescriptor {
-            label: Some("T6 encoded scene output"),
+            label: Some("T6 encoded film input"),
             color_attachments: &attachments,
             depth_stencil_attachment: None,
             timestamp_writes: None,
             occlusion_query_set: None,
             multiview_mask: None,
         });
-    if let Some(viewport) = &camera.viewport {
-        pass.set_scissor_rect(
-            viewport.physical_position.x,
-            viewport.physical_position.y,
-            viewport.physical_size.x,
-            viewport.physical_size.y,
-        );
-    }
     pass.set_pipeline(pipeline);
     pass.set_bind_group(0, bind_group, &[]);
     pass.draw(0..3, 0..1);

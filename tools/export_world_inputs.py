@@ -7,7 +7,7 @@ from pathlib import Path
 root, external, zone = map(Path, sys.argv[1:])
 sys.path.insert(0, str(external))
 from scripts.cod import backends
-from scripts.cod.t6.dumpers import gfxworld, material
+from scripts.cod.t6.dumpers import gfxworld, material, rawfile
 from scripts.cod.materials import material_file_stem
 from scripts.cod.iw5.dumpers import xmodel
 from native_model_inputs import export_model
@@ -17,7 +17,22 @@ from native_images import source_walks, stage_source_images
 walk = backends.for_fastfile(str(zone)).walk(str(zone))
 walk.check()
 material.write(walk, str(root / "target/assets"))
-image_report = stage_source_images(source_walks(zone, walk), root / "target/assets")
+def stage_ordinary_visions(walks):
+    required = {"vision/zm_tomb.vision", "vision/zm_tomb_rain.vision", "vision/zm_tomb_snow.vision"}
+    found = set()
+    for source_walk in walks:
+        for source_asset in source_walk.by_type("rawfile"):
+            if source_asset.name not in required:
+                continue
+            path = root / "target/assets" / source_asset.name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(rawfile.contents(source_asset))
+            found.add(source_asset.name)
+        yield source_walk
+    assert found == required, f"Missing original ordinary vision files: {sorted(required - found)}"
+
+
+image_report = stage_source_images(stage_ordinary_visions(source_walks(zone, walk)), root / "target/assets")
 image_report_path = root / "target/reports/native-rgba-source-restage.json"
 image_report_path.parent.mkdir(parents=True, exist_ok=True)
 image_report_path.write_text(json.dumps(image_report, indent=2) + "\n", encoding="utf-8")

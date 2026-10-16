@@ -1,6 +1,7 @@
 use crate::{GameState, assets::GameDefinition, player::Player};
 use bevy::prelude::*;
 pub(crate) mod culling;
+pub(crate) mod display;
 mod dlss;
 pub(crate) mod fog;
 pub(crate) mod frame;
@@ -11,11 +12,13 @@ pub(crate) mod model_lighting;
 pub(crate) mod models;
 pub mod native;
 pub(crate) mod native_effect;
+mod native_film;
 pub(crate) mod native_light;
 pub(crate) mod native_model;
 pub(crate) mod native_rangefinder_ui;
 pub(crate) mod native_sky;
 pub(crate) mod native_sonar;
+mod native_vision;
 pub(crate) mod native_water;
 pub(crate) mod native_weapon_view;
 pub(crate) mod reflection;
@@ -44,6 +47,11 @@ impl Plugin for GameRenderingPlugin {
             animated_models::AnimatedModelPlugin,
             native_water::NativeWaterPlugin,
             shadow::ShadowPlugin,
+        ))
+        .add_plugins((
+            native_film::NativeFilmPlugin,
+            native_vision::NativeVisionPlugin,
+            display::NativeDisplayPlugin,
         ))
         .init_resource::<culling::SourceVisibility>()
         .add_systems(Startup, setup)
