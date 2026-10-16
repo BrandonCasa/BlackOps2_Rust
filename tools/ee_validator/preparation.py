@@ -43,7 +43,8 @@ def opportunity_rejections(client):
     return [{"op": r["request"]["action"]["op"], "phase": r["phase"]} for r in results]
 
 
-def stage_near(client, target, label, *, focus=False, radii=(1.4,), view=None):
+def stage_near(client, target, label, *, focus=False, radii=(1.4,), view=None,
+               heights=(-1.3, -0.2, 0.8), elevation=(-0.4, 2.1)):
     """Inspect nearby floors before requesting the collision-checked staging cheat."""
     x, y, z = target["position"]
     if view is None and target.get("target"):
@@ -53,14 +54,14 @@ def stage_near(client, target, label, *, focus=False, radii=(1.4,), view=None):
         view = [x, y + offset, z]
     points = [[x + radius * math.cos(i * math.pi / 4), y + height,
                z + radius * math.sin(i * math.pi / 4)] for radius in radii
-              for height in (-1.3, -0.2, 0.8) for i in range(8)]
+              for height in heights for i in range(8)]
     probes = []
     for start in range(0, len(points), 64):
         probes.extend(client.rpc("origins/validator/jump_probes", [
             {"feet": p, "velocity": [0, 0, 0], "aim": p, "view": view}
             for p in points[start:start+64]])["results"])
     floors = [p["feet"] for p in probes if p["landed"] is not None and p["clear"] and p["playable"]
-              and -0.4 <= y - p["feet"][1] <= 2.1 and (view is None or p["view_clear"])]
+              and elevation[0] <= y - p["feet"][1] <= elevation[1] and (view is None or p["view_clear"])]
     if not floors:
         raise ValidationFailure(f"No clear supporting floor beside {label}: {target['position']}")
     current = client.state()["player"]["feet"]
@@ -215,12 +216,13 @@ def clear_round(client):
             if live:
                 enemy = min(live, key=lambda e: distance(e["position"], state["player"]["feet"]))
                 # Staging stays on native floors; every kill still uses the equipped weapon.
-                if distance(enemy["position"], state["player"]["feet"]) > 25:
+                if distance(enemy["position"], state["player"]["feet"]) > 38.608:
                     client.input(120, label="Let native distant-actor replacement and ordinary approach finish")
                     state = client.state()
                     continue
                 if state["control"]["simulation_seconds"] - last_progress > 20:
-                    stage_near(client, enemy, "ordinary combat approach", radii=(1.4, 3, 5, 8, 12, 20), view=enemy["aim"])
+                    stage_near(client, enemy, "ordinary combat approach", radii=(1.4, 3, 5, 8, 12, 20),
+                               heights=(-1.3, -0.2, 0.8, 2, 4), elevation=(-4, 6), view=enemy["aim"])
                     last_progress = client.state()["control"]["simulation_seconds"]
                 client.send({"op": "assist", "god": True, "points": state["round"]["points"], "ammo": True, "doors": False})
                 shoot_at(client, enemy["entity"], shots=8, head=enemy["definition"] == "enemy.panzer",

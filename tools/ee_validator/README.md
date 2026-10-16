@@ -67,3 +67,14 @@ acceleration before jumping from the current vehicle pose. The result contains
 each run-up tick and the accepted takeoff, if any. The vehicle remains frozen.
 It selects candidates for a real input run;
 probe landings cannot complete a milestone or collect a part.
+
+Candidates can also provide a `view` point. The result reports `view_clear` and
+the blocking entity using the native world ray query from the landed eye position.
+The preparation route uses these observations to choose clear, playable floors
+before ordinary pickup interactions or weapon fire. BRP state includes the
+ordinary admission owner's failure counters and last rejection reason.
+
+Preparation remains in progress. Actual runs have powered all six generators,
+collected the church capture reward, crafted and taken the drone, and completed
+all four crystal trips. The remaining tank jumps, robot parts, staff upgrades,
+and later Easter egg stages still need complete gameplay proof.
