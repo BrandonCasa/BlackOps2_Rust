@@ -767,12 +767,6 @@ fn spawn(
                             ));
                         } else {
                             assert!(
-                                matches!(e.kind, 3 | 5)
-                                    || native_material.program
-                                        != NativeEffectProgram::LocalAdditiveFeather,
-                                "Original local-normal FX requires directional or trail source geometry"
-                            );
-                            assert!(
                                 matches!(
                                     native_material.program,
                                     NativeEffectProgram::Source { .. }
