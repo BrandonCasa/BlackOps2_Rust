@@ -237,7 +237,8 @@ def generators_tank(client):
         if live:
             enemy = min(live, key=lambda e: distance(e["position"], state["player"]["feet"]))
             client.input(20, aim_entity=enemy["entity"], label="Defend the generator against its native guards")
-            client.input(8, ("fire",), aim_entity=enemy["entity"])
+            attack = "melee" if distance(enemy["position"], state["player"]["feet"]) < 1.5 else "fire"
+            client.input(8, (attack,), aim_entity=enemy["entity"])
             client.input(6, aim_entity=enemy["entity"])
             client.send({"op": "assist", "god": True, "points": state["round"]["points"], "ammo": True, "doors": False})
         else:
