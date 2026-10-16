@@ -1028,7 +1028,8 @@ impl Plugin for AnimatedModelPlugin {
                 bind_animated_draws
                     .in_set(AnimatedModelSystems::BindDraws)
                     .after(bevy::transform::TransformSystems::Propagate)
-                    .before(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate)
+                    .after(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate)
+                    .before(bevy::camera::visibility::VisibilitySystems::CheckVisibility)
                     .before(super::world::object_constants),
             )
             .add_systems(
