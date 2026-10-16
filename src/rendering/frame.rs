@@ -77,7 +77,7 @@ pub(crate) struct NativeRenderView;
 #[derive(Component)]
 pub struct NativeDepthImage {
     float_z: AssetId<Image>,
-    resolved_scene: AssetId<Image>,
+    pub(super) resolved_scene: AssetId<Image>,
 }
 
 #[derive(Component)]
@@ -889,12 +889,13 @@ fn snapshot_scene(
         &NativeSceneColor,
         &NativeDepthImage,
         Option<&PreparedWaterView>,
+        Has<bevy::anti_alias::dlss::Dlss>,
     )>,
     images: Res<RenderAssets<GpuImage>>,
     mut ctx: RenderContext,
 ) {
-    let (target, frame, water) = view.into_inner();
-    if !water.is_some_and(PreparedWaterView::has_draws) {
+    let (target, frame, water, dlss) = view.into_inner();
+    if !dlss && !water.is_some_and(PreparedWaterView::has_draws) {
         return;
     }
     let Some(resolved) = images.get(frame.resolved_scene) else {

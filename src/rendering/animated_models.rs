@@ -289,6 +289,8 @@ mod tests {
                     mesh,
                     joints: vec![],
                     inverse_bindposes: Handle::default(),
+                    bounds_meshes: vec![],
+                    bounds: Aabb::from_min_max(Vec3::splat(-1.), Vec3::ONE),
                 },
             ))
             .id();
@@ -359,6 +361,64 @@ mod tests {
     }
 
     #[test]
+    fn native_bounds_follow_animation_and_include_every_primitive() {
+        let mut app = App::new();
+        app.add_systems(Update, update_native_bounds);
+        let pose = GlobalTransform::from(
+            Transform::from_xyz(90., 30., -40.)
+                .with_scale(Vec3::splat(crate::assets::SOURCE_UNIT_METERS)),
+        );
+        let torso = app
+            .world_mut()
+            .spawn((
+                Mesh3d::default(),
+                pose,
+                Aabb::from_min_max(Vec3::splat(-1.), Vec3::ONE),
+            ))
+            .id();
+        let hand = app
+            .world_mut()
+            .spawn((
+                Mesh3d::default(),
+                pose,
+                Aabb::from_min_max(Vec3::new(9., 19., -31.), Vec3::new(11., 21., -29.)),
+            ))
+            .id();
+        let instance = app
+            .world_mut()
+            .spawn(NativeBoneBinding {
+                mesh: torso,
+                joints: vec![],
+                inverse_bindposes: Handle::default(),
+                bounds_meshes: vec![torso, hand],
+                bounds: Aabb::default(),
+            })
+            .id();
+        app.update();
+        let bounds = app
+            .world()
+            .get::<NativeBoneBinding>(instance)
+            .unwrap()
+            .bounds;
+        assert!(Vec3::from(bounds.min()).abs_diff_eq(Vec3::splat(-1.), 0.001));
+        assert!(Vec3::from(bounds.max()).abs_diff_eq(Vec3::new(11., 31., 21.), 0.001));
+
+        // An animated limb moves outside the bind pose while the mesh stays still.
+        app.world_mut().entity_mut(hand).insert(Aabb::from_min_max(
+            Vec3::new(-51., 19., -31.),
+            Vec3::new(-49., 21., -29.),
+        ));
+        app.update();
+        let bounds = app
+            .world()
+            .get::<NativeBoneBinding>(instance)
+            .unwrap()
+            .bounds;
+        assert!(Vec3::from(bounds.min()).abs_diff_eq(Vec3::new(-51., -1., -1.), 0.001));
+        assert!(Vec3::from(bounds.max()).abs_diff_eq(Vec3::new(1., 31., 21.), 0.001));
+    }
+
+    #[test]
     fn native_palette_retains_source_inches_and_bone_motion() {
         let axes = Mat4::from_cols(Vec4::X, -Vec4::Z, Vec4::Y, Vec4::W);
         let owner = Mat4::from_scale_rotation_translation(
@@ -396,6 +456,8 @@ mod tests {
                     mesh,
                     joints: vec![],
                     inverse_bindposes: Handle::default(),
+                    bounds_meshes: vec![],
+                    bounds: Aabb::default(),
                 },
                 NativeSkinPalette(vec![Mat4::IDENTITY]),
                 InheritedVisibility::HIDDEN,
@@ -430,6 +492,8 @@ mod tests {
                     mesh,
                     joints: vec![joint],
                     inverse_bindposes: bind,
+                    bounds_meshes: vec![],
+                    bounds: Aabb::default(),
                 },
                 NativeSkinPalette(vec![Mat4::IDENTITY]),
                 InheritedVisibility::VISIBLE,
@@ -661,6 +725,8 @@ struct NativeBoneBinding {
     mesh: Entity,
     joints: Vec<Entity>,
     inverse_bindposes: Handle<SkinnedMeshInverseBindposes>,
+    bounds_meshes: Vec<Entity>,
+    bounds: Aabb,
 }
 
 #[derive(Component, Default)]
@@ -686,7 +752,7 @@ fn select_lods(
     };
     let frame_inverse = super::world::source_frame().inverse();
     let eye = frame_inverse.transform_point3(transform.translation());
-    let requested = camera.clip_from_view().x_axis.x.recip() * 2.118673;
+    let requested = super::models::lod_fov_scale(camera);
     assert!(requested.is_finite() && requested > 0.);
     for (ramp, limit) in [1.25, 0.4].into_iter().enumerate() {
         let previous = history[ramp].unwrap_or(requested);
@@ -709,15 +775,8 @@ fn select_lods(
         }
         let pose = frame_inverse * mesh.to_matrix() * axes;
         let scale = pose.to_scale_rotation_translation().0.abs().max_element();
-        let center = pose.transform_point3(
-            (Vec3::from_array(model.definition.bounds[0])
-                + Vec3::from_array(model.definition.bounds[1]))
-                * 0.5,
-        );
-        let extents = Mat3::from_mat4(pose).abs()
-            * (Vec3::from_array(model.definition.bounds[1])
-                - Vec3::from_array(model.definition.bounds[0]))
-            * 0.5;
+        let center = pose.transform_point3(binding.bounds.center.into());
+        let extents = Mat3::from_mat4(pose).abs() * Vec3::from(binding.bounds.half_extents);
         let bounds = [(center - extents).to_array(), (center + extents).to_array()];
         let selected = if scale <= 0.
             || (sonar.is_none_or(|actor| !actor.active)
@@ -783,6 +842,11 @@ fn bind_native_bones(
                     mesh,
                     joints: Vec::new(),
                     inverse_bindposes: Handle::default(),
+                    bounds_meshes: Vec::new(),
+                    bounds: Aabb::from_min_max(
+                        model.definition.bounds[0].into(),
+                        model.definition.bounds[1].into(),
+                    ),
                 },
                 NativeSkinPalette(vec![Mat4::IDENTITY; model.definition.bone_names.len()]),
             ));
@@ -813,9 +877,60 @@ fn bind_native_bones(
                 mesh,
                 joints: skin.joints.clone(),
                 inverse_bindposes: skin.inverse_bindposes.clone(),
+                bounds_meshes: children
+                    .iter_descendants(entity)
+                    .filter(|&e| meshes.contains(e))
+                    .collect(),
+                bounds: Aabb::from_min_max(
+                    model.definition.bounds[0].into(),
+                    model.definition.bounds[1].into(),
+                ),
             },
             NativeSkinPalette(vec![Mat4::IDENTITY; skin.joints.len()]),
         ));
+    }
+}
+
+fn update_native_bounds(
+    mut instances: Query<&mut NativeBoneBinding>,
+    meshes: Query<(Ref<GlobalTransform>, Ref<Aabb>), With<Mesh3d>>,
+) {
+    for mut binding in &mut instances {
+        if binding.bounds_meshes.is_empty() {
+            continue;
+        }
+        let (mesh, _) = meshes.get(binding.mesh).expect("bound native mesh bounds");
+        // Hidden attachment groups can collapse their mesh transform to zero.
+        // Retain the bounds until the mesh has an invertible pose again.
+        if mesh.affine().matrix3.determinant() == 0. {
+            continue;
+        }
+        if !binding.is_added()
+            && !binding.bounds_meshes.iter().any(|&entity| {
+                let (pose, bounds) = meshes.get(entity).expect("bound native primitive bounds");
+                pose.is_changed() || bounds.is_changed()
+            })
+        {
+            continue;
+        }
+        // Bevy already updates every GLB primitive's skinned bounds. Combine
+        // all primitives in the PACKED32 draw frame, including offscreen limbs.
+        let to_native =
+            Mat4::from_rotation_x(std::f32::consts::FRAC_PI_2) * mesh.to_matrix().inverse();
+        let mut minimum = Vec3::splat(f32::INFINITY);
+        let mut maximum = Vec3::splat(f32::NEG_INFINITY);
+        for &entity in &binding.bounds_meshes {
+            let (pose, bounds) = meshes.get(entity).expect("bound native primitive bounds");
+            let matrix = to_native * pose.to_matrix();
+            let center = matrix.transform_point3(bounds.center.into());
+            let extents = Mat3::from_mat4(matrix).abs() * Vec3::from(bounds.half_extents);
+            minimum = minimum.min(center - extents);
+            maximum = maximum.max(center + extents);
+        }
+        let bounds = Aabb::from_min_max(minimum, maximum);
+        if binding.bounds != bounds {
+            binding.bounds = bounds;
+        }
     }
 }
 
@@ -893,6 +1008,12 @@ impl Plugin for AnimatedModelPlugin {
             .init_asset_loader::<AnimatedModelLoader>()
             .add_observer(load_native_instance)
             .add_systems(Update, bind_native_bones)
+            .add_systems(
+                PostUpdate,
+                update_native_bounds
+                    .after(bevy::camera::visibility::VisibilitySystems::CalculateBounds)
+                    .before(select_lods),
+            )
             .add_systems(
                 PostUpdate,
                 select_lods
@@ -996,7 +1117,7 @@ fn bind_animated_draws(
     mut instances: Query<(
         Entity,
         &AnimatedModelInstance,
-        &NativeBoneBinding,
+        Ref<NativeBoneBinding>,
         &GlobalTransform,
         &InheritedVisibility,
         Option<&AnimatedDraws>,
@@ -1008,6 +1129,7 @@ fn bind_animated_draws(
         Option<&RenderLayers>,
         Has<NoFrustumCulling>,
     )>,
+    mut draw_bounds: Query<&mut Aabb>,
 ) {
     let Some(probes) = probes else {
         return;
@@ -1051,6 +1173,16 @@ fn bind_animated_draws(
         let probe = draws
             .filter(|_| !origin_changed && !probes.is_changed())
             .map_or_else(|| probes.select(origin), |draws| draws.probe);
+        if binding.is_changed()
+            && let Some(draws) = draws
+        {
+            for &surface in &draws.surfaces {
+                draw_bounds
+                    .get_mut(surface)
+                    .expect("native draw bounds")
+                    .set_if_neq(binding.bounds);
+            }
+        }
         if draws.is_some_and(|d| d.model == instance.model.id() && d.lod == lod && d.probe == probe)
             && !models.is_changed()
             && !probes.is_changed()
@@ -1088,10 +1220,7 @@ fn bind_animated_draws(
                 mesh_transform.mul_transform(axes),
                 Visibility::Inherited,
                 layers.cloned().unwrap_or_default(),
-                Aabb::from_min_max(
-                    Vec3::from_array(model.definition.bounds[0]),
-                    Vec3::from_array(model.definition.bounds[1]),
-                ),
+                binding.bounds,
                 super::world::WorldSurfaceLighting(sh),
                 super::native_model::NativeModelSurface {
                     pass: source.world_pass(),

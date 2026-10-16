@@ -288,9 +288,11 @@ pub fn relocate(
     mobility.fall_speed = 0.;
     mobility.peak = feet.y;
     mobility.dive = None;
-    commands
-        .entity(entity)
-        .insert(crate::movement::platforms::PlatformSupport::default());
+    commands.entity(entity).insert((
+        crate::movement::platforms::PlatformSupport::default(),
+        crate::player::PreviousTranslation(pose.translation),
+    ));
+    commands.queue(crate::rendering::reset_history);
 }
 pub(crate) fn interact(
     mut commands: Commands,

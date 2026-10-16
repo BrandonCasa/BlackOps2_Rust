@@ -3,6 +3,7 @@ use bevy::prelude::*;
 pub(crate) mod culling;
 pub(crate) mod display;
 mod dlss;
+pub(crate) use dlss::reset_history;
 pub(crate) mod fog;
 pub(crate) mod frame;
 pub(crate) mod light_grid;

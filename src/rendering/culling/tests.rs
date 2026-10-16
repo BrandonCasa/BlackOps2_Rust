@@ -250,6 +250,33 @@ fn source_lod_uses_strict_thresholds_and_raw_distance_fallback() {
 }
 
 #[test]
+fn lod_fov_uses_vertical_source_ramp_at_every_aspect_ratio() {
+    for aspect in [1., 4. / 3., 16. / 9., 32. / 9.] {
+        let camera = Camera {
+            computed: bevy::camera::ComputedCameraValues {
+                clip_from_view: bevy::math::proj::perspective_infinite_reverse(
+                    55_f32.to_radians(),
+                    aspect,
+                    4.,
+                ),
+                ..default()
+            },
+            ..default()
+        };
+        let scale = super::super::models::lod_fov_scale(&camera);
+        assert!((scale - 1.102916).abs() < 0.00001);
+        assert!(
+            1400. * scale < 2000.,
+            "authored prop cullDist must survive widescreen"
+        );
+        assert_eq!(
+            super::super::models::source_lod([500., 900., 2000.].into_iter(), 1400. * scale, 1400.),
+            Some(2),
+        );
+    }
+}
+
+#[test]
 fn source_clip_epsilon_and_multiple_portal_hull_paths() {
     let mut output = vec![];
     assert!(!clip_polygon(

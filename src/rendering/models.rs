@@ -609,6 +609,12 @@ pub(crate) struct LodView {
     fov_scale: Option<f32>,
 }
 
+pub(crate) fn lod_fov_scale(camera: &Camera) -> f32 {
+    // 004a1190 writes tanHalfFovY to refdef +0x28; 0041b820 uses
+    // that field for LOD, independently of the viewport's horizontal FOV.
+    camera.clip_from_view().y_axis.y.recip() * 2.118673
+}
+
 /// After camera/transform updates and before visibility checks/extraction.
 /// Defaults recovered from 0041f2b0: rigid LOD scale 1, bias 0, auto-LOD disabled.
 pub(crate) fn select_lods(
@@ -628,9 +634,9 @@ pub(crate) fn select_lods(
     let eye = source_frame()
         .inverse()
         .transform_point3(camera_transform.translation());
-    // 0041b820 multiplies tanHalfFovX by 2.118673. Its asymmetric hysteresis
+    // 0041b820 multiplies the LOD FOV by 2.118673. Its asymmetric hysteresis
     // follows increases immediately and decreases only after a 1.25 ratio.
-    let requested = camera.clip_from_view().x_axis.x.recip() * 2.118673;
+    let requested = lod_fov_scale(camera);
     assert!(
         requested.is_finite() && requested > 0.0,
         "Original rigid LOD requires a positive perspective FOV"

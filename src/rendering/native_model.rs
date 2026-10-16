@@ -4213,6 +4213,7 @@ fn queue_models(
     mut phases: ResMut<ViewBinnedRenderPhases<Opaque3d>>,
     draw_functions: Res<DrawFunctions<Opaque3d>>,
     geometry_inputs: (
+        ResMut<super::dlss::NativeMotion>,
         Res<RenderAssets<PreparedNativeGeometry>>,
         Res<RenderAssets<PreparedAnimatedModel>>,
         Query<&PreparedSkin>,
@@ -4236,7 +4237,7 @@ fn queue_models(
     mut queued: Local<HashMap<RetainedViewEntity, Vec<MainEntity>>>,
     mut ordered: ResMut<NativeOrderedDraws>,
 ) {
-    let (geometries, animated, skins, origins) = geometry_inputs;
+    let (mut motion, geometries, animated, skins, origins) = geometry_inputs;
     queued.retain(|view, entities| {
         let Some(phase) = phases.get_mut(view) else {
             return false;
@@ -4414,6 +4415,37 @@ fn queue_models(
                             .expect("plinth glow requires source floatZ view")
                             .filtering,
                 },
+            );
+            motion.queue(
+                &cache,
+                entity,
+                source_object,
+                vertices,
+                indices,
+                offset,
+                surface.first_index,
+                surface.index_count,
+                32,
+                surface.geometry.instance(),
+                surface.state,
+                surface.pass == NativeWorldPass::EmissiveOpaque
+                    || matches!(
+                        material.family,
+                        NativeModelFamily::Effect(_)
+                            | NativeModelFamily::Flicker
+                            | NativeModelFamily::ClanTag
+                            | NativeModelFamily::Flag(_)
+                            | NativeModelFamily::Canopy(_)
+                            | NativeModelFamily::SmokePillar
+                            | NativeModelFamily::NormalSpecular(NormalSpecularProgram::Scrolling)
+                            | NativeModelFamily::SourceCharacter(
+                                SourceCharacterProgram::Ember
+                                    | SourceCharacterProgram::RevealEmissive { .. }
+                            )
+                            | NativeModelFamily::Staff3Layer
+                            | NativeModelFamily::Crystal3Layer(_)
+                            | NativeModelFamily::Camo3Layer
+                    ),
             );
             if surface.pass != NativeWorldPass::Opaque {
                 ordered

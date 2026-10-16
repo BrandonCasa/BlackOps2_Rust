@@ -90,6 +90,9 @@ fn init_pipeline(mut commands: Commands, shader: Res<SkinShader>, cache: Res<Pip
 #[derive(Component)]
 pub(crate) struct PreparedSkin {
     pub vertices: Buffer,
+    pub previous_vertices: Option<Buffer>,
+    pub previous_pose_valid: bool,
+    last_frame: Option<u32>,
     pub ready: bool,
     matrices: Buffer,
     matrix_count: usize,
@@ -115,6 +118,7 @@ impl PreparedSkin {
         matrix_count: usize,
         vertex_count: u32,
         lod: usize,
+        motion_history: bool,
     ) -> Self {
         assert!(matrix_count > 0 && vertex_count > 0 && !ranges.is_empty());
         let matrices = device.create_buffer(&BufferDescriptor {
@@ -126,7 +130,7 @@ impl PreparedSkin {
         let vertices = device.create_buffer(&BufferDescriptor {
             label: Some("native instance skinned PACKED32"),
             size: u64::from(vertex_count) * 32,
-            usage: BufferUsages::STORAGE | BufferUsages::VERTEX,
+            usage: BufferUsages::STORAGE | BufferUsages::VERTEX | BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
         let mut uniforms = DynamicUniformBuffer::default();
@@ -167,6 +171,16 @@ impl PreparedSkin {
         Self {
             geometry_key: (source.id(), lod),
             vertices,
+            previous_vertices: motion_history.then(|| {
+                device.create_buffer(&BufferDescriptor {
+                    label: Some("native previous skinned pose"),
+                    size: u64::from(vertex_count) * 32,
+                    usage: BufferUsages::COPY_DST | BufferUsages::VERTEX,
+                    mapped_at_creation: false,
+                })
+            }),
+            previous_pose_valid: false,
+            last_frame: None,
             ready: false,
             matrices,
             matrix_count,
@@ -198,11 +212,35 @@ fn skin(
     mut context: RenderContext,
     cache: Res<PipelineCache>,
     pipeline: Res<SkinningPipeline>,
+    frame: Res<bevy::diagnostic::FrameCount>,
     mut instances: Query<(&ExtractedSkin, &mut PreparedSkin)>,
 ) {
     let Some(pipeline) = cache.get_compute_pipeline(pipeline.pipeline) else {
         return;
     };
+    // Preserve only a pose that will actually change. Unchanged animation uses
+    // the current vertex buffer for both frames, without a redundant GPU copy.
+    for (input, mut instance) in &mut instances {
+        instance.previous_pose_valid = false;
+        if input.visible
+            && !instance.ready
+            && !instance.palette_bytes.is_empty()
+            && instance.last_frame == Some(frame.0.wrapping_sub(1))
+            && let Some(previous) = &instance.previous_vertices
+        {
+            context.command_encoder().copy_buffer_to_buffer(
+                &instance.vertices,
+                0,
+                previous,
+                0,
+                instance.vertices.size(),
+            );
+            instance.previous_pose_valid = true;
+        }
+        if input.visible && instance.ready {
+            instance.last_frame = Some(frame.0);
+        }
+    }
     if instances.iter().all(|(input, instance)| {
         !input.visible || instance.ready || instance.palette_bytes.is_empty()
     }) {
@@ -221,6 +259,7 @@ fn skin(
             pass.dispatch_workgroups(workgroups, 1, 1);
         }
         instance.ready = true;
+        instance.last_frame = Some(frame.0);
     }
 }
 
@@ -422,6 +461,7 @@ fn prepare_instances(
     cache: Res<PipelineCache>,
     pipeline: Res<SkinningPipeline>,
     models: Res<RenderAssets<PreparedAnimatedModel>>,
+    dlss: Query<(), With<bevy::anti_alias::dlss::Dlss>>,
     mut instances: Query<(Entity, Ref<ExtractedSkin>, Option<&mut PreparedSkin>)>,
 ) {
     for (entity, input, prepared) in &mut instances {
@@ -450,6 +490,7 @@ fn prepare_instances(
                 model.bones,
                 lod.vertex_count,
                 input.lod,
+                !dlss.is_empty(),
             );
             prepared.set_palette(&input.palette, &queue);
             commands.entity(entity).insert(prepared);

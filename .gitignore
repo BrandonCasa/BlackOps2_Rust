@@ -14,7 +14,9 @@
 
 /assets/
 /config/
-/vendor/
+/vendor/*
+!/vendor/bevy/
+!/vendor/README.md
 **/original-assets/
 **/local-assets/
 **/local_assets/

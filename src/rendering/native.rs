@@ -2150,6 +2150,7 @@ fn prepare_uniform_groups(
 }
 
 pub(crate) fn queue_native_world(
+    mut motion: ResMut<super::dlss::NativeMotion>,
     pipeline: Res<NativePipeline>,
     cache: Res<PipelineCache>,
     mut variants: ResMut<SpecializedRenderPipelines<NativePipeline>>,
@@ -2161,7 +2162,7 @@ pub(crate) fn queue_native_world(
         (&ExtractedView, &RenderVisibleEntities, &ViewTarget, &Msaa),
         With<NativeWorldScene>,
     >,
-    surfaces: Query<&ExtractedNativeSurface, With<NativeWorldObject>>,
+    surfaces: Query<(&ExtractedNativeSurface, &NativeWorldObject)>,
     mut queued: Local<HashMap<RetainedViewEntity, Vec<MainEntity>>>,
     mut translucent: ResMut<NativeOrderedDraws>,
 ) {
@@ -2194,7 +2195,7 @@ pub(crate) fn queue_native_world(
         };
         let queued = queued.entry(view.retained_view_entity).or_default();
         for (&entity, &main_entity) in visible.iter_visible() {
-            let Ok(surface) = surfaces.get(entity) else {
+            let Ok((surface, object)) = surfaces.get(entity) else {
                 continue;
             };
             let Some(geometry) = geometries.get(surface.geometry) else {
@@ -2211,6 +2212,24 @@ pub(crate) fn queue_native_world(
                 vertex_stride: geometry.vertex_stride,
             };
             let pipeline = variants.specialize(&cache, &pipeline, key);
+            motion.queue(
+                &cache,
+                entity,
+                object,
+                &geometry.primary,
+                &geometry.indices,
+                surface.primary_byte_offset,
+                surface.first_index,
+                surface.index_count,
+                geometry.vertex_stride,
+                None,
+                surface.state,
+                surface.pass == NativeWorldPass::EmissiveOpaque
+                    || matches!(
+                        material.family,
+                        NativeWorldFamily::Ember | NativeWorldFamily::Lava
+                    ),
+            );
             if surface.pass != NativeWorldPass::Opaque {
                 translucent
                     .0

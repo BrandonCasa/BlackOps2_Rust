@@ -17,6 +17,9 @@ required-features = ["game"]
 members = ["."]
 resolver = "3"
 
+[patch.crates-io]
+bevy_anti_alias = { path = "vendor/bevy/crates/bevy_anti_alias" }
+
 [features]
 default = ["game"]
 game = ["dep:bevy", "dep:avian3d", "dep:bevy_input", "dep:rodio"]
