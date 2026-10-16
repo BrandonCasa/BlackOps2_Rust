@@ -471,8 +471,13 @@ pub(crate) fn navigate(
     rows: Query<(&MenuRow, Ref<Hovered>)>,
     mut frontend: MessageWriter<crate::frontend::FrontendAction>,
     mut audio: ResMut<crate::audio::AudioSettings>,
+    #[cfg(feature = "dev-tools")] validator: Option<Res<crate::validation::Controller>>,
 ) {
     let pointer_choice = menu.pointer_choice.take();
+    #[cfg(feature = "dev-tools")]
+    if validator.is_some_and(|controller| controller.owns_input()) {
+        return;
+    }
     if menu.capturing.is_some() || menu.handled_input {
         return;
     }
@@ -570,6 +575,42 @@ fn pointer_activate(event: On<PointerPress>, rows: Query<&MenuRow>, mut menu: Re
         menu.selected = row.index;
         menu.pointer_choice = Some(row.choice);
     }
+}
+
+#[cfg(all(test, feature = "dev-tools"))]
+#[test]
+fn pause_menu_cannot_bypass_validator_resume() {
+    let mut app = crate::validation::tests::harness();
+    let (_, store) = SettingsStore::load(None);
+    app.insert_resource(store)
+        .init_resource::<crate::audio::AudioSettings>()
+        .add_message::<crate::frontend::FrontendAction>();
+    app.world_mut()
+        .resource_mut::<crate::validation::Controller>()
+        .request_pause_toggle();
+    app.update();
+    app.update();
+    assert_eq!(
+        *app.world().resource::<State<GameState>>().get(),
+        GameState::Paused
+    );
+    app.world_mut().resource_mut::<ControlMenu>().pointer_choice = Some(Choice::Resume);
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::Enter);
+    app.world_mut().run_system_cached(navigate).unwrap();
+    app.update();
+    assert_eq!(
+        *app.world().resource::<State<GameState>>().get(),
+        GameState::Paused
+    );
+    assert!(app.world().resource::<Time<Virtual>>().is_paused());
+    assert!(
+        app.world()
+            .resource::<ControlMenu>()
+            .pointer_choice
+            .is_none()
+    );
 }
 fn capture(
     state: Res<State<GameState>>,

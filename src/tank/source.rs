@@ -102,3 +102,9 @@ pub const MECH_TAGS: [[f32; 3]; 4] = [
     [-2.5400007, -1., 5.628099],
     [2.5400007, -1., 5.628099],
 ];
+// Native script_vehicle entity 331 (999E7889), before tank_setup links its
+// roof/use/kill triggers and tank_station moves it onto the route.
+pub(super) fn editor_pose() -> bevy::prelude::Transform {
+    bevy::prelude::Transform::from_xyz(-8192. * 0.0254, 0., 4096. * 0.0254)
+        .with_rotation(bevy::prelude::Quat::from_rotation_y(270_f32.to_radians()))
+}

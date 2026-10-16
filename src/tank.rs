@@ -131,28 +131,6 @@ impl Plugin for TankPlugin {
             );
     }
 }
-fn source_owner_pose(source: &std::collections::BTreeMap<String, String>) -> Option<Transform> {
-    let vector = |key: &str| -> Option<Vec3> {
-        let values: Vec<f32> = source
-            .get(key)?
-            .split_whitespace()
-            .map(str::parse)
-            .collect::<Result<_, _>>()
-            .ok()?;
-        (values.len() == 3 && values.iter().all(|value| value.is_finite()))
-            .then(|| Vec3::new(values[0], values[1], values[2]))
-    };
-    let origin = vector("link_owner_origin")?;
-    let angles = vector("link_owner_angles")?;
-    Some(
-        Transform::from_xyz(origin.x * 0.0254, origin.z * 0.0254, -origin.y * 0.0254)
-            .with_rotation(
-                Quat::from_rotation_y(angles.y.to_radians())
-                    * Quat::from_rotation_z(-angles.x.to_radians())
-                    * Quat::from_rotation_x(angles.z.to_radians()),
-            ),
-    )
-}
 fn bind_triggers(
     mut commands: Commands,
     game: Res<GameDefinition>,
@@ -166,11 +144,15 @@ fn bind_triggers(
     sources: Query<(Entity, &crate::environment::triggers::MapTrigger), Without<TankTriggerLink>>,
     linked: Query<&TankTriggerLink>,
 ) {
+    if linked.iter().any(|link| link.kill) {
+        return;
+    }
     let Ok((owner, current)) = bodies.single() else {
         return;
     };
     let current = current.mul_transform(model_offset());
-    let mut original_owner = None;
+    let original = source::editor_pose();
+    let mut found_trigger = false;
     for (entity, trigger) in &sources {
         let Some(source) = game.environment.triggers.iter().find(|source| {
             source.id == trigger.0
@@ -178,9 +160,6 @@ fn bind_triggers(
                     matches!(name.as_str(), "trig_use_tank" | "vol_on_tank_watch")
                 })
         }) else {
-            continue;
-        };
-        let Some(original) = source_owner_pose(&source.source) else {
             continue;
         };
         let local =
@@ -204,14 +183,11 @@ fn bind_triggers(
         {
             commands.entity(entity).insert(TankRoof);
         }
-        original_owner = Some(original);
+        found_trigger = true;
     }
-    if linked.iter().any(|link| link.kill) {
+    if !found_trigger {
         return;
     }
-    let Some(original) = original_owner else {
-        return;
-    };
     let definition = kill_trigger_definition();
     let local =
         Transform::from_matrix(original.to_matrix().inverse() * definition.transform().to_matrix());
@@ -283,6 +259,84 @@ fn model_offset() -> Transform {
 #[cfg(test)]
 mod trigger_tests {
     use super::*;
+
+    #[test]
+    #[ignore = "requires the authorized local Origins export"]
+    fn tank_triggers_leave_the_editor_location_and_follow_the_model() {
+        let game: GameDefinition = crate::origins::read(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/assets/game.json"),
+        );
+        let sources = game
+            .environment
+            .triggers
+            .iter()
+            .filter(|source| {
+                source.source.get("targetname").is_some_and(|name| {
+                    matches!(name.as_str(), "trig_use_tank" | "vol_on_tank_watch")
+                })
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        assert_eq!(sources.len(), 2);
+        let mut world = World::new();
+        let body = Transform::from_translation(Vec3::from_array(source::ROUTE[0].0) + Vec3::Y)
+            .with_rotation(Quat::from_rotation_y((-104.2_f32).to_radians()));
+        let tank = world.spawn((TankBody, body)).id();
+        let entities = sources
+            .iter()
+            .map(|source| {
+                world
+                    .spawn((
+                        crate::environment::triggers::MapTrigger(source.id.clone()),
+                        source.transform(),
+                        source.collider().unwrap(),
+                    ))
+                    .id()
+            })
+            .collect::<Vec<_>>();
+        world.insert_resource(game);
+        world.run_system_cached(bind_triggers).unwrap();
+        world.flush();
+        for entity in entities {
+            let pose = *world.get::<Transform>(entity).unwrap();
+            assert!(pose.translation.distance(body.translation) < 10.);
+            assert_eq!(
+                world
+                    .get::<crate::environment::triggers::OwnedTrigger>(entity)
+                    .unwrap()
+                    .0,
+                tank
+            );
+            let link = world.get::<TankTriggerLink>(entity).unwrap();
+            assert!(
+                pose.translation.abs_diff_eq(
+                    body.mul_transform(model_offset())
+                        .mul_transform(link.local)
+                        .translation,
+                    1e-5
+                )
+            );
+        }
+        world.get_mut::<Transform>(tank).unwrap().translation += Vec3::X * 20.;
+        world.run_system_cached(follow_triggers).unwrap();
+        assert!(
+            world
+                .query::<&TankTriggerLink>()
+                .iter(&world)
+                .any(|link| link.kill)
+        );
+        for (link, pose) in world.query::<(&TankTriggerLink, &Transform)>().iter(&world) {
+            assert!(
+                pose.translation.abs_diff_eq(
+                    (Transform::from_translation(Vec3::X * 20.) * body)
+                        .mul_transform(model_offset())
+                        .mul_transform(link.local)
+                        .translation,
+                    1e-5
+                )
+            );
+        }
+    }
 
     #[test]
     fn environment_trigger_tank_box_preserves_native_center_and_dimensions() {
