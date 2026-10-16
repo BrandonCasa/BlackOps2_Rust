@@ -256,6 +256,45 @@ fn model_offset() -> Transform {
         .with_rotation(Quat::from_rotation_y(std::f32::consts::FRAC_PI_2))
 }
 
+fn hull(game: &GameDefinition) -> Collider {
+    let source = game
+        .environment
+        .brush_entities
+        .iter()
+        .find(|brush| {
+            brush
+                .source
+                .get("targetname")
+                .is_some_and(|name| name == "tank_path_blocker")
+        })
+        .expect("Original tank collision brushes are required");
+    let local = model_offset().mul_transform(Transform::from_matrix(
+        source::editor_pose().to_matrix().inverse() * source.transform().to_matrix(),
+    ));
+    // Preserve the native tracks, sides and low rear deck instead of filling
+    // their whole bounding box and preventing ordinary boarding jumps.
+    Collider::compound(
+        source
+            .volumes
+            .iter()
+            .map(|volume| {
+                let vertices = volume
+                    .vertices
+                    .iter()
+                    .copied()
+                    .map(Vec3::from_array)
+                    .collect::<Vec<_>>();
+                (
+                    local.transform_point(Vec3::from_array(volume.position)),
+                    local.rotation,
+                    Collider::convex_hull(&vertices)
+                        .expect("Original tank convex hull is required"),
+                )
+            })
+            .collect(),
+    )
+}
+
 #[cfg(test)]
 mod trigger_tests {
     use super::*;
@@ -266,6 +305,9 @@ mod trigger_tests {
         let game: GameDefinition = crate::origins::read(
             &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/assets/game.json"),
         );
+        let collision = hull(&game);
+        assert!(collision.contains_point(Vec3::ZERO, Quat::IDENTITY, Vec3::new(0., 0., 2.5)));
+        assert!(!collision.contains_point(Vec3::ZERO, Quat::IDENTITY, Vec3::new(0., 0.5, 2.5)));
         let sources = game
             .environment
             .triggers
@@ -379,11 +421,6 @@ fn setup(
     mut session: ResMut<Session>,
 ) {
     *tank = Tank::default();
-    let hull = Collider::compound(vec![(
-        Vec3::new(0., 0.4914, -1.3585),
-        Quat::IDENTITY,
-        Collider::cuboid(6.1334, 2.9828, 10.9971),
-    )]);
     let entity = commands
         .spawn((
             TankBody,
@@ -391,7 +428,7 @@ fn setup(
             SessionEntity,
             RigidBody::Kinematic,
             CustomPositionIntegration,
-            hull,
+            hull(&game),
             Transform::from_translation(Vec3::from_array(source::ROUTE[0].0) + Vec3::Y)
                 .with_rotation(Quat::from_rotation_y((-104.2_f32).to_radians())),
             Visibility::Inherited,

@@ -255,15 +255,15 @@ def generators_tank(client):
     if tank["phase"] != "Ready" or tank["station"] != 0:
         raise ValidationFailure("Tank must begin at its ordinary church station")
     # Stage beside the rear hull. Boarding and the staff jump use movement only.
-    client.send({"op": "teleport", "feet": tank_point(tank, [4.2, 2.0, 3.0])},
+    client.send({"op": "teleport", "feet": tank_point(tank, [0.0, -0.65, 4.8])},
                 label="Stage beside the tank at the church")
     client.input(12)
-    boarding = tank_point(tank, [2.2, 1.9828, 2.5])
+    boarding = tank_point(tank, [0.0, 0.016, 2.5])
     client.input(120, aim=[boarding[0], client.state()["player"]["eye"][1], boarding[2]],
                  label="Inspect the tank boarding route")
     client.input(24, ("forward", "jump"), label="Board the tank using an ordinary jump")
     client.input(24)
-    walk_to(client, tank_point(tank, [2.2, 1.9828, -1.0]), tolerance=0.6, seconds=12)
+    walk_to(client, tank_point(tank, [0.0, 0.016, -1.0]), tolerance=0.6, seconds=12)
     state = client.state()
     if state["player"]["platform"] != tank["entity"]:
         raise ValidationFailure("Tank boarding did not establish platform support")

@@ -65,16 +65,14 @@ class Client:
             except (OSError, urllib.error.URLError):
                 if attempt == 2:
                     raise
-        if not wait:
-            return receipt
-        goal = "executed"
-        def complete(state):
-            nonlocal receipt
-            receipt = self.receipt(request["id"], session=request["session"])
-            if receipt["phase"] in ("failed", "rejected", "cancelled"):
-                raise ValidationFailure(f"Command {request['id']}: {receipt['phase']}: {receipt.get('error')}")
-            return receipt["phase"] == goal
-        self.wait(complete, seconds=600 if action["op"] == "start" else 90, allow_failure=allow_failure, realtime=action["op"] in ("start", "pause", "resume", "step", "abort", "finish", "capture", "quit"))
+        if wait:
+            def complete(state):
+                nonlocal receipt
+                receipt = self.receipt(request["id"], session=request["session"])
+                if receipt["phase"] in ("failed", "rejected", "cancelled"):
+                    raise ValidationFailure(f"Command {request['id']}: {receipt['phase']}: {receipt.get('error')}")
+                return receipt["phase"] == "executed"
+            self.wait(complete, seconds=600 if action["op"] == "start" else 90, allow_failure=allow_failure, realtime=action["op"] in ("start", "pause", "resume", "step", "abort", "finish", "capture", "quit"))
         if self.report:
             with (self.report / "commands.jsonl").open("a", encoding="utf-8") as log:
                 log.write(json.dumps(receipt) + "\n")
