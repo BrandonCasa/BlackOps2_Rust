@@ -372,43 +372,43 @@ def first_lightning_part(client):
         raise ValidationFailure("The tank ride did not demonstrate sustained platform carry")
     results["ride"] = {"supported_observations": supported}
     results["ride_capture"] = capture(client, "tank-ride")
-    walk_to(client, [1.7, 2.36, -6.4], tolerance=0.3, seconds=10, on_tank=True)
+    walk_to(client, [1.5, 2.36, -6.5], tolerance=0.2, seconds=10, on_tank=True)
     client.input(30, label="Settle on the front deck before timing the jump")
     state = client.state()
     sequence = state["evidence"]["sequence"]
-    landing = [43.5, -3.76, -83.9]
+    aim = [44.0, -3.76, -84.8]
     tank = state["tank"]
     # The front deck clears the fence's southern end before the southwest turn.
-    takeoff = [32.386, 0, -82.8]
+    takeoff = [32.335, 0, -83.08]
     (client.report / "tank-jump-plan.json").write_text(json.dumps({
         "feet":state["player"]["feet"],"velocity":state["player"]["velocity"],
-        "tank":tank["position"],"wait_point":takeoff,"runup_ticks":10,"aim":landing,
+        "tank":tank["position"],"wait_point":takeoff,"runup_ticks":4,"aim":aim,
     },indent=2))
     client.send([
-        {"op": "input", "ticks": 1800, "held": [], "aim": landing, "look": [0, 0],
-         "arrival_point": takeoff, "arrival_entity":tank["entity"], "arrival_radius": 0.15},
-        {"op": "input", "ticks": 10, "held": ["forward", "sprint"], "aim": landing, "look": [0, 0]},
-        {"op": "input", "ticks": 18, "held": ["forward", "sprint", "jump"], "aim": landing, "look": [0, 0]},
-        {"op": "input", "ticks": 120, "held": ["forward", "sprint"], "aim": landing, "look": [0, 0], "arrival_radius": 0.6},
-    ], label="Ride to the native jump window, then jump past the fence onto the lightning-part bank")
+        {"op": "input", "ticks": 1800, "held": [], "aim": aim, "look": [0, 0],
+         "arrival_point": takeoff, "arrival_entity":tank["entity"], "arrival_radius": 0.1},
+        {"op": "input", "ticks": 4, "held": ["forward", "sprint"], "aim": aim, "look": [0, 0]},
+        {"op": "input", "ticks": 18, "held": ["forward", "sprint", "jump"], "aim": aim, "look": [0, 0]},
+        {"op": "input", "ticks": 24, "held": ["forward", "sprint"], "aim": aim, "look": [0, 0]},
+        {"op": "input", "ticks": 60, "held": [], "aim": aim, "look": [0, 0]},
+    ], label="Jump from the tank to the near staff bank and settle after landing")
     state = client.wait(lambda s: s["player"]["grounded"], seconds=5)
     landings = [e for e in state["evidence"]["events"] if e["sequence"] > sequence
                 and e["kind"] == "landing" and e["data"]["owner"] == state["player"]["entity"]]
-    if not landings or state["player"]["platform"] == tank["entity"] or abs(state["player"]["feet"][1] - landing[1]) > 0.3 or distance(state["player"]["feet"], landing) > 1.5:
+    if not landings or state["player"]["platform"] == tank["entity"] or distance(state["player"]["feet"], [36.5, -2.0, -88.5]) > 2.0:
         raise ValidationFailure("Lightning jump has no landing away from the tank")
     jumps = [e for e in state["evidence"]["events"] if e["sequence"] > sequence
              and e["kind"] == "jump" and e["data"]["platform"] == tank["entity"]]
     if not jumps:
         raise ValidationFailure("Lightning jump has no native takeoff from the tank")
-    # Sprint is a native toggle in the default controls; tap again before walking.
-    if state["movement"]["sprint_toggle"]:
-        client.send([{"op":"input","ticks":1,"held":[],"look":[0,0]},
-                     {"op":"input","ticks":1,"held":["sprint"],"look":[0,0]},
-                     {"op":"input","ticks":1,"held":[],"look":[0,0]}],label="Release sprint before walking the staff path")
-    for point in ([49.0, -3.75, -84.5], [52.0, -3.53, -84.0], [52.5,-3.4,-83.5],
-                  [52.5,-3.4,-83.0], [53.0,-3.38,-83.0], [53.0,-3.54,-82.5],
-                  [57.0,-3.56,-82.5], [57.2, -3.4, -76.949554]):
-        walk_to(client, point, tolerance=0.65, seconds=15)
+    # Standing idle releases the native sprint toggle before this narrow path.
+    for point in ([37,-2.1,-88.5], [37,-2.62,-87.5], [37.5,-2.82,-87.5],
+                  [37.5,-3.12,-87], [38,-3.29,-87], [38,-3.84,-86],
+                  [46.5,-3.75,-86], [46.5,-3.75,-85], [49,-3.79,-85],
+                  [49,-3.71,-84], [52,-3.53,-84], [52,-3.49,-83.5],
+                  [52.5,-3.4,-83.5], [52.5,-3.4,-83], [53,-3.38,-83],
+                  [53,-3.54,-82.5], [57,-3.56,-82.5], [57.2,-3.4,-76.949554]):
+        walk_to(client, point, tolerance=0.25, seconds=15)
     part = "part.elemental_staff_lightning.upper_staff"
     target = target_of(client.state(), "part", part)
     state = use_target(client, target, "Take the lightning staff part through interaction")
