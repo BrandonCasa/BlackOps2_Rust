@@ -139,7 +139,7 @@ impl Hitboxes {
         direction: Dir3,
         range: f32,
     ) -> f32 {
-        let mut intervals: Vec<_> = self
+        let intervals = self
             .volumes
             .iter()
             .filter(|v| !self.disabled_region(v.region))
@@ -170,18 +170,20 @@ impl Hitboxes {
                     range - reverse
                 };
                 (end > start).then_some((start, end))
-            })
-            .collect();
-        intervals.sort_by(|a, b| a.0.total_cmp(&b.0));
-        if self.volumes.iter().any(|volume| volume.native.is_some()) {
-            return intervals.first().map_or(0., |first| {
-                intervals
-                    .iter()
-                    .map(|interval| interval.1)
-                    .fold(first.1, f32::max)
-                    - first.0
             });
+        if self.volumes.iter().any(|volume| volume.native.is_some()) {
+            // Native penetration uses the outer entry/exit span, including
+            // gaps between bones. No interval ordering or allocation is needed.
+            return intervals
+                .fold(None, |span, (start, end)| {
+                    Some(span.map_or((start, end), |(a, b): (f32, f32)| {
+                        (a.min(start), b.max(end))
+                    }))
+                })
+                .map_or(0., |(start, end)| end - start);
         }
+        let mut intervals: Vec<_> = intervals.collect();
+        intervals.sort_by(|a, b| a.0.total_cmp(&b.0));
         let mut total = 0.;
         let mut previous: Option<(f32, f32)> = None;
         for (start, end) in intervals {
@@ -650,6 +652,46 @@ fn capture(
 mod tests {
     use super::*;
     use bevy::ecs::system::SystemState;
+
+    #[test]
+    fn native_penetration_span_preserves_gaps_disabled_limbs_and_clipped_rays() {
+        let mut boxes = Hitboxes {
+            disabled: vec![],
+            volumes: [(1., HitRegion::Torso), (4., HitRegion::LeftArm)]
+                .map(|(z, region)| HitVolume {
+                    id: format!("test.{z}"),
+                    region,
+                    start: Vec3::Z * z,
+                    end: Vec3::Z * z,
+                    shape: Collider::compound(vec![(
+                        Vec3::Z * z,
+                        Quat::IDENTITY,
+                        Collider::cuboid(1., 1., 1.),
+                    )]),
+                    native: Some(NativeVolume {
+                        bone: bevy::math::Affine3A::from_translation(Vec3::Z * z),
+                        bounds: [Vec3::splat(-0.5), Vec3::splat(0.5)],
+                        sphere: [0., 0., 0., 1.],
+                    }),
+                })
+                .into_iter()
+                .collect(),
+        };
+        let pose = Transform::IDENTITY;
+        assert!((boxes.occupied_distance(&pose, Vec3::ZERO, Dir3::Z, 10.) - 4.).abs() < 0.00001);
+        assert!((boxes.occupied_distance(&pose, Vec3::ZERO, Dir3::Z, 4.) - 3.5).abs() < 0.00001);
+        boxes.disabled.push(HitRegion::LeftArm);
+        assert!((boxes.occupied_distance(&pose, Vec3::ZERO, Dir3::Z, 10.) - 1.).abs() < 0.00001);
+        assert_eq!(
+            boxes.occupied_distance(&pose, Vec3::X * 10., Dir3::Z, 10.),
+            0.
+        );
+        boxes.disabled.clear();
+        for volume in &mut boxes.volumes {
+            volume.native = None;
+        }
+        assert!((boxes.occupied_distance(&pose, Vec3::ZERO, Dir3::Z, 10.) - 2.).abs() < 0.00001);
+    }
 
     #[test]
     fn native_bone_bounds_follow_rotation_and_reject_sphere_only_hits() {

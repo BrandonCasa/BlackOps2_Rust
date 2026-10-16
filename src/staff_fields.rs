@@ -160,6 +160,7 @@ fn tick(
     mut damage: ResMut<DamageQueue>,
     mut session: ResMut<crate::gameplay::Session>,
     effects: Res<crate::powerups::PowerupEffects>,
+    mut candidates: Local<Vec<(Entity, f32)>>,
 ) {
     let dt = time.delta_secs();
     for (_, _, _, _, _, mut wounds, _) in &mut enemies {
@@ -207,32 +208,31 @@ fn tick(
         } else {
             field.radius
         };
-        let mut candidates: Vec<_> = enemies
-            .iter()
-            .filter(|(_, _, _, health, kind, _, zombie)| {
-                health.state() == LifeState::ActorAlive
-                    && (!matches!(
-                        field.category,
-                        DamageCategory::Wind | DamageCategory::Lightning
-                    ) || *kind != Some(&crate::rounds::PopulationKind::Special)
-                        && zombie.definition.0 != "enemy.panzer")
-            })
-            .map(|(target, pose, _, _, _, _, _)| {
-                (
-                    target,
-                    pose.translation.distance_squared(center.translation),
-                )
-            })
-            .filter(|(_, distance)| *distance <= radius * radius)
-            .collect();
-        candidates.sort_by(|a, b| {
+        let category = field.category;
+        let radius_squared = radius * radius;
+        candidates.clear();
+        candidates.extend(enemies.iter().filter_map(
+            |(target, pose, _, health, kind, _, zombie)| {
+                let distance = pose.translation.distance_squared(center.translation);
+                (eligible(category, health, kind, zombie) && distance <= radius_squared)
+                    .then_some((target, distance))
+            },
+        ));
+        candidates.sort_unstable_by(|a, b| {
             a.1.total_cmp(&b.1)
                 .then_with(|| a.0.to_bits().cmp(&b.0.to_bits()))
         });
-        field
-            .targets
-            .retain(|target, _| candidates.iter().any(|(entity, _)| entity == target));
-        for (target, _) in candidates {
+        // Entity lookup is direct. Rescanning every candidate for each retained
+        // target made this quadratic in a crowded field.
+        field.targets.retain(|&target, _| {
+            enemies
+                .get(target)
+                .is_ok_and(|(_, pose, _, health, kind, _, zombie)| {
+                    eligible(category, health, kind, zombie)
+                        && pose.translation.distance_squared(center.translation) <= radius_squared
+                })
+        });
+        for &(target, _) in candidates.iter() {
             let Ok((_, mut pose, shape, health, kind, mut wounds, mut zombie)) =
                 enemies.get_mut(target)
             else {
@@ -272,16 +272,10 @@ fn tick(
                     if kind == Some(&crate::rounds::PopulationKind::Special)
                         || zombie.definition.0 == "enemy.panzer"
                     {
-                        if !field.targets.contains_key(&target) {
-                            field.targets.insert(
-                                target,
-                                FieldTarget {
-                                    remaining: 0.,
-                                    phase: 0,
-                                },
-                            );
-                        }
-                        let timer = field.targets.get_mut(&target).unwrap();
+                        let timer = field.targets.entry(target).or_insert(FieldTarget {
+                            remaining: 0.,
+                            phase: 0,
+                        });
                         if timer.remaining <= 0. {
                             timer.remaining = 1.;
                             damage.0.push(Impact {
@@ -307,37 +301,22 @@ fn tick(
                     }
                 }
                 DamageCategory::Lightning => {
-                    let timer = field.targets.entry(target).or_insert(FieldTarget {
-                        remaining: 0.5,
-                        phase: 0,
-                    });
-                    if timer.remaining <= 0. {
-                        if timer.phase == 0 {
-                            wounds.electrical = 1.1;
-                            zombie.stunned = zombie.stunned.max(1.1);
-                            timer.phase = 1;
-                            timer.remaining = 1.;
-                        } else {
-                            timer.remaining = 1.;
-                            wounds.electrical = 1.1;
-                            zombie.stunned = zombie.stunned.max(1.1);
-                            let amount = if effects.insta_kill > 0. {
-                                health.current().unwrap_or(0)
-                            } else if field.tier == 3 {
-                                3500
-                            } else {
-                                2500
-                            };
-                            damage.0.push(Impact {
-                                point: None,
-                                attacker: field.owner,
-                                target,
-                                source: ImpactSource::Status(field.weapon.clone()),
-                                category: DamageCategory::Lightning,
-                                region: HitRegion::Torso,
-                                amount,
-                            });
-                        }
+                    if let Some(amount) = field.lightning_tick(
+                        target,
+                        health,
+                        &mut wounds,
+                        &mut zombie,
+                        effects.insta_kill > 0.,
+                    ) {
+                        damage.0.push(Impact {
+                            point: None,
+                            attacker: field.owner,
+                            target,
+                            source: ImpactSource::Status(field.weapon.clone()),
+                            category: DamageCategory::Lightning,
+                            region: HitRegion::Torso,
+                            amount,
+                        });
                     }
                 }
                 DamageCategory::Wind => {
@@ -393,6 +372,138 @@ fn tick(
                 }
                 _ => {}
             }
+        }
+    }
+}
+
+fn eligible(
+    category: DamageCategory,
+    health: &Vitality,
+    kind: Option<&crate::rounds::PopulationKind>,
+    zombie: &crate::enemies::Zombie,
+) -> bool {
+    health.state() == LifeState::ActorAlive
+        && (!matches!(category, DamageCategory::Wind | DamageCategory::Lightning)
+            || kind != Some(&crate::rounds::PopulationKind::Special)
+                && zombie.definition.0 != "enemy.panzer")
+}
+
+impl ElementalField {
+    fn lightning_tick(
+        &mut self,
+        target: Entity,
+        health: &Vitality,
+        wounds: &mut crate::combat_effects::Wounds,
+        zombie: &mut crate::enemies::Zombie,
+        insta_kill: bool,
+    ) -> Option<u32> {
+        let timer = self.targets.entry(target).or_insert(FieldTarget {
+            remaining: 0.5,
+            phase: 0,
+        });
+        if timer.remaining > 0. {
+            return None;
+        }
+        timer.remaining = 1.;
+        wounds.electrical = 1.1;
+        zombie.stunned = zombie.stunned.max(1.1);
+        if timer.phase == 0 {
+            timer.phase = 1;
+            return None;
+        }
+        Some(if insta_kill {
+            health.current().unwrap_or(0)
+        } else if self.tier == 3 {
+            3500
+        } else {
+            2500
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        combat_effects::Wounds,
+        enemies::Zombie,
+        origins::ContentId,
+        rounds::{Gait, PopulationKind},
+    };
+
+    #[test]
+    fn elemental_target_filter_preserves_special_enemy_exclusions() {
+        let health = Vitality::ordinary_actor(4000, 4000).unwrap();
+        let ordinary = Zombie::new(Vec3::ZERO, ContentId("enemy.zombie".into()), Gait::Walk);
+        let panzer = Zombie::new(Vec3::ZERO, ContentId("enemy.panzer".into()), Gait::Walk);
+        for category in [DamageCategory::Fire, DamageCategory::Ice] {
+            assert!(eligible(
+                category,
+                &health,
+                Some(&PopulationKind::Special),
+                &ordinary
+            ));
+            assert!(eligible(category, &health, None, &panzer));
+        }
+        for category in [DamageCategory::Wind, DamageCategory::Lightning] {
+            assert!(!eligible(
+                category,
+                &health,
+                Some(&PopulationKind::Special),
+                &ordinary
+            ));
+            assert!(!eligible(category, &health, None, &panzer));
+            assert!(eligible(category, &health, None, &ordinary));
+        }
+    }
+
+    #[test]
+    fn lightning_preserves_contact_delay_stun_phase_and_damage_intervals() {
+        let target = World::new().spawn_empty().id();
+        let health = Vitality::ordinary_actor(2345, 5000).unwrap();
+        for (tier, insta_kill, amount) in [(2, false, 2500), (3, false, 3500), (3, true, 2345)] {
+            let mut field = ElementalField {
+                owner: target,
+                weapon: WeaponId("weapon.staff_lightning_upgraded2_zm".into()),
+                category: DamageCategory::Lightning,
+                remaining: 8.,
+                radius: 3.81,
+                pulse: 0.,
+                delay: 0.,
+                tier,
+                endpoint: None,
+                speed: 0.,
+                targets: BTreeMap::new(),
+                capture_tick: 0.,
+            };
+            let mut zombie = Zombie::new(Vec3::ZERO, ContentId("enemy.zombie".into()), Gait::Walk);
+            zombie.stunned = 2.;
+            let mut wounds = Wounds::default();
+            assert_eq!(
+                field.lightning_tick(target, &health, &mut wounds, &mut zombie, insta_kill),
+                None
+            );
+            assert_eq!(field.targets[&target].remaining, 0.5);
+            assert_eq!(wounds.electrical, 0.);
+            field.targets.get_mut(&target).unwrap().remaining = 0.;
+            assert_eq!(
+                field.lightning_tick(target, &health, &mut wounds, &mut zombie, insta_kill),
+                None
+            );
+            assert_eq!(field.targets[&target].phase, 1);
+            assert_eq!(field.targets[&target].remaining, 1.);
+            assert_eq!(wounds.electrical, 1.1);
+            assert_eq!(zombie.stunned, 2.);
+            assert_eq!(
+                field.lightning_tick(target, &health, &mut wounds, &mut zombie, insta_kill),
+                None
+            );
+            field.targets.get_mut(&target).unwrap().remaining = 0.;
+            assert_eq!(
+                field.lightning_tick(target, &health, &mut wounds, &mut zombie, insta_kill),
+                Some(amount)
+            );
+            assert_eq!(field.targets[&target].remaining, 1.);
         }
     }
 }

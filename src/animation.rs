@@ -110,28 +110,18 @@ impl SceneClips {
         Some((node, assets.clips.get(clip)?.duration()))
     }
 
-    /// Release clips after their last contributing layer or owned next action retires.
-    pub fn retain(
-        &mut self,
-        nodes: impl IntoIterator<Item = AnimationNodeIndex>,
-        graph: &AnimationGraphHandle,
-        assets: &mut ClipAssets,
-    ) {
-        let retained: HashSet<_> = nodes.into_iter().collect();
+    /// Release clip assets after their last contributing layer retires.
+    fn retire_unused(&mut self, graph: &AnimationGraphHandle, assets: &mut ClipAssets) {
         let Some(mut owned) = assets.graphs.get_mut(&graph.0) else {
             return;
         };
         self.nodes.retain(|_, node| {
-            if retained.contains(node) {
+            if self.layers.iter().any(|layer| layer.node == *node) {
                 return true;
             }
             owned[*node].node_type = AnimationNodeType::Blend;
             false
         });
-        self.layers.retain(|layer| retained.contains(&layer.node));
-        if self.main.is_some_and(|node| !retained.contains(&node)) {
-            self.main = None;
-        }
     }
 
     /// Sample the owner-selected source time directly; gameplay owns action selection and notifies.
@@ -250,8 +240,7 @@ impl SceneClips {
             true
         });
         if changed || retired {
-            let nodes: Vec<_> = self.layers.iter().map(|layer| layer.node).collect();
-            self.retain(nodes, graph, assets);
+            self.retire_unused(graph, assets);
         }
         true
     }

@@ -768,6 +768,7 @@ fn board(
             Without<TankBody>,
             Without<Player>,
             Without<crate::panzer::Panzer>,
+            Without<crate::cheats::physics::LivingRagdoll>,
         ),
     >,
 ) {
@@ -1301,7 +1302,7 @@ pub(crate) fn interact(
                 pose,
                 state,
                 &spatial,
-                owner,
+                [owner],
                 client_modes.get(owner).ok()?.0,
                 eye,
                 forward,

@@ -222,9 +222,10 @@ pub(crate) fn interact(
     mut session: ResMut<Session>,
     mut access: ResMut<crate::access::ZoneAccess>,
     mut barriers: ResMut<crate::barriers::Barriers>,
-    (repair_triggers, player_shapes): (
+    (repair_triggers, player_shapes, door_blockers): (
         Query<&crate::barriers::BarrierRepairTrigger>,
         Query<&Collider, With<Player>>,
+        Query<(Entity, &crate::access::DoorBlocker)>,
     ),
     mut generators: ResMut<crate::generators::Generators>,
     (native_triggers, client_modes, mut trigger_queue, mut native_flags): (
@@ -310,15 +311,20 @@ pub(crate) fn interact(
             if let Some(id) = &usable.source.source_trigger {
                 let (trigger,_,shape,pose,state) = native_triggers.iter().find(|(_,native,_,_,_)|native.0==*id)?;
                 let score = crate::environment::support::use_candidate(trigger,shape,pose,state,&query,
-                    player_entity,client_modes.get(player_entity).ok()?.0,origin,forward,matches!(usable.source.action,InteractionAction::Generator {..}),definition.tuning.use_radius)?;
+                    [player_entity],client_modes.get(player_entity).ok()?.0,origin,forward,matches!(usable.source.action,InteractionAction::Generator {..}),definition.tuning.use_radius)?;
                 return Some((-score,score,entity,usable,Some(trigger)));
             }
             if let InteractionAction::Door { connection, .. } = &usable.source.action {
                 let (trigger, score) = native_triggers.iter().filter_map(|(trigger, native, shape, pose, state)| {
                     let source = definition.environment.triggers.iter().find(|source| source.id == native.0)?;
                     if !native_door_connection(&source.source, &definition.access.flag_links, connection) { return None; }
+                    // The trigger center is inside the closed door. Its own collision
+                    // must not hide the purchase prompt; other solids still occlude it.
+                    let excluded = std::iter::once(player_entity).chain(
+                        door_blockers.iter().filter_map(|(entity, blocker)|
+                            (blocker.0 == *connection).then_some(entity)));
                     let score = crate::environment::support::use_candidate(trigger,shape,pose,state,&query,
-                        player_entity,client_modes.get(player_entity).ok()?.0,origin,forward,false,definition.tuning.use_radius)?;
+                        excluded,client_modes.get(player_entity).ok()?.0,origin,forward,false,definition.tuning.use_radius)?;
                     Some((trigger,score))
                 }).min_by(|a,b|a.1.total_cmp(&b.1))?;
                 return Some((-score,score,entity,usable,Some(trigger)));

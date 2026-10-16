@@ -67,6 +67,42 @@ impl Default for Drops {
         }
     }
 }
+impl Drops {
+    fn next_powerup(
+        &mut self,
+        game: &GameDefinition,
+        session: &mut Session,
+        fire_sale_allowed: bool,
+    ) -> Option<usize> {
+        // get_valid_powerup advances past an unavailable Fire Sale, including
+        // crossing the end of a shuffled cycle without losing the earned drop.
+        for _ in 0..=game.content.powerups.len() {
+            if self.cycle.is_empty() {
+                self.cycle = game
+                    .content
+                    .powerups
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, powerup)| supported(powerup) && powerup.presentation.is_some())
+                    .map(|(index, _)| index)
+                    .collect();
+                crate::economy::source_shuffle(&mut self.cycle, session);
+            }
+            #[cfg(feature = "dev-tools")]
+            if let Some(index) = self.selection.take()
+                && let Some(position) = self.cycle.iter().position(|&i| i == index)
+            {
+                let last = self.cycle.len() - 1;
+                self.cycle.swap(position, last);
+            }
+            let index = self.cycle.pop()?;
+            if game.content.powerups[index].id.0 != "powerup.fire_sale" || fire_sale_allowed {
+                return Some(index);
+            }
+        }
+        None
+    }
+}
 #[cfg(feature = "dev-tools")]
 impl Drops {
     pub(crate) fn select(&mut self, id: &str, game: &GameDefinition) -> Result<(), String> {
@@ -133,6 +169,27 @@ fn opportunity_powerup_rejections_preserve_budget_cycle_and_threshold() {
     assert_eq!(drops.cycle, vec![blood]);
     assert_eq!(drops.spawned, 0);
 }
+#[cfg(test)]
+#[test]
+fn native_powerup_cycle_skips_unavailable_sales_without_losing_a_drop() {
+    let game: GameDefinition =
+        serde_json::from_str(include_str!("../gameplay/origins/game.json")).unwrap();
+    let sale = game
+        .content
+        .powerups
+        .iter()
+        .position(|p| p.id.0 == "powerup.fire_sale")
+        .unwrap();
+    let mut session = Session::default();
+    let mut drops = Drops::default();
+    drops.cycle = vec![sale];
+    let selected = drops.next_powerup(&game, &mut session, false).unwrap();
+    assert_ne!(game.content.powerups[selected].id.0, "powerup.fire_sale");
+    assert_eq!((drops.count, drops.spawned), (0, 0));
+    drops.cycle = vec![sale];
+    assert_eq!(drops.next_powerup(&game, &mut session, true), Some(sale));
+}
+
 #[derive(Component)]
 struct Nuke {
     owner: Entity,
@@ -151,7 +208,7 @@ impl Plugin for PowerupPlugin {
             .init_resource::<Drops>()
             .add_systems(
                 FixedUpdate,
-                (tick, collect, effect_audio)
+                (pickup_fx, tick, collect, effect_audio)
                     .chain()
                     .in_set(GameStep::Interactions)
                     .run_if(in_state(GameState::Playing)),
@@ -191,6 +248,7 @@ fn tick(
         pickup.remaining -= dt;
         transform.rotate_y(dt);
         if pickup.remaining <= 0. {
+            crate::native_fx::emit(&mut commands, "misc/fx_zombie_powerup_off", *transform);
             commands.entity(entity).despawn();
             drops.expired += 1;
         } else {
@@ -212,6 +270,24 @@ fn tick(
         }
     }
 }
+fn pickup_fx(
+    mut commands: Commands,
+    game: Res<GameDefinition>,
+    pickups: Query<(Entity, &Pickup), Added<Pickup>>,
+) {
+    for (entity, pickup) in &pickups {
+        let name = &game.content.powerups[pickup.definition].id.0;
+        let effect = if matches!(
+            name.as_str(),
+            "powerup.zombie_blood" | "powerup.bonus_points_player"
+        ) {
+            "misc/fx_zombie_powerup_solo_on"
+        } else {
+            "misc/fx_zombie_powerup_on"
+        };
+        crate::native_fx::attach(&mut commands, effect, entity, Transform::default());
+    }
+}
 fn supported(definition: &PowerupDefinition) -> bool {
     matches!(
         definition.id.0.as_str(),
@@ -219,6 +295,7 @@ fn supported(definition: &PowerupDefinition) -> bool {
             | "powerup.full_ammo"
             | "powerup.insta_kill"
             | "powerup.double_points"
+            | "powerup.fire_sale"
             | "powerup.zombie_blood"
     )
 }
@@ -330,6 +407,8 @@ fn drop_powerups(
     spatial: SpatialQuery,
     server: Res<AssetServer>,
     zones: Query<&crate::access::ZoneSensor>,
+    stations: Res<crate::stations::Stations>,
+    effects: Res<PowerupEffects>,
 ) {
     if drops.round != session.round {
         drops.round = session.round;
@@ -387,28 +466,11 @@ fn drop_powerups(
         {
             continue;
         }
-        if drops.cycle.is_empty() {
-            drops.cycle = definition
-                .content
-                .powerups
-                .iter()
-                .enumerate()
-                .filter(|(_, d)| supported(d) && d.presentation.is_some())
-                .map(|(i, _)| i)
-                .collect();
-            for i in (1..drops.cycle.len()).rev() {
-                let j = session.random() as usize % (i + 1);
-                drops.cycle.swap(i, j);
-            }
-        }
-        #[cfg(feature = "dev-tools")]
-        if let Some(index) = drops.selection.take()
-            && let Some(position) = drops.cycle.iter().position(|&i| i == index)
-        {
-            let last = drops.cycle.len() - 1;
-            drops.cycle.swap(position, last);
-        }
-        let Some(index) = drops.cycle.pop() else {
+        let Some(index) = drops.next_powerup(
+            &definition,
+            &mut session,
+            stations.moves > 0 && effects.fire_sale <= 0.,
+        ) else {
             continue;
         };
         let d = &definition.content.powerups[index];
@@ -526,7 +588,7 @@ pub(crate) fn collect(
                         session.award(points * effects.multiplier());
                     }
                 }
-                "powerup.fire_sale" => effects.fire_sale = d.duration,
+                "powerup.fire_sale" => effects.fire_sale += d.duration,
                 "powerup.double_points" => effects.double_points = d.duration,
                 "powerup.insta_kill" => effects.insta_kill = d.duration,
                 "powerup.zombie_blood" => effects.zombie_blood = d.duration,
@@ -571,6 +633,19 @@ pub(crate) fn collect(
                     );
                 }
                 _ => continue,
+            }
+            for effect in if matches!(
+                d.id.0.as_str(),
+                "powerup.zombie_blood" | "powerup.bonus_points_player"
+            ) {
+                [
+                    "misc/fx_zombie_powerup_solo_grab",
+                    "misc/fx_zombie_powerup_solo_wave",
+                ]
+            } else {
+                ["misc/fx_zombie_powerup_grab", "misc/fx_zombie_powerup_wave"]
+            } {
+                crate::native_fx::emit(&mut commands, effect, *transform);
             }
             commands.entity(entity).despawn();
             sound(

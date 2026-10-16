@@ -84,6 +84,7 @@ impl Plugin for PlayerPlugin {
                 FixedUpdate,
                 move_player
                     .in_set(GameStep::Movement)
+                    .run_if(crate::cheats::walking)
                     .run_if(in_state(GameState::Playing)),
             );
     }
@@ -201,7 +202,7 @@ pub(crate) fn move_player(
         &mut Player,
         &mut Transform,
         &Collider,
-        &crate::weapons::WeaponInventory,
+        &mut crate::weapons::WeaponInventory,
         &Vitality,
         Option<&crate::perks::PerkDrinking>,
         &crate::solo_revive::PerkInventory,
@@ -237,7 +238,7 @@ pub(crate) fn move_player(
         mut player,
         mut transform,
         collider,
-        inventory,
+        mut inventory,
         vitality,
         drinking,
         perks,
@@ -686,6 +687,7 @@ pub(crate) fn move_player(
             player.velocity.y.min(0.)
         };
     } else if jump_started {
+        inventory.jump_spread();
         player.velocity.y = tuning.jump_speed;
         mobility.jump_recovery = m.jump_recovery;
         #[cfg(feature = "dev-tools")]

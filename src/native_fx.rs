@@ -1,5 +1,6 @@
 //! Origins source-authored effect timelines and original native draw inputs.
 mod cloud;
+mod combat;
 pub(crate) mod decal;
 mod geometry;
 mod impact;
@@ -15,7 +16,7 @@ use crate::rendering::native_effect::{
     NativeEffectProgram, NativeEffectTransform, NativeOutdoorMap,
 };
 use crate::{GameState, assets::GameDefinition, gameplay::SessionEntity};
-use bevy::{asset::RecursiveDependencyLoadState, math::Affine2, prelude::*};
+use bevy::{math::Affine2, prelude::*};
 use serde::Deserialize;
 use std::collections::{BTreeMap, HashSet};
 #[derive(Clone, Copy, Deserialize)]
@@ -210,8 +211,6 @@ struct Particle {
     seed: u64,
     trail_start: Option<Vec3>,
     rotation: f32,
-    image: Option<Handle<Image>>,
-    scene: Option<Handle<bevy::world_serialization::WorldAsset>>,
     atlas_start: u32,
     emitted_at: Vec3,
     emit_step: f32,
@@ -225,6 +224,7 @@ pub(crate) struct NativeFxPlugin;
 impl Plugin for NativeFxPlugin {
     fn build(&self, app: &mut App) {
         shooting::install(app);
+        combat::install(app);
         app.add_systems(
             OnEnter(GameState::Loading),
             load_catalog.after(crate::assets::begin_load),
@@ -623,8 +623,6 @@ fn spawn(
                         .sample(channel(&catalog, particle_seed, 18)),
                     seed: particle_seed,
                     trail_start: None,
-                    image: None,
-                    scene: None,
                     atlas_start: e.atlas.index,
                     emitted_at: pose.translation,
                     emit_step: (e.emit_distance.sample(channel(&catalog, particle_seed, 14))
@@ -671,14 +669,8 @@ fn spawn(
                     if !visible {
                         commands.entity(particle_entity).insert(Visibility::Hidden);
                     }
-                    match visuals::model(&mut commands, &server, particle_entity, model) {
-                        Ok(scene) => {
-                            particle.scene = Some(scene);
-                        }
-                        Err(error) => {
-                            panic!("{}", error);
-                        }
-                    }
+                    visuals::model(&mut commands, &server, particle_entity, model)
+                        .unwrap_or_else(|error| panic!("{error}"));
                 } else if !e.visuals.is_empty() {
                     let name = visual.and_then(|v| {
                         if e.kind == 11 {
@@ -733,7 +725,6 @@ fn spawn(
                                 .entity(particle_entity)
                                 .insert(bevy::camera::visibility::NoFrustumCulling);
                         }
-                        particle.image = Some(native_material.color_map.clone());
                         if e.kind == 6 {
                             assert!(
                                 !native_material.program.cloud_outdoor() || outdoor.is_some(),
@@ -1089,7 +1080,6 @@ fn atlas_transform(atlas: &Atlas, start: u32, age: f32, life: f32) -> Result<Aff
 fn animate(
     mut commands: Commands,
     time: Res<Time>,
-    server: Res<AssetServer>,
     catalog: Res<Catalog>,
     materials: Res<Assets<NativeEffectMaterial>>,
     mut geometries: ResMut<Assets<NativeEffectGeometry>>,
@@ -1122,22 +1112,6 @@ fn animate(
             continue;
         };
         let e = &catalog.effects[&emitter.name].elements[p.element];
-        let state = if let Some(image) = &p.image {
-            server.get_recursive_dependency_load_state(image.id())
-        } else if let Some(scene) = &p.scene {
-            server.get_recursive_dependency_load_state(scene.id())
-        } else {
-            Some(RecursiveDependencyLoadState::Loaded)
-        };
-        match state {
-            Some(RecursiveDependencyLoadState::Failed(error)) => {
-                panic!(
-                    "{}",
-                    format!("Required source effect dependency failed: {error}"),
-                );
-            }
-            _ => {}
-        }
         p.age += time.delta_secs();
         if p.age >= p.life {
             if let Some(child) = &e.effect_on_death {

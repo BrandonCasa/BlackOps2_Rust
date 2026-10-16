@@ -925,19 +925,7 @@ fn combat_feedback(
                 Visibility::Hidden
             };
         }
-        let spread = weapon.map_or(0., |w| {
-            let stance = if player.prone {
-                2
-            } else if player.crouched {
-                1
-            } else {
-                0
-            };
-            let hip = w.mechanics.spread[stance]
-                * inventory.firing.hip_spread_scale
-                * (1. + player.velocity.xz().length().min(6.) / 6.);
-            (hip + (w.mechanics.spread[3] - hip) * inventory.ads) * inventory.attachment_spread()
-        });
+        let spread = weapon.map_or(0., |w| inventory.spread_angle(w, player.eye_height));
         let fov = cameras
             .single()
             .ok()

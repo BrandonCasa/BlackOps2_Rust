@@ -525,9 +525,12 @@ fn observe(
                     random,
                 );
             }
-            DamageCategory::Lightning if !event.lethal => {
-                wounds.electrical = 3.;
-                zombie.stunned = zombie.stunned.max(3.);
+            DamageCategory::Lightning => {
+                // is_electrocuted rejects another stun until this one finishes.
+                if wounds.electrical <= 0. {
+                    wounds.electrical = 3.;
+                    zombie.stunned = zombie.stunned.max(3.);
+                }
             }
             DamageCategory::Wind => {
                 if let Ok(attacker) = positions.get(hit.attacker) {

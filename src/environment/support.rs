@@ -234,7 +234,7 @@ pub fn use_candidate(
     pose: &Transform,
     state: &super::triggers::TriggerState,
     spatial: &SpatialQuery,
-    player: Entity,
+    excluded: impl IntoIterator<Item = Entity>,
     client_mode: i32,
     eye: Vec3,
     forward: Vec3,
@@ -267,7 +267,7 @@ pub fn use_candidate(
                 direction,
                 distance,
                 true,
-                &super::solids([player, target]),
+                &super::solids(excluded.into_iter().chain([target])),
             )
             .is_some()
     {
@@ -479,6 +479,58 @@ mod tests {
     }
 
     #[test]
+    fn native_use_selector_ignores_own_door_but_still_rejects_walls() {
+        use avian3d::collider_tree::{ColliderTreeProxy, ColliderTrees};
+        let mut world = World::new();
+        let player = world.spawn_empty().id();
+        let target = world.spawn_empty().id();
+        let mut trees = ColliderTrees::default();
+        let mut add_solid = |position: Vec3| {
+            let shape = Collider::cuboid(0.2, 3., 3.);
+            let bounds = shape.aabb(position, Quat::IDENTITY, 0.);
+            let entity = world
+                .spawn((Position(position), Rotation::IDENTITY, shape, bounds))
+                .id();
+            trees.static_tree.add_proxy(
+                bounds.into(),
+                ColliderTreeProxy {
+                    collider: entity,
+                    body: None,
+                    layers: CollisionLayers::default(),
+                    flags: default(),
+                },
+            );
+            entity
+        };
+        let door = add_solid(Vec3::X);
+        let wall = add_solid(Vec3::X * 0.5);
+        world.insert_resource(trees);
+        let mut query = SystemState::<SpatialQuery>::new(&mut world);
+        let spatial = query.get(&world).unwrap();
+        let shape = Collider::cuboid(0.5, 1., 1.);
+        let pose = Transform::from_translation(Vec3::X);
+        let state = trigger("trigger_use", 0);
+        let candidate = |excluded: Vec<Entity>| {
+            use_candidate(
+                target, &shape, &pose, &state, &spatial, excluded, 0,
+                Vec3::ZERO, Vec3::X, false, 72. * 0.0254,
+            )
+        };
+        assert!(
+            candidate(vec![player, wall]).is_none(),
+            "closed door blocks its own trigger"
+        );
+        assert!(
+            candidate(vec![player, wall, door]).is_some(),
+            "own blocker may be excluded"
+        );
+        assert!(
+            candidate(vec![player, door]).is_none(),
+            "unrelated wall must still block use"
+        );
+    }
+
+    #[test]
     fn native_use_selector_checks_radius_look_requirement_and_client_eligibility() {
         let mut world = World::new();
         world.init_resource::<avian3d::collider_tree::ColliderTrees>();
@@ -496,7 +548,7 @@ mod tests {
                 &pose,
                 &state,
                 &spatial,
-                player,
+                [player],
                 0,
                 Vec3::ZERO,
                 Vec3::X,
@@ -513,7 +565,7 @@ mod tests {
                 &outside,
                 &state,
                 &spatial,
-                player,
+                [player],
                 0,
                 Vec3::ZERO,
                 Vec3::X,
@@ -529,7 +581,7 @@ mod tests {
                 &pose,
                 &state,
                 &spatial,
-                player,
+                [player],
                 0,
                 Vec3::ZERO,
                 Vec3::NEG_X,
@@ -545,7 +597,7 @@ mod tests {
                 &pose,
                 &state,
                 &spatial,
-                player,
+                [player],
                 0,
                 Vec3::ZERO,
                 Vec3::NEG_X,
@@ -562,7 +614,7 @@ mod tests {
                     &pose,
                     &state,
                     &spatial,
-                    player,
+                    [player],
                     mode,
                     Vec3::ZERO,
                     Vec3::X,
@@ -580,7 +632,7 @@ mod tests {
                 &pose,
                 &state,
                 &spatial,
-                player,
+                [player],
                 0,
                 Vec3::ZERO,
                 Vec3::X,

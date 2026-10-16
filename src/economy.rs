@@ -27,6 +27,9 @@ pub(crate) fn record_downs(
     {
         if players.contains(target) && *counted != Some(target) {
             session.downs = session.downs.saturating_add(1);
+            // _zm_score::player_downed_penalty: truncate 5%, then round up to ten.
+            let penalty = (session.points / 20).div_ceil(10) * 10;
+            session.points = session.points.saturating_sub(penalty);
             *counted = Some(target);
         }
     }
@@ -46,4 +49,54 @@ impl crate::gameplay::Session {
         self.spent = self.spent.saturating_add(u64::from(amount));
         Ok(item)
     }
+}
+
+#[cfg(test)]
+#[test]
+fn native_down_penalty_rounds_up_once_without_changing_earned_or_spent_points() {
+    use crate::{life::*, player::Player, player_health::PlayerDeath, solo_revive::PlayerDowned};
+    let mut world = World::new();
+    world.init_resource::<crate::gameplay::Session>();
+    world.init_resource::<Messages<PlayerDowned>>();
+    world.init_resource::<Messages<PlayerDeath>>();
+    let mut health = Vitality::human(100, 100, 1, PlayerLethalPolicy::SoloSelfRevive).unwrap();
+    let DamageOutcome::Downed { episode, .. } =
+        health.apply(ResolvedDamage::new(100).unwrap()).unwrap()
+    else {
+        panic!("solo down")
+    };
+    let player = world
+        .spawn((
+            Player {
+                yaw: 0.,
+                pitch: 0.,
+                velocity: Vec3::ZERO,
+                height: 1.8,
+                grounded: true,
+                crouched: false,
+                prone: false,
+                eye_height: 1.62,
+            },
+            health,
+        ))
+        .id();
+    let system = world.register_system(record_downs);
+    world.write_message(PlayerDowned {
+        target: player,
+        attacker: player,
+        episode,
+    });
+    world.run_system(system).unwrap();
+    let session = world.resource::<crate::gameplay::Session>();
+    assert_eq!(
+        (session.points, session.score, session.spent, session.downs),
+        (470, 500, 0, 1)
+    );
+    world.write_message(PlayerDeath {
+        target: player,
+        attacker: player,
+    });
+    world.run_system(system).unwrap();
+    assert_eq!(world.resource::<crate::gameplay::Session>().points, 470);
+    assert_eq!(world.resource::<crate::gameplay::Session>().downs, 1);
 }

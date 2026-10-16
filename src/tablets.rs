@@ -404,7 +404,7 @@ pub(crate) fn interact(
                 pose,
                 state,
                 &spatial,
-                owner,
+                [owner],
                 client_modes.get(owner).ok()?.0,
                 eye,
                 forward,

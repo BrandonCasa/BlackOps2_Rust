@@ -124,6 +124,7 @@ impl Plugin for DamagePlugin {
     }
 }
 pub(crate) fn resolve(
+    mut commands: Commands,
     mut queue: ResMut<DamageQueue>,
     mut targets: Query<(
         &mut Vitality,
@@ -270,14 +271,6 @@ pub(crate) fn resolve(
         let tank_crush = matches!(&impact.source, ImpactSource::Vehicle(id) if id == "vehicle.tank")
             && matches!(impact.category, DamageCategory::Crush);
         if player
-            && !out_of_bounds
-            && !tank_crush
-            && recovery.as_ref().is_some_and(|r| r.immunity > 0.)
-        {
-            evidence.immunity_rejections += 1;
-            continue;
-        }
-        if player
             && matches!(impact.category, DamageCategory::Explosive)
             && perks.get(impact.target).is_ok_and(|owned| {
                 definition
@@ -302,12 +295,12 @@ pub(crate) fn resolve(
                 let dot = incoming.dot(facing);
                 if shield.shield_health > 0
                     && (if shield.shield_held {
-                        dot > 0.3
+                        dot > 0.2
                     } else {
-                        dot < -0.3
+                        dot <= -0.2
                     })
                 {
-                    shield.shield_health = shield.shield_health.saturating_sub(impact.amount);
+                    shield.shield_health = shield.shield_health.saturating_sub(100);
                     if shield.shield_health == 0 {
                         shield.owned.remove("tomb_shield_zm");
                         shield.shield_held = false;
@@ -315,6 +308,42 @@ pub(crate) fn resolve(
                     continue;
                 }
             }
+        }
+        if player
+            && matches!(impact.source, ImpactSource::Enemy(_))
+            && matches!(impact.category, DamageCategory::Melee)
+            && recovery
+                .as_mut()
+                .is_some_and(|r| !r.accepts_swipe(impact.attacker))
+        {
+            evidence.immunity_rejections += 1;
+            continue;
+        }
+        if player && matches!(impact.source, ImpactSource::Enemy(_)) {
+            // _zm::playswipesound runs before health invulnerability rejection.
+            crate::audio::emit(
+                &mut commands,
+                "evt_player_swiped",
+                crate::audio::SoundSource::attached(impact.target),
+            );
+        }
+        if player
+            && !out_of_bounds
+            && !tank_crush
+            && recovery.as_ref().is_some_and(|r| r.immunity > 0.)
+        {
+            evidence.immunity_rejections += 1;
+            continue;
+        }
+        // _zm::player_damage_override rejects placeable-mine damage to players.
+        if player
+            && definition
+                .content
+                .weapons
+                .iter()
+                .any(|weapon| weapon.id.0 == impact.source.id() && weapon.mine.is_some())
+        {
+            continue;
         }
         if !matches!(impact.category, DamageCategory::Melee)
             && !matches!(
@@ -596,5 +625,85 @@ pub(crate) fn reward_deaths(
             }
             session.challenge_headshots = session.challenge_headshots.saturating_add(1);
         }
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn native_stowed_shield_blocks_fifteen_swipes_then_exposes_the_player() {
+    use bevy::ecs::system::RunSystemOnce;
+    let mut world = World::new();
+    world.insert_resource(
+        serde_json::from_str::<GameDefinition>(include_str!("../gameplay/origins/game.json"))
+            .unwrap(),
+    );
+    world.init_resource::<DamageQueue>();
+    world.init_resource::<crate::player_health::HealthEvidence>();
+    world.init_resource::<crate::perk_effects::EffectEvidence>();
+    world.init_resource::<crate::powerups::PowerupEffects>();
+    world.init_resource::<Session>();
+    world.init_resource::<Messages<DamageApplied>>();
+    world.init_resource::<Messages<crate::player_health::PlayerDamage>>();
+    world.init_resource::<Messages<crate::player_health::PlayerDeath>>();
+    world.init_resource::<Messages<crate::solo_revive::PlayerDowned>>();
+    let player = world
+        .spawn((
+            Player {
+                yaw: 0.,
+                pitch: 0.,
+                velocity: Vec3::ZERO,
+                height: 1.8,
+                grounded: true,
+                crouched: false,
+                prone: false,
+                eye_height: 1.62,
+            },
+            Transform::default(),
+            crate::weapons::WeaponInventory::default(),
+            Vitality::human(
+                100,
+                100,
+                1,
+                crate::life::PlayerLethalPolicy::SoloOrLastEligiblePlayer,
+            )
+            .unwrap(),
+            crate::player_health::Recovery::default(),
+            crate::crafting::BuildableInventory {
+                shield_health: crate::crafting::SHIELD_HEALTH,
+                owned: std::collections::BTreeSet::from(["tomb_shield_zm".into()]),
+                ..default()
+            },
+        ))
+        .id();
+    let identity = ContentId("enemy.test".into());
+    let attacker = world
+        .spawn((
+            Zombie::new(Vec3::Z, identity.clone(), crate::rounds::Gait::Walk),
+            Transform::from_translation(Vec3::Z),
+            Vitality::ordinary_actor(150, 150).unwrap(),
+        ))
+        .id();
+    for swipe in 1..=16 {
+        world.resource_mut::<DamageQueue>().0.push(Impact {
+            point: None,
+            attacker,
+            target: player,
+            source: ImpactSource::Enemy(identity.clone()),
+            category: DamageCategory::Melee,
+            region: HitRegion::Torso,
+            amount: 50,
+        });
+        world.run_system_once(resolve).unwrap();
+        assert_eq!(
+            world
+                .get::<crate::crafting::BuildableInventory>(player)
+                .unwrap()
+                .shield_health,
+            crate::crafting::SHIELD_HEALTH.saturating_sub(swipe * 100)
+        );
+        assert_eq!(
+            world.get::<Vitality>(player).unwrap().current(),
+            Some(if swipe <= 15 { 100 } else { 50 })
+        );
     }
 }

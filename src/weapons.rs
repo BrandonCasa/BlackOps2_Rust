@@ -97,6 +97,8 @@ pub struct WeaponInventory {
     ads_leaving: bool,
     ads_requested: bool,
     pub recoil: Vec2,
+    spread_amount: f32,
+    spread_angles: Option<Vec2>,
     pending: WeaponIntent,
     reload_duration_scale: f32,
     pub firing: crate::origins::content::PerkFiringDefinition,
@@ -129,6 +131,8 @@ impl Default for WeaponInventory {
             ads_leaving: false,
             ads_requested: false,
             recoil: Vec2::ZERO,
+            spread_amount: 0.,
+            spread_angles: None,
             pending: WeaponIntent::default(),
             reload_duration_scale: 1.,
             firing: default(),
@@ -329,6 +333,98 @@ mod native_location_tests {
             "mechanics":{"starting_reserve":40,"empty_reload":1.5,
                 "reload_transfer_seconds":[0.4,0.6]}}))
         .unwrap()
+    }
+
+    #[test]
+    fn native_hip_spread_blooms_recovers_and_uses_full_ads_and_stance_transitions() {
+        let mut weapon = pistol();
+        weapon.mechanics.spread = [3., 2.5, 2., 0.];
+        weapon.mechanics.hip_spread = Some(crate::origins::content::WeaponHipSpread {
+            maximum: [6., 5., 4.],
+            decay: 4.,
+            fire_add: 1.,
+            turn_add: 0.,
+            move_add: 4.5,
+            stance_decay: [1., 1.],
+        });
+        let mut player = crate::player::Player {
+            yaw: 0.,
+            pitch: 0.,
+            velocity: Vec3::ZERO,
+            height: 1.8,
+            grounded: true,
+            crouched: false,
+            prone: false,
+            eye_height: 60. * 0.0254,
+        };
+        let mut inventory = WeaponInventory::default();
+        inventory.grant(&weapon).unwrap();
+        assert_eq!(inventory.spread_angle(&weapon, player.eye_height), 3.);
+        inventory.recoil_impulse(&weapon, 1);
+        assert_eq!(inventory.spread_angle(&weapon, player.eye_height), 6.);
+        inventory.update_spread(
+            &player,
+            false,
+            190. * 0.0254,
+            0.125,
+            std::slice::from_ref(&weapon),
+        );
+        assert_eq!(inventory.spread_angle(&weapon, player.eye_height), 4.5);
+        inventory.update_spread(
+            &player,
+            false,
+            190. * 0.0254,
+            0.125,
+            std::slice::from_ref(&weapon),
+        );
+        assert_eq!(inventory.spread_angle(&weapon, 25.5 * 0.0254), 2.25);
+        inventory.ads = 0.99;
+        assert_eq!(inventory.spread_angle(&weapon, player.eye_height), 3.);
+        inventory.ads = 1.;
+        inventory.update_spread(
+            &player,
+            true,
+            190. * 0.0254,
+            0.1,
+            std::slice::from_ref(&weapon),
+        );
+        inventory.recoil_impulse(&weapon, 2);
+        assert_eq!(inventory.spread_angle(&weapon, player.eye_height), 0.);
+        inventory.ads = 0.;
+        player.velocity.x = 190. * 0.0254;
+        inventory.update_spread(
+            &player,
+            true,
+            190. * 0.0254,
+            0.1,
+            std::slice::from_ref(&weapon),
+        );
+        assert!((inventory.spread_amount - 0.45).abs() < 1e-6);
+        inventory.spread_amount = 0.;
+        inventory.jump_spread();
+        assert!((inventory.spread_amount - 64. / 255.).abs() < 1e-6);
+        player.grounded = false;
+        inventory.update_spread(
+            &player,
+            false,
+            190. * 0.0254,
+            0.1,
+            std::slice::from_ref(&weapon),
+        );
+        assert!((inventory.spread_amount - (64. / 255. + 0.256)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn native_shot_cone_keeps_the_original_center_weighting() {
+        let radius = 6_f32.to_radians().tan();
+        let mut mean = 0.;
+        for seed in 0..4096 {
+            let direction = spread_direction(Quat::IDENTITY, 6., seed);
+            let fraction = direction.xy().length() / -direction.z / radius;
+            assert!((0. ..=1.).contains(&fraction));
+            mean += fraction / 4096.;
+        }
+        assert!((mean - 0.5).abs() < 0.02);
     }
 
     #[test]
@@ -939,13 +1035,99 @@ pub fn sample(seed: u64) -> f32 {
     ((value ^ (value >> 31)) >> 40) as f32 / (1_u32 << 24) as f32
 }
 pub fn spread_direction(rotation: Quat, degrees: f32, seed: u64) -> Dir3 {
-    let radius = sample(seed).sqrt() * degrees.to_radians().tan();
+    // Native 005cf180 / 0066dd80 sample the radius linearly, concentrating shots
+    // toward the crosshair rather than distributing them uniformly over its area.
+    let radius = sample(seed) * degrees.to_radians().tan();
     let angle = sample(seed.wrapping_add(1)) * std::f32::consts::TAU;
     Dir3::new(rotation * Vec3::new(radius * angle.cos(), radius * angle.sin(), -1.))
         .unwrap_or(Dir3::NEG_Z)
 }
 
 impl WeaponInventory {
+    pub(crate) fn jump_spread(&mut self) {
+        // Native 008b3920 adds jump_spreadAdd (64) to the 0..255 spread scale.
+        self.spread_amount = (self.spread_amount + 64. / 255.).min(1.);
+    }
+
+    pub(crate) fn update_spread(
+        &mut self,
+        player: &crate::player::Player,
+        moving: bool,
+        base_speed: f32,
+        dt: f32,
+        definitions: &[WeaponDefinition],
+    ) {
+        let angles = Vec2::new(player.yaw, player.pitch);
+        let previous = self.spread_angles.replace(angles).unwrap_or(angles);
+        let Some(profile) = self
+            .definition(definitions)
+            .and_then(|w| w.mechanics.hip_spread)
+        else {
+            return;
+        };
+        // Native 008dd2b0: fully aimed weapons clear spread; positive movement,
+        // turn or airborne additions replace decay for this tick.
+        if self.ads == 1. {
+            self.spread_amount = 0.;
+            return;
+        }
+        let delta = (angles - previous).map(|angle| {
+            (angle + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI
+        });
+        let mut added = delta.abs().element_sum().to_degrees() * 0.01 * profile.turn_add;
+        let speed = player.velocity.xz().length();
+        if moving && speed > 11. * crate::assets::SOURCE_UNIT_METERS {
+            added += dt * speed / base_speed * profile.move_add;
+        }
+        if !player.grounded {
+            added += dt * 2.56;
+        }
+        if profile.decay == 0. {
+            self.spread_amount = (self.spread_amount - dt).max(0.);
+        } else if added > 0. {
+            self.spread_amount = (self.spread_amount + added).min(1.);
+        } else {
+            let stance = if !player.grounded {
+                0.5
+            } else if player.prone {
+                profile.stance_decay[1]
+            } else if player.crouched {
+                profile.stance_decay[0]
+            } else {
+                1.
+            };
+            self.spread_amount = (self.spread_amount - dt * profile.decay * stance).max(0.);
+        }
+    }
+
+    pub(crate) fn spread_angle(&self, weapon: &WeaponDefinition, eye_height: f32) -> f32 {
+        let minimum = weapon.mechanics.spread;
+        let maximum = weapon
+            .mechanics
+            .hip_spread
+            .map_or([minimum[0], minimum[1], minimum[2]], |profile| {
+                profile.maximum
+            });
+        // Native 008e1230 blends through the actual stance eye transition.
+        let eye = (eye_height / crate::assets::SOURCE_UNIT_METERS).clamp(11., 60.);
+        let (low, high, fraction) = if eye <= 40. {
+            (2, 1, (eye - 11.) / 29.)
+        } else {
+            (1, 0, (eye - 40.) / 20.)
+        };
+        let hip_min = minimum[low] + (minimum[high] - minimum[low]) * fraction;
+        let hip_max = maximum[low] + (maximum[high] - maximum[low]) * fraction;
+        // 0066f480 / 00538400 use ADS spread only at full aim, not during the raise.
+        let base = if self.ads == 1. { minimum[3] } else { hip_min };
+        let spread = base + (hip_max - base) * self.spread_amount;
+        let perk_scale = if self.ads == 1. {
+            1.
+        } else {
+            self.firing.hip_spread_scale
+        };
+        spread * perk_scale * self.attachment_spread()
+    }
+
     pub fn cancel_charge(&mut self) {
         self.charging = 0.;
         self.charge_level = 0;
@@ -1732,6 +1914,12 @@ impl WeaponInventory {
         self.emit(WeaponSignal::QuickEquip);
     }
     pub fn recoil_impulse(&mut self, definition: &WeaponDefinition, seed: u64) {
+        if self.ads != 1.
+            && let Some(profile) = definition.mechanics.hip_spread
+        {
+            // Native 008d9920 applies fire bloom once per shot, including shotguns.
+            self.spread_amount = (self.spread_amount + profile.fire_add).min(1.);
+        }
         let yaw = definition.mechanics.recoil_yaw;
         let pitch = definition.mechanics.recoil_pitch;
         self.recoil += Vec2::new(

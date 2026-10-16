@@ -53,6 +53,7 @@ struct AudioState {
     crawl_distance: f32,
     raid: bool,
     raid_clock: f32,
+    behind_poll: f32,
 }
 #[derive(Resource, Default)]
 struct VocalChoke {
@@ -82,7 +83,7 @@ pub(super) fn install(app: &mut App) {
         );
     app.init_resource::<AudioState>().add_systems(
         FixedUpdate,
-        (actors, world, feedback)
+        (actors, world, feedback, behind_warning)
             .chain()
             .after(GameStep::Rounds)
             .run_if(in_state(GameState::Playing)),
@@ -99,6 +100,7 @@ pub(super) fn install(app: &mut App) {
 }
 fn reset_gameplay_audio(mut state: ResMut<AudioState>, mut choke: ResMut<VocalChoke>) {
     *state = AudioState::default();
+    state.behind_poll = 1.;
     *choke = VocalChoke::default();
 }
 
@@ -730,6 +732,84 @@ fn actors(
         }
     }
 }
+fn behind_warning(
+    mut commands: Commands,
+    game: Res<GameDefinition>,
+    time: Res<Time<Fixed>>,
+    mut state: ResMut<AudioState>,
+    mut choke: ResMut<VocalChoke>,
+    players: Query<(&Player, &Transform, &Vitality)>,
+    zombies: Query<
+        (
+            Entity,
+            &crate::enemies::Zombie,
+            &Transform,
+            &Vitality,
+            Option<&crate::rounds::PopulationKind>,
+        ),
+        (
+            Without<crate::panzer::Panzer>,
+            Without<crate::quest_recovery::Pilot>,
+        ),
+    >,
+) {
+    state.behind_poll -= time.delta_secs();
+    if state.behind_poll > 0. {
+        return;
+    }
+    state.behind_poll = 1.;
+    let Ok((player, body, health)) = players.single() else {
+        return;
+    };
+    if !matches!(health.state(), LifeState::Standing | LifeState::Downed) {
+        return;
+    }
+    let feet = body.translation - Vec3::Y * player.height * 0.5;
+    for (entity, zombie, pose, health, population) in &zombies {
+        if health.state() != LifeState::ActorAlive {
+            continue;
+        }
+        // _zm_audio::zombie_behind_vox polls each second, then waits five
+        // additional seconds after warning about a close enemy behind the player.
+        let origin = game
+            .content
+            .enemies
+            .iter()
+            .find(|enemy| enemy.id == zombie.definition)
+            .map_or(pose.translation, |enemy| {
+                pose.translation - crate::enemies::body_center(enemy, zombie.crawler())
+            });
+        if behind_range(feet, player.yaw, origin, zombie.gait) && choke.allow() {
+            emit(
+                &mut commands,
+                if population
+                    .is_some_and(|kind| *kind == crate::rounds::PopulationKind::GeneratorDefender)
+                {
+                    "zmb_vocals_capzomb_behind"
+                } else {
+                    "zmb_vocals_zombie_behind"
+                },
+                SoundSource::attached(entity),
+            );
+            state.behind_poll = 6.;
+            break;
+        }
+    }
+}
+
+fn behind_range(player: Vec3, yaw: f32, zombie: Vec3, gait: crate::rounds::Gait) -> bool {
+    let distance = match gait {
+        crate::rounds::Gait::Walk => 200.,
+        crate::rounds::Gait::Run => 250.,
+        crate::rounds::Gait::Sprint => 275.,
+    } * crate::assets::SOURCE_UNIT_METERS;
+    let delta = zombie - player;
+    let forward = Quat::from_rotation_y(yaw) * Vec3::NEG_Z;
+    delta.length_squared() < distance * distance
+        && delta.y.abs() < 50. * crate::assets::SOURCE_UNIT_METERS
+        && forward.dot(delta.with_y(0.).normalize_or_zero()) < 95_f32.to_radians().cos()
+}
+
 fn note_crossings(
     seconds: f32,
     previous: f32,
@@ -1121,7 +1201,7 @@ fn feedback(
     mut damages: MessageReader<crate::player_health::PlayerDamage>,
     mut applied: MessageReader<crate::damage::DamageApplied>,
     poses: Query<&Transform>,
-    populations: Query<&crate::rounds::PopulationKind>,
+    populations: Query<&crate::rounds::PopulationKind, Without<crate::panzer::Panzer>>,
     nuked: Query<(), With<crate::powerups::NukeTarget>>,
     players: Query<(Entity, &crate::movement::SprintState, &Player), With<Player>>,
     query: SpatialQuery,
@@ -1141,7 +1221,7 @@ fn feedback(
             binding(
                 &mut commands,
                 &game,
-                "weapon.knife_zm.hit",
+                &format!("{}.hit", damage.impact.source.id()),
                 SoundSource::World(pose.translation),
             );
         }
@@ -1170,7 +1250,7 @@ fn feedback(
         );
     }
     for crate::damage::EnemyDeath(receipt) in deaths.read() {
-        if choke.allow() {
+        if populations.contains(receipt.impact.target) && choke.allow() {
             emit(
                 &mut commands,
                 if populations
@@ -1181,6 +1261,17 @@ fn feedback(
                 } else {
                     "zmb_vocals_zombie_death"
                 },
+                SoundSource::attached(receipt.impact.target),
+            );
+        }
+        if wounds
+            .get(receipt.impact.target)
+            .is_ok_and(|w| w.electrical > 0.)
+            && choke.allow()
+        {
+            emit(
+                &mut commands,
+                "zmb_vocals_zombie_electrocute",
                 SoundSource::attached(receipt.impact.target),
             );
         }
@@ -1330,6 +1421,22 @@ fn ground_surface<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_behind_warning_uses_gait_distance_angle_and_vertical_limits() {
+        use crate::rounds::Gait;
+        assert!(behind_range(Vec3::ZERO, 0., Vec3::Z * 4., Gait::Walk));
+        assert!(!behind_range(Vec3::ZERO, 0., Vec3::NEG_Z * 4., Gait::Walk));
+        assert!(!behind_range(Vec3::ZERO, 0., Vec3::Z * 6., Gait::Walk));
+        assert!(behind_range(Vec3::ZERO, 0., Vec3::Z * 6., Gait::Run));
+        assert!(behind_range(Vec3::ZERO, 0., Vec3::Z * 6.8, Gait::Sprint));
+        assert!(!behind_range(
+            Vec3::ZERO,
+            0.,
+            Vec3::new(0., 1.3, 2.),
+            Gait::Sprint
+        ));
+    }
 
     #[test]
     fn kill_barks_use_original_distance_cause_and_response_chance() {

@@ -208,6 +208,16 @@ pub enum FirePattern {
     },
     Charge,
 }
+#[derive(Clone, Copy, Deserialize)]
+pub struct WeaponHipSpread {
+    pub maximum: [f32; 3],
+    pub decay: f32,
+    pub fire_add: f32,
+    pub turn_add: f32,
+    pub move_add: f32,
+    pub stance_decay: [f32; 2],
+}
+
 #[derive(Clone, Deserialize)]
 #[serde(default)]
 pub struct WeaponMechanics {
@@ -236,6 +246,7 @@ pub struct WeaponMechanics {
     pub projectile_explosion_force_normal_up: bool,
     pub weapon_class: Option<String>,
     pub spread: [f32; 4],
+    pub hip_spread: Option<WeaponHipSpread>,
     pub ads_fov: f32,
     pub ads_seconds: [f32; 2],
     pub sprint_seconds: [f32; 3],
@@ -304,6 +315,7 @@ impl Default for WeaponMechanics {
             projectile_explosion_force_normal_up: false,
             weapon_class: None,
             spread: [3., 2., 1., 0.],
+            hip_spread: None,
             ads_fov: 50.,
             ads_seconds: [0.2, 0.2],
             sprint_seconds: [0.; 3],
@@ -553,6 +565,7 @@ pub enum EnemyAnimation {
     Traverse,
     Landing,
     Tear,
+    Stunned,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -566,6 +579,9 @@ pub enum EnemyCombat {
     Death,
     DeathCrawl,
     FireDeath,
+    LightningDeath,
+    LightningDeathCrawl,
+    ElectricStun,
     ShieldMelee,
     ShieldMeleeCrawl,
 }

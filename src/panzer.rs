@@ -580,6 +580,7 @@ impl Plugin for PanzerPlugin {
                 FixedUpdate,
                 schedule
                     .in_set(GameStep::Rounds)
+                    .run_if(crate::cheats::rounds_active)
                     .before(crate::rounds::advance)
                     .run_if(in_state(GameState::Playing)),
             )
@@ -589,7 +590,7 @@ impl Plugin for PanzerPlugin {
                     clear_capture,
                     bind_triggers,
                     nukes,
-                    behavior,
+                    behavior.run_if(crate::cheats::enemies_active),
                     burning,
                     feedback,
                     part_failsafe,
@@ -697,7 +698,7 @@ pub(crate) fn spawn_quest(commands: &mut Commands, health: u32, hole: usize) -> 
     )
 }
 
-fn spawn(
+pub(crate) fn spawn(
     commands: &mut Commands,
     position: Vec3,
     health: u32,
@@ -929,7 +930,7 @@ fn behavior(
             &mut Armor,
             &mut Visibility,
         ),
-        Without<Player>,
+        (Without<Player>, Without<crate::cheats::physics::LivingRagdoll>),
     >,
     mut players: Query<
         (

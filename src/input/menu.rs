@@ -247,7 +247,12 @@ fn rebuild(
     roots: Query<Entity, With<MenuRoot>>,
     cameras: Query<Entity, With<crate::rendering::display::GameUiCamera>>,
     mut built: Local<Option<u64>>,
+    cheats: Option<Res<crate::cheats::Cheats>>,
 ) {
+    if cheats.is_some_and(|c| c.menu_open) {
+        for root in &roots { commands.entity(root).despawn(); }
+        return;
+    }
     if *built == Some(menu.revision) && !roots.is_empty() {
         return;
     }
@@ -471,8 +476,10 @@ pub(crate) fn navigate(
     rows: Query<(&MenuRow, Ref<Hovered>)>,
     mut frontend: MessageWriter<crate::frontend::FrontendAction>,
     mut audio: ResMut<crate::audio::AudioSettings>,
+    cheats: Option<Res<crate::cheats::Cheats>>,
     #[cfg(feature = "dev-tools")] validator: Option<Res<crate::validation::Controller>>,
 ) {
+    if cheats.is_some_and(|c| c.menu_open) { return; }
     let pointer_choice = menu.pointer_choice.take();
     #[cfg(feature = "dev-tools")]
     if validator.is_some_and(|controller| controller.owns_input()) {

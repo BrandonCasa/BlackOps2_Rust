@@ -6,7 +6,7 @@ use bevy::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{BTreeMap, BTreeSet, VecDeque},
+    collections::{BTreeMap, BTreeSet, HashMap, VecDeque},
     sync::{
         Arc,
         atomic::{AtomicBool, AtomicU32, Ordering},
@@ -609,6 +609,7 @@ struct DuckInstance {
 pub(crate) struct NativeDucks {
     active: BTreeMap<Entity, DuckInstance>,
     seen: BTreeSet<Entity>,
+    voice_indices: HashMap<Entity, usize>,
     attenuation: [f32; 32],
     filter: [f32; 32],
 }
@@ -617,6 +618,7 @@ impl Default for NativeDucks {
         Self {
             active: BTreeMap::new(),
             seen: BTreeSet::new(),
+            voice_indices: HashMap::new(),
             attenuation: [1.; 32],
             filter: [1.; 32],
         }
@@ -631,8 +633,15 @@ impl NativeDucks {
         delta: f32,
         paused: bool,
     ) {
+        self.voice_indices.clear();
+        self.voice_indices.extend(
+            voices
+                .iter()
+                .enumerate()
+                .map(|(index, voice)| (voice.entity, index)),
+        );
         self.seen
-            .retain(|entity| voices.iter().any(|voice| voice.entity == *entity));
+            .retain(|entity| self.voice_indices.contains_key(entity));
         for voice in voices {
             if !voice.playing || voice.paused || self.seen.contains(&voice.entity) {
                 continue;
@@ -661,7 +670,7 @@ impl NativeDucks {
         }
         self.active.retain(|entity, instance| {
             let profile = &profiles[&instance.profile];
-            if let Some(voice) = voices.iter().find(|voice| voice.entity == *entity) {
+            if let Some(voice) = self.voice_indices.get(entity).map(|&index| &voices[index]) {
                 instance.position = voice.position;
                 if !voice.playing && instance.stopped.is_none() {
                     instance.stopped = Some(instance.age);
@@ -1316,6 +1325,13 @@ fn play(
         }
     }
 }
+#[derive(Default)]
+struct AudioFrameScratch {
+    sources: Vec<(Entity, SoundSource)>,
+    positions: HashMap<Entity, Option<Vec3>>,
+    voices: Vec<DuckVoice>,
+}
+
 fn maintain(
     mut commands: Commands,
     state: Res<State<GameState>>,
@@ -1344,14 +1360,17 @@ fn maintain(
     query: avian3d::prelude::SpatialQuery,
     contents: Query<&crate::assets::WorldContents>,
     mut obstruction_frame: Local<u32>,
+    mut scratch: Local<AudioFrameScratch>,
 ) {
     let Some(game) = game else { return };
     *obstruction_frame = obstruction_frame.wrapping_add(1);
-    let sources: Vec<_> = queries
-        .p1()
-        .iter()
-        .map(|(e, s, ..)| (e, s.source))
-        .collect();
+    let AudioFrameScratch {
+        sources,
+        positions,
+        voices,
+    } = &mut *scratch;
+    sources.clear();
+    sources.extend(queries.p1().iter().map(|(e, s, ..)| (e, s.source)));
     let transforms = queries.p0();
     let listener_pose = camera
         .single()
@@ -1364,38 +1383,37 @@ fn maintain(
         .map_or_else(|_| SpatialListener::default(), |(_, ears)| ears.clone());
     let left_ear = listener_pose.transform_point(ears.left_ear_offset);
     let right_ear = listener_pose.transform_point(ears.right_ear_offset);
-    let positions: BTreeMap<_, _> = sources
-        .into_iter()
-        .map(|(e, source)| (e, source.position(&transforms)))
-        .collect();
-    let voices = queries
-        .p1()
-        .iter()
-        .filter_map(
-            |(entity, sound, semantic, pose, regular, spatial, playback, _, _, _)| {
-                let native = &game.audio.aliases[&sound.alias].native[sound.native];
-                let profile = native.duck?;
-                if !native.spatial && game.audio.ducks[&profile].distance > 1.52879e-05 {
-                    return None;
-                }
-                Some(DuckVoice {
-                    entity,
-                    profile,
-                    position: positions[&entity].unwrap_or(pose.translation),
-                    seconds: native.seconds.unwrap_or(0.) / pitch_speed(sound.speed),
-                    looping: sound.looping,
-                    playing: (regular.is_some() || spatial.is_some())
-                        && !semantic.completed
-                        && sound.delay <= time.delta_secs(),
-                    paused: (**state == GameState::Paused && native.pauseable)
-                        || playback.paused && sound.delay > time.delta_secs(),
-                })
-            },
-        )
-        .collect::<Vec<_>>();
+    positions.clear();
+    positions.extend(
+        sources
+            .iter()
+            .map(|&(e, source)| (e, source.position(&transforms))),
+    );
+    voices.clear();
+    voices.extend(queries.p1().iter().filter_map(
+        |(entity, sound, semantic, pose, regular, spatial, playback, _, _, _)| {
+            let native = &game.audio.aliases[&sound.alias].native[sound.native];
+            let profile = native.duck?;
+            if !native.spatial && game.audio.ducks[&profile].distance > 1.52879e-05 {
+                return None;
+            }
+            Some(DuckVoice {
+                entity,
+                profile,
+                position: positions[&entity].unwrap_or(pose.translation),
+                seconds: native.seconds.unwrap_or(0.) / pitch_speed(sound.speed),
+                looping: sound.looping,
+                playing: (regular.is_some() || spatial.is_some())
+                    && !semantic.completed
+                    && sound.delay <= time.delta_secs(),
+                paused: (**state == GameState::Paused && native.pauseable)
+                    || playback.paused && sound.delay > time.delta_secs(),
+            })
+        },
+    ));
     ducks.update(
         &game.audio.ducks,
-        &voices,
+        voices,
         listener,
         time.delta_secs(),
         **state == GameState::Paused,

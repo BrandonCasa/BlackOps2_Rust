@@ -1,5 +1,6 @@
 use super::{ActorRig, ClientRagdollRequested, Zombie};
 use crate::{GameState, assets::GameDefinition, origins::content::RagdollJointKind};
+use avian3d::dynamics::joints::joint_graph::JointGraphChange;
 use avian3d::prelude::*;
 use bevy::{animation::AnimatedBy, ecs::system::SystemParam, prelude::*};
 use std::collections::HashMap;
@@ -215,12 +216,29 @@ pub(super) fn dynamic_piece(owner: Entity) -> impl Bundle {
     )
 }
 #[derive(Component)]
-pub(super) struct PhysicalRagdoll {
+pub(crate) struct PhysicalRagdoll {
     // Only the authored cue or a blast creates physics bodies. Until then,
     // the death animation continues without contact-driven pose changes.
     bodies: Vec<Option<Entity>>,
     seconds: f32,
     active_seconds: f32,
+}
+impl PhysicalRagdoll {
+    pub(crate) fn bodies(&self) -> impl Iterator<Item = Entity> + '_ {
+        self.bodies.iter().flatten().copied()
+    }
+}
+
+pub(crate) fn remove_living(world: &mut World, owner: Entity) {
+    let mut owned = world.query::<(Entity, &RagdollEntity)>();
+    let entities: Vec<_> = owned.iter(world)
+        .filter_map(|(entity, actor)| (actor.0 == owner).then_some(entity)).collect();
+    for entity in entities { world.despawn(entity); }
+    let mut lerps = world.query::<(Entity, &EndJointLerp)>();
+    let joints: Vec<_> = lerps.iter(world)
+        .filter_map(|(entity, lerp)| (lerp.owner == owner).then_some(entity)).collect();
+    for entity in joints { world.entity_mut(entity).remove::<EndJointLerp>(); }
+    world.entity_mut(owner).remove::<(PhysicalRagdoll, ClientRagdollRequested, RagdollSample, DeathBlasts)>();
 }
 
 #[derive(Component)]
@@ -232,6 +250,7 @@ struct EndJointLerp {
 }
 
 pub(super) fn plugin(app: &mut App) {
+    joint_messages(app);
     app.init_resource::<ClientPhysicsClock>()
         .add_systems(
             OnEnter(GameState::StartingSession),
@@ -286,6 +305,18 @@ pub(super) fn plugin(app: &mut App) {
                 .run_if(client_scene),
         )
         .add_systems(FixedUpdate, cleanup);
+}
+
+fn joint_messages(app: &mut App) {
+    // Joint hooks run between physics ticks. Retain their changes until the
+    // 30 Hz solver consumes them, including across pauses and fast rendering.
+    bevy::ecs::message::MessageRegistry::deregister_messages::<JointGraphChange>(app.world_mut());
+    app.init_resource::<Messages<JointGraphChange>>()
+        .add_systems(
+            PhysicsSchedule,
+            (|mut changes: ResMut<Messages<JointGraphChange>>| changes.update())
+                .in_set(PhysicsStepSystems::Last),
+        );
 }
 
 fn bullets(
@@ -502,6 +533,7 @@ fn begin(
             Option<&RagdollSample>,
             Option<&DeathBlasts>,
             Has<ClientRagdollRequested>,
+            Option<&crate::cheats::physics::LivingRagdoll>,
         ),
         Without<PhysicalRagdoll>,
     >,
@@ -509,16 +541,11 @@ fn begin(
     poses: Query<(&Transform, Option<&ChildOf>)>,
     rest: Query<&crate::animation::RestPose>,
 ) {
-    for (owner, zombie, previous, blasts, requested) in &actors {
-        if zombie.action != super::EnemyAnimation::Death {
+    for (owner, zombie, previous, blasts, requested, living) in &actors {
+        if zombie.action != super::EnemyAnimation::Death && living.is_none() {
             continue;
         }
-        let Some(profile) = game
-            .content
-            .enemies
-            .iter()
-            .find(|enemy| enemy.id == zombie.definition)
-            .and_then(|enemy| enemy.ragdoll.as_ref())
+        let Some(profile) = crate::cheats::physics::profile(&game, zombie, living)
         else {
             continue;
         };
@@ -744,6 +771,7 @@ fn begin(
                     });
                 }
             }
+            if living.is_some() { continue; }
             // Physics takes ownership of the sampled skeleton. Retire both
             // animation playback and the per-frame bind-pose restoration.
             for &joint in rig.sockets.values() {
@@ -768,9 +796,9 @@ fn begin(
     }
 }
 
-fn apply_pose(
+pub(crate) fn apply_pose(
     game: Res<GameDefinition>,
-    actors: Query<(&Zombie, &PhysicalRagdoll)>,
+    actors: Query<(&Zombie, &PhysicalRagdoll, Option<&crate::cheats::physics::LivingRagdoll>)>,
     rigs: Query<&ActorRig>,
     body_poses: Query<(&Position, &Rotation, Has<Sleeping>)>,
     mut joints: ParamSet<(Query<(&Transform, Option<&ChildOf>)>, Query<&mut Transform>)>,
@@ -786,7 +814,7 @@ fn apply_pose(
         if rig.socket.is_some() || !rig.ready {
             continue;
         }
-        let Ok((zombie, ragdoll)) = actors.get(rig.owner) else {
+        let Ok((zombie, ragdoll, living)) = actors.get(rig.owner) else {
             continue;
         };
         if ragdoll
@@ -797,12 +825,7 @@ fn apply_pose(
         {
             continue;
         }
-        let Some(profile) = game
-            .content
-            .enemies
-            .iter()
-            .find(|enemy| enemy.id == zombie.definition)
-            .and_then(|enemy| enemy.ragdoll.as_ref())
+        let Some(profile) = crate::cheats::physics::profile(&game, zombie, living)
         else {
             continue;
         };
@@ -902,16 +925,11 @@ fn blend_end_joints(
 fn joint_friction(
     game: Res<GameDefinition>,
     clock: Res<ClientPhysicsClock>,
-    actors: Query<(&Zombie, &PhysicalRagdoll)>,
+    actors: Query<(&Zombie, &PhysicalRagdoll, Option<&crate::cheats::physics::LivingRagdoll>)>,
     mut bodies: Query<(Forces, &ComputedAngularInertia, Has<Sleeping>)>,
 ) {
-    for (zombie, ragdoll) in &actors {
-        let Some(profile) = game
-            .content
-            .enemies
-            .iter()
-            .find(|enemy| enemy.id == zombie.definition)
-            .and_then(|enemy| enemy.ragdoll.as_ref())
+    for (zombie, ragdoll, living) in &actors {
+        let Some(profile) = crate::cheats::physics::profile(&game, zombie, living)
         else {
             continue;
         };
@@ -973,10 +991,11 @@ fn joint_friction(
 fn tick(
     mut commands: Commands,
     clock: Res<ClientPhysicsClock>,
-    mut actors: Query<&mut PhysicalRagdoll>,
+    mut actors: Query<(&mut PhysicalRagdoll, Has<crate::cheats::physics::LivingRagdoll>)>,
     mut bodies: Query<(&mut LinearVelocity, &mut AngularVelocity, Has<Sleeping>), With<RigidBody>>,
 ) {
-    for mut ragdoll in &mut actors {
+    for (mut ragdoll, living) in &mut actors {
+        if living { continue; }
         ragdoll.seconds += clock.delta.as_secs_f32();
         if ragdoll
             .bodies
@@ -1017,6 +1036,78 @@ fn cleanup(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn joint_cleanup_survives_frames_without_a_client_physics_step() {
+        use avian3d::dynamics::{joints::joint_graph::JointGraph, solver::islands::PhysicsIslands};
+
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            AssetPlugin::default(),
+            bevy::mesh::MeshPlugin,
+            TransformPlugin,
+            PhysicsPlugins::new(PostUpdate),
+        ))
+        .insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+            Duration::from_secs_f64(1. / 120.),
+        ));
+        joint_messages(&mut app);
+        app.finish();
+        app.cleanup();
+        app.world_mut().resource_mut::<Time<Physics>>().pause();
+        let bodies = [0., 1.].map(|x| {
+            app.world_mut()
+                .spawn((RigidBody::Dynamic, Transform::from_xyz(x, 0., 0.)))
+                .id()
+        });
+        let joint = app
+            .world_mut()
+            .spawn(SphericalJoint::new(bodies[0], bodies[1]))
+            .id();
+        app.world_mut()
+            .resource_mut::<Time<Physics>>()
+            .advance_by(CLIENT_PHYSICS_INTERVAL);
+        app.update();
+        let old_id = app
+            .world()
+            .resource::<JointGraph>()
+            .entity_to_joint(joint)
+            .unwrap();
+        assert!(
+            app.world()
+                .resource::<PhysicsIslands>()
+                .joint_node(old_id)
+                .is_some()
+        );
+
+        app.world_mut().despawn(joint);
+        // Rendering continues at 120 Hz while physics waits for its next tick
+        // (or is paused). Joint removals must survive until the solver reads them.
+        for _ in 0..12 {
+            app.update();
+        }
+        let replacement = app
+            .world_mut()
+            .spawn(SphericalJoint::new(bodies[0], bodies[1]))
+            .id();
+        let new_id = app
+            .world()
+            .resource::<JointGraph>()
+            .entity_to_joint(replacement)
+            .unwrap();
+        assert_eq!(old_id, new_id, "Exercise Avian's recycled joint slot");
+        app.world_mut()
+            .resource_mut::<Time<Physics>>()
+            .advance_by(CLIENT_PHYSICS_INTERVAL);
+        app.update();
+        assert!(
+            app.world()
+                .resource::<PhysicsIslands>()
+                .joint_node(new_id)
+                .is_some()
+        );
+    }
 
     #[test]
     fn blast_impulses_lift_fall_off_and_respect_directional_mines() {

@@ -164,7 +164,7 @@ fn movement(
             &Vitality,
             Option<&mut PilotLanding>,
         ),
-        Without<Plane>,
+        (Without<Plane>, Without<crate::cheats::physics::LivingRagdoll>),
     >,
 ) {
     for (mut plane, mut pose) in &mut planes {

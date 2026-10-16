@@ -94,7 +94,8 @@ pub struct Stations {
     pub purchases: u32,
     pub collections: u32,
     pub refunds: u32,
-    boxes: [BoxPhase; 6],
+    boxes: Vec<BoxPhase>,
+    free_boxes: Vec<usize>,
     upgrade: UpgradePhase,
     attachment: Option<String>,
     deposited: Option<AmmoSnapshot>,
@@ -109,11 +110,26 @@ impl Default for Stations {
             purchases: 0,
             collections: 0,
             refunds: 0,
-            boxes: std::array::from_fn(|_| BoxPhase::Idle),
+            boxes: vec![BoxPhase::Idle; 6],
+            free_boxes: Vec::new(),
             upgrade: UpgradePhase::Idle,
             attachment: None,
             deposited: None,
             latched: false,
+        }
+    }
+}
+impl Stations {
+    pub(crate) fn add_sandbox_box(&mut self) -> usize {
+        if let Some(index) = self.free_boxes.pop() { return index; }
+        let index = self.boxes.len();
+        self.boxes.push(BoxPhase::Idle);
+        index
+    }
+    pub(crate) fn remove_sandbox_box(&mut self, index: usize) {
+        if index >= 6 && index < self.boxes.len() && !self.free_boxes.contains(&index) {
+            self.boxes[index] = BoxPhase::Idle;
+            self.free_boxes.push(index);
         }
     }
 }
@@ -192,7 +208,7 @@ fn tick(
     mut digging: ResMut<crate::environment::digging::Digging>,
 ) {
     let dt = time.delta_secs();
-    for index in 0..6 {
+    for index in 0..stations.boxes.len() {
         stations.boxes[index] = match std::mem::replace(&mut stations.boxes[index], BoxPhase::Idle)
         {
             BoxPhase::Rolling {
@@ -418,7 +434,7 @@ pub(crate) fn interact(
         .iter()
         .filter_map(|(entity, station, transform)| {
             if let Station::Box(index) = station {
-                if *index != stations.normal_box
+                if *index < 6 && *index != stations.normal_box
                     && !sale
                     && matches!(stations.boxes[*index], BoxPhase::Idle)
                 {
@@ -465,13 +481,14 @@ pub(crate) fn interact(
     }
     match station {
         Station::Box(index) => {
-            match std::mem::replace(&mut stations.boxes[index], BoxPhase::Idle) {
+            let phase = stations.boxes[index].clone();
+            match phase {
                 BoxPhase::Idle => {
-                    let powered = definition
+                    let powered = index >= 6 || definition
                         .content
                         .generators
                         .iter()
-                        .find(|g| g.number as u32 == BOX_GENERATORS[index])
+                        .find(|g| BOX_GENERATORS.get(index).is_some_and(|number| g.number as u32 == *number))
                         .and_then(|g| generators.sites.get(&g.id))
                         .is_some_and(|site| {
                             site.state == crate::generators::GeneratorState::Active
@@ -521,18 +538,18 @@ pub(crate) fn interact(
                     } else {
                         50
                     };
-                    let teddy = !sale && session.random() % 100 < chance;
+                    let teddy = index < 6 && !sale && session.random() % 100 < chance;
                     crate::audio::emit(
                         &mut commands,
                         "music_chest",
-                        crate::audio::SoundSource::World(Vec3::from_array(BOX_POSITIONS[index])),
+                        crate::audio::SoundSource::attached(entity),
                     );
                     stations.boxes[index] = BoxPhase::Rolling {
                         owner: player_entity,
                         weapon,
                         remaining: 4.,
                         teddy,
-                        normal: !sale,
+                        normal: index < 6 && !sale,
                         refund: price,
                     };
                     stations.purchases += 1;
@@ -684,4 +701,121 @@ pub(crate) fn interact(
             }
         },
     }
+}
+
+#[cfg(test)]
+#[test]
+fn native_box_focus_preserves_roll_reward_and_relocation() {
+    use bevy::ecs::system::RunSystemOnce;
+    let mut app = App::new();
+    app.add_plugins((
+        MinimalPlugins,
+        TransformPlugin,
+        AssetPlugin::default(),
+        PhysicsPlugins::new(Update),
+    ))
+    .init_asset::<Mesh>()
+    .init_resource::<GameInput>()
+    .init_resource::<crate::input::ControlSettings>()
+    .init_resource::<crate::tablets::TabletProgress>()
+    .init_resource::<crate::powerups::PowerupEffects>()
+    .init_resource::<crate::generators::Generators>()
+    .init_resource::<Stations>()
+    .init_resource::<InteractionFocus>()
+    .init_resource::<Session>();
+    app.insert_resource(
+        serde_json::from_str::<GameDefinition>(include_str!("../gameplay/origins/game.json"))
+            .unwrap(),
+    );
+    let grenade = crate::equipment::ThrowableDefinition {
+        slot: crate::equipment::ThrowableSlot::Lethal,
+        initial: 4,
+        capacity: 4,
+        round_award: 2,
+        prime_seconds: 0.3,
+        throw_seconds: 0.5,
+        release_delay: 0.1,
+        fuse_seconds: 4.,
+        speed: 10.,
+        up_speed: 0.,
+        relative_up_speed: 0.,
+        rotating: true,
+        radius: 5.,
+        inner_radius: 0.,
+        inner_damage: 100,
+        outer_damage: 10,
+        tangent_bounce: [0.5; 32],
+        normal_bounce: [0.5; 32],
+        collision_radius: 0.1,
+        collision_half_extents: None,
+        native_launch: None,
+        cook_in_hand: true,
+        sticky: false,
+    };
+    let owner = app
+        .world_mut()
+        .spawn((
+            Player {
+                yaw: 0.,
+                pitch: 0.,
+                velocity: Vec3::ZERO,
+                height: 1.8,
+                grounded: true,
+                crouched: false,
+                prone: false,
+                eye_height: 1.62,
+            },
+            Transform::from_xyz(0., 0.9, 0.),
+            Vitality::human(
+                100,
+                100,
+                1,
+                crate::life::PlayerLethalPolicy::SoloOrLastEligiblePlayer,
+            )
+            .unwrap(),
+            WeaponInventory::default(),
+            crate::equipment::TacticalInventory::default(),
+            crate::equipment::GrenadeInventory::new(
+                WeaponId("weapon.frag_grenade_zm".into()),
+                &grenade,
+            ),
+            crate::mines::MineInventory::default(),
+        ))
+        .id();
+    app.world_mut()
+        .spawn((Station::Box(0), Transform::from_xyz(0., 0.82, -1.)));
+    app.finish();
+    app.cleanup();
+    app.update();
+    let weapon = WeaponId("weapon.c96_zm".into());
+    for phase in [
+        BoxPhase::Rolling {
+            owner,
+            weapon: weapon.clone(),
+            remaining: 4.,
+            teddy: false,
+            normal: true,
+            refund: 950,
+        },
+        BoxPhase::Reward {
+            owner,
+            weapon: weapon.clone(),
+            remaining: 12.,
+            normal: true,
+        },
+        BoxPhase::Relocating { remaining: 7. },
+    ] {
+        let expected = std::mem::discriminant(&phase);
+        app.world_mut().resource_mut::<Stations>().boxes[0] = phase;
+        for _ in 0..5 {
+            *app.world_mut().resource_mut::<InteractionFocus>() = default();
+            app.world_mut().run_system_once(interact).unwrap();
+            assert!(app.world().resource::<InteractionFocus>().target.is_some());
+            assert_eq!(
+                std::mem::discriminant(&app.world().resource::<Stations>().boxes[0]),
+                expected
+            );
+        }
+    }
+    assert_eq!(app.world().resource::<Session>().points, 500);
 }

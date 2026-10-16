@@ -25,6 +25,7 @@ pub mod audio;
 pub mod barriers;
 pub mod buildables;
 pub mod chamber;
+pub mod cheats;
 pub mod cinematics;
 pub mod combat_effects;
 pub mod crafting;
@@ -116,7 +117,7 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
     };
     render_settings.features |= bevy::render::settings::WgpuFeatures::DEPTH32FLOAT_STENCIL8;
     app.insert_resource(cinematics)
-        .insert_resource(bevy::winit::WinitSettings::continuous());
+        .insert_resource(bevy::winit::WinitSettings::game());
     let asset_root = options.asset_root.to_string_lossy().into_owned();
     app.insert_resource(options);
     let default_plugins = DefaultPlugins.build();
@@ -167,6 +168,7 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
         rendering::GameRenderingPlugin,
         player::PlayerPlugin,
         gameplay::GameplayPlugin,
+        cheats::CheatPlugin,
         damage::DamagePlugin,
         (
             (

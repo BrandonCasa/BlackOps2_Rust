@@ -539,7 +539,7 @@ fn collect(
                 pose,
                 state,
                 &spatial,
-                owner,
+                [owner],
                 mode.0,
                 eye,
                 forward,

@@ -89,6 +89,10 @@ struct ActorCatalog {
     presentations: Vec<super::PresentationDefinition>,
     animations: Vec<super::AnimationDefinition>,
 }
+#[derive(Deserialize)]
+struct SourceState {
+    clips: Vec<(Option<String>, String)>,
+}
 
 /// Gameplay definitions remain authoritative for actor identity, hit volumes,
 /// physics, ragdolls, state selection and traversal root motion.
@@ -153,6 +157,80 @@ pub(crate) fn bind(game: &mut GameDefinition, root: &Path) -> Result<(), String>
                 )
             })?;
         presentation.scene = Some(format!("{}#Scene0", source.scene));
+        let states: BTreeMap<String, SourceState> =
+            super::read(&root.join(format!("actors/{}/source-states.json", source.machine)));
+        for (state, name) in [
+            (super::EnemyCombat::LightningDeath, "zm_death_tesla"),
+            (
+                super::EnemyCombat::LightningDeathCrawl,
+                "zm_death_tesla_crawl",
+            ),
+            (super::EnemyCombat::ElectricStun, "zm_electric_stun"),
+        ] {
+            let Some(authored) = states.get(name) else {
+                continue;
+            };
+            let mut clips = Vec::new();
+            for (_, clip_name) in &authored.clips {
+                let track = tracks
+                    .get(clip_name)
+                    .ok_or_else(|| format!("{model} lacks source {name} clip {clip_name}"))?;
+                let path = source
+                    .tracks
+                    .iter()
+                    .find(|clip| clip.name == *clip_name)
+                    .and_then(|clip| clip.animation_path.as_ref())
+                    .ok_or_else(|| format!("{model} lacks exported {name} clip {clip_name}"))?;
+                let duration = track.frames as f32 / track.fps;
+                let id = ContentId(format!("animation.{model}.{clip_name}"));
+                let seconds = track
+                    .notetracks
+                    .iter()
+                    .find(|(event, _)| event == "end")
+                    .map_or(duration, |(_, frame)| frame / track.fps);
+                if !game
+                    .content
+                    .animations
+                    .iter()
+                    .any(|animation| animation.id == id)
+                {
+                    game.content.animations.push(AnimationDefinition {
+                        id: id.clone(),
+                        path: path.clone(),
+                        skeleton: presentation.id.clone(),
+                        seconds: duration,
+                        looping: track.looped,
+                        notifications: track
+                            .notetracks
+                            .iter()
+                            .map(|(event, frame)| AnimationNotification {
+                                event: event.clone(),
+                                seconds: frame / track.fps,
+                            })
+                            .collect(),
+                        root_motion: track.motion()?,
+                    });
+                }
+                if !presentation.animations.contains(&id) {
+                    presentation.animations.push(id.clone());
+                }
+                clips.push(super::EnemyCombatClip {
+                    animation: id,
+                    seconds,
+                    duration: Some(duration),
+                    hits: Vec::new(),
+                    stops: Vec::new(),
+                });
+            }
+            for enemy in game
+                .content
+                .enemies
+                .iter_mut()
+                .filter(|enemy| enemy.presentation.as_ref() == Some(&presentation.id))
+            {
+                enemy.combat_states.insert(state, clips.clone());
+            }
+        }
         for animation in game
             .content
             .animations
@@ -300,6 +378,53 @@ fn bind_scripted(game: &mut GameDefinition, root: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "requires exported installed Origins assets"]
+    fn exported_staff_reactions_bind_the_original_asd_clips_and_notetracks() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/assets");
+        let game = GameDefinition::load_from_root(&root);
+        let mut count = 0;
+        for enemy in game
+            .content
+            .enemies
+            .iter()
+            .filter(|enemy| enemy.family == "german")
+        {
+            for state in [
+                super::super::EnemyCombat::LightningDeath,
+                super::super::EnemyCombat::LightningDeathCrawl,
+                super::super::EnemyCombat::ElectricStun,
+            ] {
+                let clips = &enemy.combat_states[&state];
+                assert!(!clips.is_empty());
+                for clip in clips {
+                    let animation = game
+                        .content
+                        .animations
+                        .iter()
+                        .find(|a| a.id == clip.animation)
+                        .unwrap();
+                    assert!(
+                        root.join(animation.path.split('#').next().unwrap())
+                            .is_file()
+                    );
+                    assert!(animation.seconds > 0.);
+                    assert_eq!(clip.duration, Some(animation.seconds));
+                    if state != super::super::EnemyCombat::ElectricStun {
+                        assert!(
+                            animation
+                                .notifications
+                                .iter()
+                                .any(|note| note.event == "die")
+                        );
+                    }
+                }
+            }
+            count += 1;
+        }
+        assert!(count > 10);
+    }
 
     #[test]
     fn scripted_delta_keeps_absolute_start_and_converts_source_axes() {

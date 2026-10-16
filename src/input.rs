@@ -425,6 +425,7 @@ pub(crate) fn pause_and_restart(
     mut cursors: Query<(&Window, &mut CursorOptions)>,
     settings: Res<ControlSettings>,
     menu: Res<menu::ControlMenu>,
+    cheats: Option<Res<crate::cheats::Cheats>>,
     mut restart: MessageReader<RestartGame>,
     #[cfg(feature = "dev-tools")] mut validator: Option<ResMut<crate::validation::Controller>>,
 ) {
@@ -442,7 +443,8 @@ pub(crate) fn pause_and_restart(
         return;
     }
     let requested = restart.read().count() > 0;
-    if menu.capturing.is_none()
+    if !cheats.is_some_and(|c| c.menu_open)
+        && menu.capturing.is_none()
         && !menu.handled_input
         && (keys.just_pressed(KeyCode::Escape)
             || settings.just_pressed(Action::Pause, &keys, &mouse))

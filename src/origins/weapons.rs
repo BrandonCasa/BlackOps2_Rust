@@ -186,6 +186,27 @@ pub(crate) fn bind(game: &mut GameDefinition, root: &Path) -> Result<(), String>
             ])
         };
         weapon.mechanics.sprint_duration_scale = motion_number("sprintDurationScale")?;
+        weapon.mechanics.spread = [
+            motion_number("hipSpreadStandMin")?,
+            motion_number("hipSpreadDuckedMin")?,
+            motion_number("hipSpreadProneMin")?,
+            motion_number("adsSpread")?,
+        ];
+        weapon.mechanics.hip_spread = Some(super::content::WeaponHipSpread {
+            maximum: [
+                motion_number("hipSpreadMax")?,
+                motion_number("hipSpreadDuckedMax")?,
+                motion_number("hipSpreadProneMax")?,
+            ],
+            decay: motion_number("hipSpreadDecayRate")?,
+            fire_add: motion_number("hipSpreadFireAdd")?,
+            turn_add: motion_number("hipSpreadTurnAdd")?,
+            move_add: motion_number("hipSpreadMoveAdd")?,
+            stance_decay: [
+                motion_number("hipSpreadDuckedDecay")?,
+                motion_number("hipSpreadProneDecay")?,
+            ],
+        });
         weapon.mechanics.view_motion = super::content::WeaponViewMotion {
             scoped_ads: text("adsOverlayReticle").is_some_and(|value| value != "none"),
             sway: sway("sway")?,

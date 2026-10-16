@@ -213,10 +213,10 @@ fn clip_polygon(points: &[Vec3], plane: Vec4, output: &mut Vec<Vec3>) -> bool {
             },
         )
     };
+    let mut a = points[0];
+    let (mut da, mut ca) = classify(a);
     for i in 0..points.len() {
-        let a = points[i];
         let b = points[(i + 1) % points.len()];
-        let (da, ca) = classify(a);
         let (db, cb) = classify(b);
         if ca >= 0 {
             output.push(a);
@@ -224,6 +224,9 @@ fn clip_polygon(points: &[Vec3], plane: Vec4, output: &mut Vec<Vec3>) -> bool {
         if ca != 0 && cb != 0 && ca != cb {
             output.push(a + (b - a) * (da / (da - db)));
         }
+        a = b;
+        da = db;
+        ca = cb;
     }
     !output.is_empty()
 }

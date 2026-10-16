@@ -32,6 +32,7 @@ pub struct Recovery {
     just_hurt: bool,
     step: f32,
     last_immune_ratio: f32,
+    ignored_attacker: Option<(Entity, f32)>,
 }
 impl Default for Recovery {
     fn default() -> Self {
@@ -43,10 +44,23 @@ impl Default for Recovery {
             just_hurt: false,
             step: 0.,
             last_immune_ratio: 1.,
+            ignored_attacker: None,
         }
     }
 }
 impl Recovery {
+    pub(crate) fn accepts_swipe(&mut self, attacker: Entity) -> bool {
+        if self
+            .ignored_attacker
+            .is_some_and(|(ignored, _)| ignored == attacker)
+        {
+            return false;
+        }
+        // _zm::remove_ignore_attacker is separate from the health invulnerability window.
+        self.ignored_attacker = Some((attacker, 0.4));
+        true
+    }
+
     pub fn hit(&mut self, before: u32, after: u32, maximum: u32, profile: &HealthProfile) {
         let ratio = after as f32 / maximum as f32;
         let entered = !self.critical && ratio <= profile.critical_ratio;
@@ -144,43 +158,55 @@ fn regenerate(
         let dt = time.delta_secs();
         recovery.age += dt;
         recovery.immunity = (recovery.immunity - dt).max(0.);
+        if let Some((_, remaining)) = &mut recovery.ignored_attacker {
+            *remaining -= dt;
+            if *remaining <= 0.000001 {
+                recovery.ignored_attacker = None;
+            }
+        }
         if health.current() == Some(health.maximum()) {
             recovery.critical = false;
             recovery.last_immune_ratio = 1.;
             recovery.step = 0.;
             continue;
         }
-        if health.current() == Some(1) && recovery.age >= profile.critical_step_seconds {
-            if health.regenerate(1).is_ok_and(|healed| healed > 0) {
-                recovery.last_immune_ratio = 2. / health.maximum() as f32;
-                if evidence.heals.len() < 128 {
-                    evidence.heals.push(serde_json::json!({"target":entity.to_bits(),"before":1,"after":health.current(),
+        recovery.step += dt;
+        // _zm_playerhealth polls at 20 Hz, including the one-health floor repair.
+        let polls = ((recovery.step + 0.000001) / profile.critical_step_seconds) as u32;
+        recovery.step = (recovery.step - polls as f32 * profile.critical_step_seconds).max(0.);
+        for poll in 0..polls {
+            let age = recovery.age
+                - recovery.step
+                - (polls - poll - 1) as f32 * profile.critical_step_seconds;
+            if health.current() == Some(1) {
+                if health.regenerate(1).is_ok_and(|healed| healed > 0) {
+                    recovery.last_immune_ratio = 2. / health.maximum() as f32;
+                    if evidence.heals.len() < 128 {
+                        evidence.heals.push(serde_json::json!({"target":entity.to_bits(),"before":1,"after":health.current(),
                         "since_hit":recovery.age,"critical":recovery.critical,"kind":"damage_floor","state":format!("{:?}",health.state())}));
+                    }
                 }
             }
-        }
-        let delay = if recovery.critical {
-            profile.critical_delay
-        } else {
-            profile.regular_delay
-        };
-        if recovery.age < delay {
-            continue;
-        }
-        let before = health.current().unwrap_or(0);
-        let amount = if recovery.critical {
-            recovery.step += dt;
-            if recovery.step < profile.critical_step_seconds {
+            let delay = if recovery.critical {
+                profile.critical_delay
+            } else {
+                profile.regular_delay
+            };
+            if age + 0.000001 < delay || (recovery.critical && age <= delay + 0.000001) {
                 continue;
             }
-            recovery.step -= profile.critical_step_seconds;
-            ((health.maximum() as f32 * profile.critical_step_fraction) as u32).max(1)
-        } else {
-            ((health.maximum() as f32 * profile.regular_step_fraction) as u32).max(1)
-        };
-        if health.regenerate(amount).is_ok_and(|healed| healed > 0) && evidence.heals.len() < 128 {
-            evidence.heals.push(serde_json::json!({"target":entity.to_bits(),"before":before,"after":health.current(),
+            let before = health.current().unwrap_or(0);
+            let amount = if recovery.critical {
+                ((health.maximum() as f32 * profile.critical_step_fraction) as u32).max(1)
+            } else {
+                ((health.maximum() as f32 * profile.regular_step_fraction) as u32).max(1)
+            };
+            if health.regenerate(amount).is_ok_and(|healed| healed > 0)
+                && evidence.heals.len() < 128
+            {
+                evidence.heals.push(serde_json::json!({"target":entity.to_bits(),"before":before,"after":health.current(),
                 "since_hit":recovery.age,"critical":recovery.critical,"delay":delay,"state":format!("{:?}",health.state())}));
+            }
         }
     }
 }
@@ -192,5 +218,107 @@ fn terminal(
     for _ in events.read() {
         evidence.death_events += 1;
         next.set(GameState::GameOver);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::ecs::system::RunSystemOnce;
+    use std::time::Duration;
+
+    fn damaged(current: u32) -> (World, Entity) {
+        let mut world = World::new();
+        let game: GameDefinition =
+            serde_json::from_str(include_str!("../gameplay/origins/game.json")).unwrap();
+        let mut recovery = Recovery::default();
+        recovery.hit(100, current, 100, &game.player_health);
+        recovery.just_hurt = false;
+        world.insert_resource(game);
+        world.init_resource::<Time<Fixed>>();
+        world.init_resource::<HealthEvidence>();
+        let entity = world
+            .spawn((
+                Player {
+                    yaw: 0.,
+                    pitch: 0.,
+                    velocity: Vec3::ZERO,
+                    height: 1.8,
+                    grounded: true,
+                    crouched: false,
+                    prone: false,
+                    eye_height: 1.62,
+                },
+                Vitality::human(
+                    current,
+                    100,
+                    1,
+                    crate::life::PlayerLethalPolicy::SoloSelfRevive,
+                )
+                .unwrap(),
+                recovery,
+            ))
+            .id();
+        (world, entity)
+    }
+
+    fn advance(world: &mut World, seconds: f32) {
+        world
+            .resource_mut::<Time<Fixed>>()
+            .advance_by(Duration::from_secs_f32(seconds));
+        world.run_system_once(regenerate).unwrap();
+    }
+
+    #[test]
+    fn native_health_poll_preserves_regular_and_critical_recovery_deadlines() {
+        let (mut world, entity) = damaged(50);
+        advance(&mut world, 2.35);
+        assert_eq!(world.get::<Vitality>(entity).unwrap().current(), Some(50));
+        advance(&mut world, 0.05);
+        assert_eq!(world.get::<Vitality>(entity).unwrap().current(), Some(100));
+
+        let (mut world, entity) = damaged(20);
+        advance(&mut world, 5.);
+        assert_eq!(world.get::<Vitality>(entity).unwrap().current(), Some(20));
+        advance(&mut world, 0.05);
+        assert_eq!(world.get::<Vitality>(entity).unwrap().current(), Some(30));
+        advance(&mut world, 0.35);
+        assert_eq!(world.get::<Vitality>(entity).unwrap().current(), Some(100));
+    }
+
+    #[test]
+    fn native_swipe_lock_outlasts_regular_immunity_and_tracks_the_last_attacker() {
+        let (mut world, entity) = damaged(50);
+        let attacker = world.spawn_empty().id();
+        let other = world.spawn_empty().id();
+        assert!(
+            world
+                .get_mut::<Recovery>(entity)
+                .unwrap()
+                .accepts_swipe(attacker)
+        );
+        advance(&mut world, 0.36);
+        let mut recovery = world.get_mut::<Recovery>(entity).unwrap();
+        assert_eq!(recovery.immunity, 0.);
+        assert!(!recovery.accepts_swipe(attacker));
+        assert!(recovery.accepts_swipe(other));
+        assert!(recovery.accepts_swipe(attacker));
+        drop(recovery);
+        advance(&mut world, 0.4);
+        assert!(
+            world
+                .get_mut::<Recovery>(entity)
+                .unwrap()
+                .accepts_swipe(attacker)
+        );
+    }
+
+    #[test]
+    fn native_one_health_floor_repairs_on_the_next_script_poll() {
+        let (mut world, entity) = damaged(1);
+        advance(&mut world, 0.025);
+        assert_eq!(world.get::<Vitality>(entity).unwrap().current(), Some(1));
+        advance(&mut world, 0.025);
+        assert_eq!(world.get::<Vitality>(entity).unwrap().current(), Some(2));
     }
 }

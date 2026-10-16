@@ -123,8 +123,8 @@ impl Plugin for GameplayPlugin {
                     ApplyDeferred
                         .after(GameStep::Damage)
                         .before(GameStep::PlayerLife),
-                    combat.in_set(GameStep::Combat),
-                    crate::rounds::advance.in_set(GameStep::Rounds),
+                    combat.in_set(GameStep::Combat).run_if(crate::cheats::weapon_equipped),
+                    crate::rounds::advance.in_set(GameStep::Rounds).run_if(crate::cheats::rounds_active),
                     crate::economy::record_downs
                         .after(GameStep::PlayerLife)
                         .before(GameStep::Rewards),
@@ -289,6 +289,13 @@ pub(crate) fn combat(
         },
         &definition.content.weapons,
     );
+    inventory.update_spread(
+        &player,
+        input.movement != Vec2::ZERO,
+        definition.tuning.walk_speed,
+        dt,
+        &definition.content.weapons,
+    );
     let eye = player.eye_height;
     let origin = transform.translation + Vec3::Y * (eye - player.height * 0.5);
     let rotation = Quat::from_rotation_y(
@@ -415,19 +422,7 @@ pub(crate) fn combat(
         } else {
             weapon.map_or(1, |w| w.mechanics.pellets)
         };
-        let spread = weapon.map_or(0., |w| {
-            let stance = if player.prone {
-                2
-            } else if player.crouched {
-                1
-            } else {
-                0
-            };
-            let hip = w.mechanics.spread[stance]
-                * inventory.firing.hip_spread_scale
-                * (1. + player.velocity.xz().length().min(6.) / 6.);
-            (hip + (w.mechanics.spread[3] - hip) * inventory.ads) * inventory.attachment_spread()
-        });
+        let spread = weapon.map_or(0., |w| inventory.spread_angle(w, player.eye_height));
         if !melee && let Some(weapon) = weapon {
             inventory.recoil_impulse(weapon, session.shots.wrapping_mul(31) as u64);
         }

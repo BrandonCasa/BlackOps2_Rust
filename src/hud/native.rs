@@ -62,7 +62,11 @@ impl SafeAnchor {
 #[derive(Component)]
 struct Glyph;
 #[derive(Component)]
-struct Rendered(NativeText);
+struct Rendered {
+    label: NativeText,
+    auto_width: Option<f32>,
+    auto_height: Option<f32>,
+}
 #[derive(Component)]
 struct FontAtlas {
     style: &'static str,
@@ -272,16 +276,25 @@ fn resize(
         return;
     };
     let size = size / scale.0;
+    if !size.is_finite() || size.min_element() <= 0. {
+        return;
+    }
     let factor = size.y / 720.;
     for (mut node, mut transform) in &mut roots {
         let left = (size.x - 1280.) * 0.5;
         let top = (size.y - 720.) * 0.5;
-        *node = rect(left, top, 1280., 720.);
-        transform.scale = Vec2::splat(factor);
+        node.set_if_neq(rect(left, top, 1280., 720.));
+        let scale = Vec2::splat(factor);
+        if transform.scale != scale {
+            transform.scale = scale;
+        }
     }
     let offset = (size.x / factor - 1280.) * 0.5;
     for (anchor, mut node) in &mut anchors {
-        node.left = px(anchor.x + anchor.side * offset);
+        let left = px(anchor.x + anchor.side * offset);
+        if node.left != left {
+            node.left = left;
+        }
     }
 }
 
@@ -290,41 +303,66 @@ fn render(
     game: Option<Res<crate::assets::GameDefinition>>,
     server: Res<AssetServer>,
     mut images: ResMut<Assets<Image>>,
-    mut labels: Query<(
-        Entity,
-        &NativeText,
-        &mut Node,
-        Option<&Rendered>,
-        Option<&Children>,
-        Option<&FontAtlas>,
-    )>,
+    mut labels: Query<
+        (
+            Entity,
+            &NativeText,
+            &mut Node,
+            Option<&mut Rendered>,
+            Option<&Children>,
+            Option<&FontAtlas>,
+        ),
+        Without<Glyph>,
+    >,
     glyphs: Query<(), With<Glyph>>,
+    mut glyph_nodes: Query<(&mut Node, &mut ImageNode), With<Glyph>>,
 ) {
     let Some(game) = game else { return };
     if !labels
         .iter()
-        .any(|(_, label, _, rendered, _, _)| rendered.is_none_or(|r| r.0 != *label))
+        .any(|(_, label, _, rendered, _, _)| rendered.is_none_or(|r| r.label != *label))
     {
         return;
     }
-    let fonts: BTreeMap<_, _> = game
-        .content
-        .ui_assets
-        .iter()
-        .filter_map(|asset| {
-            asset
-                .font
-                .as_ref()
-                .map(|font| (asset.id.0.as_str(), (asset, font)))
-        })
-        .collect();
-    for (entity, label, mut node, rendered, children, atlas) in &mut labels {
-        if rendered.is_some_and(|r| r.0 == *label) {
+    let mut fonts = BTreeMap::new();
+    for (entity, label, mut node, mut rendered, children, atlas) in &mut labels {
+        if rendered.as_deref().is_some_and(|r| r.label == *label) {
             continue;
         }
-        let font_id = format!("ui.font.{}", label.style);
-        let (asset, font) = fonts.get(font_id.as_str()).unwrap_or_else(|| {
-            panic!("required HUD font {font_id} is missing from the UI catalog")
+        // Fades and tint animation do not change glyph geometry or ownership.
+        if let Some(rendered) = rendered.as_deref_mut()
+            && rendered.label.value == label.value
+            && rendered.label.size == label.size
+            && rendered.label.style == label.style
+            && rendered.label.align == label.align
+        {
+            for child in children.into_iter().flat_map(|children| children.iter()) {
+                if let Ok((_, mut image)) = glyph_nodes.get_mut(child)
+                    && image.color != label.color
+                {
+                    image.color = label.color;
+                }
+            }
+            rendered.label.color = label.color;
+            continue;
+        }
+        let (asset, font, metrics) = fonts.entry(label.style).or_insert_with(|| {
+            let font_id = format!("ui.font.{}", label.style);
+            let asset = game
+                .content
+                .ui_assets
+                .iter()
+                .find(|asset| asset.id.0 == font_id)
+                .unwrap_or_else(|| {
+                    panic!("required HUD font {font_id} is missing from the UI catalog")
+                });
+            let font = asset.font.as_ref().expect("required HUD font metrics");
+            let metrics: BTreeMap<_, _> = font
+                .glyphs
+                .iter()
+                .filter_map(|glyph| char::from_u32(glyph.codepoint).map(|letter| (letter, glyph)))
+                .collect();
+            (asset, font, metrics)
         });
         let texture = if let Some(atlas) = atlas.filter(|atlas| atlas.style == label.style) {
             atlas.image.clone()
@@ -356,16 +394,16 @@ fn render(
             );
             atlas.texture_descriptor.format = TextureFormat::Rgba8Unorm;
         }
-        if let Some(children) = children {
-            for child in children.iter().filter(|child| glyphs.contains(*child)) {
-                commands.entity(child).despawn();
-            }
-        }
-        let metrics: BTreeMap<_, _> = font
-            .glyphs
-            .iter()
-            .filter_map(|glyph| char::from_u32(glyph.codepoint).map(|letter| (letter, glyph)))
-            .collect();
+        let auto_width = node.width == Val::Auto
+            || rendered
+                .as_deref()
+                .and_then(|r| r.auto_width)
+                .is_some_and(|width| node.width == px(width));
+        let auto_height = node.height == Val::Auto
+            || rendered
+                .as_deref()
+                .and_then(|r| r.auto_height)
+                .is_some_and(|height| node.height == px(height));
         let factor = label.size / font.height;
         let advance = |text: &str| {
             text.chars()
@@ -376,20 +414,20 @@ fn render(
         let mut lines = Vec::<String>::new();
         for source in label.value.lines() {
             if let Val::Px(width) = node.width
+                && !auto_width
                 && advance(source) > width
             {
                 let mut line = String::new();
                 for word in source.split_whitespace() {
-                    let next = if line.is_empty() {
-                        word.to_string()
-                    } else {
-                        format!("{line} {word}")
-                    };
-                    if advance(&next) > width && !line.is_empty() {
-                        lines.push(std::mem::take(&mut line));
-                        line = word.into();
-                    } else {
-                        line = next;
+                    let previous_len = line.len();
+                    if previous_len > 0 {
+                        line.push(' ');
+                    }
+                    line.push_str(word);
+                    if advance(&line) > width && previous_len > 0 {
+                        let next = line.split_off(previous_len + 1);
+                        line.truncate(previous_len);
+                        lines.push(std::mem::replace(&mut line, next));
                     }
                 }
                 lines.push(line);
@@ -398,17 +436,24 @@ fn render(
             }
         }
         let widths: Vec<f32> = lines.iter().map(|line| advance(line)).collect();
-        let width = if let Val::Px(width) = node.width {
+        let width = if let Val::Px(width) = node.width
+            && !auto_width
+        {
             width
         } else {
             widths.iter().copied().fold(0., f32::max)
         };
-        if node.width == Val::Auto {
+        if auto_width && node.width != px(width) {
             node.width = px(width);
         }
-        if node.height == Val::Auto {
-            node.height = px(label.size * lines.len().max(1) as f32);
+        let height = label.size * lines.len().max(1) as f32;
+        if auto_height && node.height != px(height) {
+            node.height = px(height);
         }
+        let mut existing = children
+            .into_iter()
+            .flat_map(|children| children.iter())
+            .filter(|child| glyphs.contains(*child));
         commands.entity(entity).with_children(|parent| {
             for (line, text) in lines.iter().enumerate() {
                 let mut x = match label.align {
@@ -424,36 +469,155 @@ fn render(
                         let left = x + glyph.offset[0] * factor;
                         let top =
                             (font.height + glyph.offset[1]) * factor + line as f32 * label.size;
-                        parent.spawn((
-                            Glyph,
-                            Pickable::IGNORE,
-                            rect(left, top, glyph.size[0] * factor, glyph.size[1] * factor),
-                            ImageNode {
-                                image: texture.clone(),
-                                color: label.color,
-                                rect: Some(Rect::new(
-                                    glyph.rect[0],
-                                    glyph.rect[1],
-                                    glyph.rect[2],
-                                    glyph.rect[3],
-                                )),
-                                ..default()
-                            },
-                        ));
+                        let node = rect(left, top, glyph.size[0] * factor, glyph.size[1] * factor);
+                        let image = ImageNode {
+                            image: texture.clone(),
+                            color: label.color,
+                            rect: Some(Rect::new(
+                                glyph.rect[0],
+                                glyph.rect[1],
+                                glyph.rect[2],
+                                glyph.rect[3],
+                            )),
+                            ..default()
+                        };
+                        if let Some(child) = existing.next() {
+                            let (mut current_node, mut current_image) =
+                                glyph_nodes.get_mut(child).unwrap();
+                            current_node.set_if_neq(node);
+                            if current_image.image != image.image
+                                || current_image.color != image.color
+                                || current_image.rect != image.rect
+                            {
+                                *current_image = image;
+                            }
+                        } else {
+                            parent.spawn((Glyph, Pickable::IGNORE, node, image));
+                        }
                     }
                     x += glyph.advance * factor;
                 }
             }
         });
-        commands
-            .entity(entity)
-            .insert((Rendered(label.clone()), Pickable::IGNORE));
+        for child in existing {
+            commands.entity(child).despawn();
+        }
+        commands.entity(entity).insert((
+            Rendered {
+                label: label.clone(),
+                auto_width: auto_width.then_some(width),
+                auto_height: auto_height.then_some(height),
+            },
+            Pickable::IGNORE,
+        ));
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn text_app(node: Node, value: &str) -> (App, Entity) {
+        use crate::origins::{BitmapFont, BitmapGlyph, ContentId, UiAsset};
+        let mut game: crate::assets::GameDefinition = crate::origins::read(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("gameplay/origins/game.json"),
+        );
+        game.content.ui_assets = vec![UiAsset {
+            id: ContentId("ui.font.small".into()),
+            path: String::new(),
+            material: None,
+            sampler: None,
+            font: Some(BitmapFont {
+                height: 10.,
+                atlas: [32., 32.],
+                glyphs: ['1', 'W', ' ', '?']
+                    .into_iter()
+                    .map(|letter| BitmapGlyph {
+                        codepoint: letter as u32,
+                        offset: [0., -10.],
+                        advance: if letter == 'W' { 10. } else { 5. },
+                        size: if letter == ' ' { [0.; 2] } else { [5., 10.] },
+                        rect: [0., 0., 5., 10.],
+                    })
+                    .collect(),
+            }),
+        }];
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::asset::AssetPlugin::default()))
+            .init_asset::<Image>()
+            .insert_resource(game)
+            .add_systems(Update, render);
+        let image = app
+            .world_mut()
+            .resource_mut::<Assets<Image>>()
+            .add(Image::default());
+        let entity = app
+            .world_mut()
+            .spawn((
+                NativeText::new(value, 10.),
+                node,
+                FontAtlas {
+                    style: "small",
+                    image,
+                },
+            ))
+            .id();
+        (app, entity)
+    }
+
+    #[test]
+    fn text_updates_reuse_glyphs_resize_auto_bounds_and_preserve_other_children() {
+        let (mut app, label) = text_app(Node::default(), "11");
+        let decoration = app.world_mut().spawn(ChildOf(label)).id();
+        app.update();
+        let glyphs: Vec<_> = app
+            .world()
+            .get::<Children>(label)
+            .unwrap()
+            .iter()
+            .filter(|&entity| app.world().get::<Glyph>(entity).is_some())
+            .collect();
+        assert_eq!(glyphs.len(), 2);
+        assert_eq!(app.world().get::<Node>(label).unwrap().width, px(10.));
+        app.world_mut().get_mut::<NativeText>(label).unwrap().color = Color::BLACK;
+        app.update();
+        for &glyph in &glyphs {
+            assert_eq!(
+                app.world().get::<ImageNode>(glyph).unwrap().color,
+                Color::BLACK
+            );
+        }
+        app.world_mut().get_mut::<NativeText>(label).unwrap().value = "WW".into();
+        app.update();
+        assert_eq!(app.world().get::<Node>(label).unwrap().width, px(20.));
+        for &glyph in &glyphs {
+            assert!(app.world().get::<Glyph>(glyph).is_some());
+        }
+        app.world_mut().get_mut::<NativeText>(label).unwrap().value = "W".into();
+        app.update();
+        assert_eq!(app.world().get::<Node>(label).unwrap().width, px(10.));
+        assert!(app.world().get_entity(glyphs[1]).is_err());
+        assert!(app.world().get::<ChildOf>(decoration).is_some());
+    }
+
+    #[test]
+    fn wrapped_text_keeps_fixed_width_and_updates_auto_height() {
+        let (mut app, label) = text_app(
+            Node {
+                width: px(10.),
+                ..default()
+            },
+            "W W",
+        );
+        app.update();
+        let node = app.world().get::<Node>(label).unwrap();
+        assert_eq!(node.width, px(10.));
+        assert_eq!(node.height, px(20.));
+        app.world_mut().get_mut::<NativeText>(label).unwrap().value = "W".into();
+        app.update();
+        assert_eq!(app.world().get::<Node>(label).unwrap().height, px(10.));
+    }
+
     #[test]
     fn original_ui_byte_packing_uses_staged_nearest_even_and_clamps() {
         assert_eq!(

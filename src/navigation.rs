@@ -11,6 +11,7 @@ use bevy::prelude::*;
 use std::{
     cmp::Ordering,
     collections::{BinaryHeap, HashMap, HashSet, VecDeque},
+    sync::OnceLock,
 };
 #[derive(Clone)]
 struct Node {
@@ -67,6 +68,7 @@ pub struct Navigation {
     #[cfg(feature = "dev-tools")]
     pub(crate) selected_spawn: Option<usize>,
     nodes: Vec<Node>,
+    nodes_by_x: OnceLock<Vec<usize>>,
     edges: Vec<Vec<Edge>>,
     spawns: Vec<Admission>,
     entrances: Vec<crate::access::SpawnEntranceDefinition>,
@@ -74,9 +76,18 @@ pub struct Navigation {
     admissions: Vec<usize>,
     cache: HashMap<(usize, usize), (Vec3, bool)>,
     order: VecDeque<(usize, usize)>,
+    search: RouteSearch,
     pub revision: u32,
     chamber_blocked: std::collections::HashSet<(usize, usize)>,
     perk_blocked: HashMap<Entity, HashSet<(usize, usize)>>,
+}
+#[derive(Default)]
+struct RouteSearch {
+    costs: Vec<f32>,
+    previous: Vec<usize>,
+    open: BinaryHeap<Work>,
+    reachable: Vec<bool>,
+    pending: Vec<usize>,
 }
 #[derive(Clone, Copy)]
 struct Work {
@@ -224,17 +235,54 @@ impl Navigation {
         self.invalidate();
     }
 
+    fn node_order(&self) -> &[usize] {
+        // Positions never change after the graph is loaded. Zone access and
+        // exterior admission remain live predicates, independent of this order.
+        self.nodes_by_x.get_or_init(|| {
+            let mut order: Vec<_> = (0..self.nodes.len()).collect();
+            order
+                .sort_unstable_by(|&a, &b| self.nodes[a].point.x.total_cmp(&self.nodes[b].point.x));
+            order
+        })
+    }
+
     fn nearest(&self, p: Vec3, access: &ZoneAccess, active: bool) -> Option<usize> {
-        self.nodes
-            .iter()
-            .enumerate()
-            .filter(|(_, n)| !active || n.accessible(access))
-            .min_by(|(_, a), (_, b)| {
-                a.point
-                    .distance_squared(p)
-                    .total_cmp(&b.point.distance_squared(p))
-            })
-            .map(|(i, _)| i)
+        let order = self.node_order();
+        let split = order.partition_point(|&i| self.nodes[i].point.x < p.x);
+        let mut best = None;
+        let mut distance = f32::INFINITY;
+        // X distance bounds the full 3D distance. Stop each side as soon as
+        // no remaining point can win; equal distances keep the authored index.
+        for backwards in [true, false] {
+            let mut side = if backwards {
+                &order[..split]
+            } else {
+                &order[split..]
+            };
+            while let Some((&index, rest)) = if backwards {
+                side.split_last()
+            } else {
+                side.split_first()
+            } {
+                side = rest;
+                let node = &self.nodes[index];
+                if (node.point.x - p.x).powi(2) > distance {
+                    break;
+                }
+                if active && !node.accessible(access) {
+                    continue;
+                }
+                let candidate = node.point.distance_squared(p);
+                if best.is_none()
+                    || candidate.total_cmp(&distance).is_lt()
+                    || candidate == distance && Some(index) < best
+                {
+                    best = Some(index);
+                    distance = candidate;
+                }
+            }
+        }
+        best
     }
     fn allowed(&self, from: usize, e: &Edge, access: &ZoneAccess) -> bool {
         !self.chamber_blocked.contains(&(from, e.to))
@@ -327,9 +375,18 @@ impl Navigation {
         if let Some((point, fallback)) = self.cache.get(&(start, goal)).copied() {
             return (point, fallback);
         }
-        let mut costs = vec![f32::INFINITY; self.nodes.len()];
-        let mut previous = vec![usize::MAX; self.nodes.len()];
-        let mut open = BinaryHeap::new();
+        let mut search = std::mem::take(&mut self.search);
+        let RouteSearch {
+            costs,
+            previous,
+            open,
+            ..
+        } = &mut search;
+        costs.resize(self.nodes.len(), f32::INFINITY);
+        costs.fill(f32::INFINITY);
+        previous.resize(self.nodes.len(), usize::MAX);
+        previous.fill(usize::MAX);
+        open.clear();
         let mut best = start;
         costs[start] = 0.;
         open.push(Work {
@@ -369,6 +426,7 @@ impl Navigation {
         while previous[node] != start && previous[node] != usize::MAX {
             node = previous[node];
         }
+        self.search = search;
         let point = self.nodes[node].point;
         if self.cache.len() >= 512 {
             if let Some(old) = self.order.pop_front() {
@@ -456,7 +514,7 @@ impl Navigation {
         self.spawns.get(index)
     }
     pub(crate) fn choose_entrance(
-        &self,
+        &mut self,
         spawn: &Admission,
         spawner: &crate::access::ActorSpawnerDefinition,
         access: &ZoneAccess,
@@ -467,9 +525,15 @@ impl Navigation {
             .or(spawner.desired_origin.map(Vec3::from_array));
         let origin = desired.unwrap_or(spawn.position);
         let start = self.nearest(spawn.position, access, true)?;
-        let mut reachable = vec![false; self.nodes.len()];
+        let mut search = std::mem::take(&mut self.search);
+        let RouteSearch {
+            reachable, pending, ..
+        } = &mut search;
+        reachable.resize(self.nodes.len(), false);
+        reachable.fill(false);
         reachable[start] = true;
-        let mut pending = vec![start];
+        pending.clear();
+        pending.push(start);
         while let Some(from) = pending.pop() {
             for edge in &self.edges[from] {
                 // Choosing a window must not cross another window into the
@@ -483,30 +547,40 @@ impl Navigation {
                 }
             }
         }
-        let mut goals = self
-            .entrances
-            .iter()
-            .filter(|entrance| {
-                let Some(&from) = self.entrance_nodes.get(&entrance.node) else {
-                    return false;
-                };
-                self.edges[from].iter().any(|edge| {
+        // Spawn selection consumes at most three windows. Keep that stable
+        // nearest-three ordering directly instead of sorting every entrance.
+        let mut goals: [Option<&crate::access::SpawnEntranceDefinition>; 3] = [None; 3];
+        for entrance in &self.entrances {
+            let Some(&from) = self.entrance_nodes.get(&entrance.node) else {
+                continue;
+            };
+            if !reachable[from]
+                || !self.edges[from].iter().any(|edge| {
                     !matches!(edge.traversal, Traversal::Walk) && self.allowed(from, edge, access)
-                }) && reachable[from]
-            })
-            .collect::<Vec<_>>();
-        goals.sort_by(|a, b| {
-            Vec3::from_array(a.position)
-                .distance_squared(origin)
-                .total_cmp(&Vec3::from_array(b.position).distance_squared(origin))
-        });
-        if desired.is_some() {
-            return goals.first().map(|goal| (*goal).clone());
+                })
+            {
+                continue;
+            }
+            let distance = Vec3::from_array(entrance.position).distance_squared(origin);
+            if let Some(slot) = goals.iter().position(|goal| {
+                goal.is_none_or(|goal| {
+                    distance
+                        .total_cmp(&Vec3::from_array(goal.position).distance_squared(origin))
+                        .is_lt()
+                })
+            }) {
+                goals[slot..].rotate_right(1);
+                goals[slot] = Some(entrance);
+            }
         }
-        goals.truncate(3);
-        let mut previous = Vec3::from_array(goals.first()?.position).distance(spawn.position);
+        self.search = search;
+        let first = goals[0]?;
+        if desired.is_some() {
+            return Some(first.clone());
+        }
+        let mut previous = Vec3::from_array(first.position).distance(spawn.position);
         let mut count = 1;
-        for goal in goals.iter().skip(1) {
+        for goal in goals.iter().skip(1).flatten() {
             let current = Vec3::from_array(goal.position).distance(spawn.position);
             if current - previous > 500. * 0.0254 {
                 break;
@@ -514,9 +588,7 @@ impl Navigation {
             previous = current;
             count += 1;
         }
-        goals
-            .get(session.random() as usize % count)
-            .map(|goal| (*goal).clone())
+        goals[session.random() as usize % count].cloned()
     }
 }
 pub struct NavigationPlugin;
@@ -568,6 +640,11 @@ fn reset(
             exterior: false,
         })
         .collect();
+    assert!(
+        nav.nodes.iter().all(|node| node.point.is_finite()),
+        "Navigation positions must be finite"
+    );
+    nav.node_order();
     let ids: HashMap<_, _> = definition
         .content
         .navigation_nodes
@@ -665,6 +742,161 @@ fn refresh(mut nav: ResMut<Navigation>, access: Res<ZoneAccess>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn exhaustive_nearest(
+        nav: &Navigation,
+        p: Vec3,
+        access: &ZoneAccess,
+        active: bool,
+    ) -> Option<usize> {
+        nav.nodes
+            .iter()
+            .enumerate()
+            .filter(|(_, node)| !active || node.accessible(access))
+            .min_by(|(_, a), (_, b)| {
+                a.point
+                    .distance_squared(p)
+                    .total_cmp(&b.point.distance_squared(p))
+            })
+            .map(|(index, _)| index)
+    }
+
+    fn catalog_navigation() -> Navigation {
+        let game: GameDefinition =
+            serde_json::from_str(include_str!("../gameplay/origins/game.json")).unwrap();
+        Navigation {
+            nodes: game
+                .content
+                .navigation_nodes
+                .iter()
+                .map(|source| Node {
+                    point: Vec3::from_array(source.position),
+                    zone: source.zone.clone(),
+                    native: source.native,
+                    exterior: false,
+                })
+                .collect(),
+            ..default()
+        }
+    }
+
+    #[test]
+    fn ordered_nearest_matches_full_map_scan_with_live_zone_access() {
+        let mut nav = catalog_navigation();
+        // Equal positions and equal distances must still pick the first
+        // authored node, regardless of the spatial sort's order.
+        nav.nodes.extend([
+            node(Vec3::ZERO, 1, 0),
+            node(Vec3::ZERO, 1, 0),
+            node(Vec3::X, 1, 0),
+            node(Vec3::NEG_X, 1, 0),
+        ]);
+        let mut access = ZoneAccess::default();
+        for stage in 0..3 {
+            access.reachable = nav
+                .nodes
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| stage == 2 || stage == 1 && index % 3 == 0)
+                .map(|(_, node)| node.zone.clone())
+                .collect();
+            for p in std::iter::once(Vec3::ZERO).chain(
+                nav.nodes
+                    .iter()
+                    .step_by(11)
+                    .map(|node| node.point + Vec3::new(0.3, 2.1, -0.7)),
+            ) {
+                for active in [false, true] {
+                    assert_eq!(
+                        nav.nearest(p, &access, active),
+                        exhaustive_nearest(&nav, p, &access, active),
+                        "point={p:?}, stage={stage}, active={active}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn route_search_drops_unvisited_work_between_queries() {
+        let mut access = ZoneAccess::default();
+        access.reachable.insert(ZoneId("zone.start".into()));
+        let mut nav = Navigation {
+            nodes: [Vec3::ZERO, Vec3::X, Vec3::X * 2., Vec3::X * 3.]
+                .map(|p| node(p, 1, 0))
+                .to_vec(),
+            edges: vec![
+                vec![1, 2]
+                    .into_iter()
+                    .map(|to| Edge {
+                        to,
+                        traversal: Traversal::Walk,
+                        animation: None,
+                        blockers: vec![],
+                        cost: to as f32,
+                        native: None,
+                    })
+                    .collect(),
+                vec![],
+                vec![],
+                vec![],
+            ],
+            ..default()
+        };
+        assert_eq!(nav.route(0, 1, Vec3::X, &access), (Vec3::X, false));
+        // The first search exits before visiting node 2. A disconnected search
+        // must not consume that leftover heap entry or its previous costs.
+        assert_eq!(nav.route(3, 2, Vec3::X * 2., &access), (Vec3::X * 3., true));
+        nav.invalidate();
+        assert_eq!(
+            nav.route(0, 2, Vec3::X * 2., &access),
+            (Vec3::X * 2., false)
+        );
+    }
+
+    #[test]
+    #[ignore = "manual CPU timing on the authored map"]
+    fn benchmark_nearest_on_authored_map() {
+        use std::{hint::black_box, time::Instant};
+        let nav = catalog_navigation();
+        nav.node_order();
+        let mut access = ZoneAccess::default();
+        access
+            .reachable
+            .extend(nav.nodes.iter().map(|node| node.zone.clone()));
+        let points: Vec<_> = nav
+            .nodes
+            .iter()
+            .map(|node| node.point + Vec3::new(0.3, 2.1, -0.7))
+            .collect();
+        for active in [false, true] {
+            let start = Instant::now();
+            for _ in 0..4 {
+                for &point in &points {
+                    black_box(exhaustive_nearest(
+                        black_box(&nav),
+                        black_box(point),
+                        &access,
+                        active,
+                    ));
+                }
+            }
+            let full = start.elapsed();
+            let start = Instant::now();
+            for _ in 0..4 {
+                for &point in &points {
+                    black_box(nav.nearest(black_box(point), &access, active));
+                }
+            }
+            let ordered = start.elapsed();
+            eprintln!(
+                "{} nodes, {} lookups, active={active}: full scan {full:?}, ordered {ordered:?}, {:.2}x",
+                nav.nodes.len(),
+                points.len() * 4,
+                full.as_secs_f64() / ordered.as_secs_f64()
+            );
+        }
+    }
 
     #[cfg(feature = "dev-tools")]
     #[test]

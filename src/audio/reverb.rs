@@ -372,11 +372,10 @@ struct WetMixer {
     master: Option<super::master::Master>,
 }
 impl WetMixer {
-    fn render(&mut self) -> Vec<f32> {
+    fn render(&mut self, output: &mut [f32; 512]) {
         let preset = *self.room.read().unwrap_or_else(|error| error.into_inner());
         self.network.update(preset);
-        let mut output = Vec::with_capacity(512);
-        for frame in 0..256 {
+        for (frame, output) in output.chunks_exact_mut(2).enumerate() {
             let mut input = [0.; 4];
             let mut dry = [0.; 2];
             self.voices.retain_mut(|voice| {
@@ -403,22 +402,23 @@ impl WetMixer {
             });
             let wet = self.network.sample(input);
             let mixed = [dry[0] + wet[0] * self.gain, dry[1] + wet[2] * self.gain];
-            output.extend(
-                self.master
+            output.copy_from_slice(
+                &self
+                    .master
                     .as_mut()
                     .map_or(mixed, |master| master.sample(mixed, frame)),
             );
         }
-        output
     }
 }
 impl ListenerRoom {
     pub(super) fn enqueue(&self, input: &AudioSource, looping: bool, control: Arc<VoiceControl>) {
+        let reader = Reader::new(input, looping, control);
         self.mixer
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .voices
-            .push(Reader::new(input, looping, control));
+            .push(reader);
     }
     pub(super) fn bus(&self) -> RoomBus {
         RoomBus(self.mixer.clone())
@@ -431,25 +431,24 @@ impl Decodable for RoomBus {
     fn decoder(&self) -> BusSamples {
         BusSamples {
             mixer: self.0.clone(),
-            pending: Vec::new(),
-            next: 0,
+            pending: [0.; 512],
+            next: 512,
         }
     }
 }
 pub(crate) struct BusSamples {
     mixer: Arc<Mutex<WetMixer>>,
-    pending: Vec<f32>,
+    pending: [f32; 512],
     next: usize,
 }
 impl Iterator for BusSamples {
     type Item = Sample;
     fn next(&mut self) -> Option<Sample> {
         if self.next == self.pending.len() {
-            self.pending = self
-                .mixer
+            self.mixer
                 .lock()
                 .unwrap_or_else(|error| error.into_inner())
-                .render();
+                .render(&mut self.pending);
             self.next = 0;
         }
         let value = self.pending[self.next];
@@ -549,9 +548,13 @@ mod tests {
         mixer.network.parameters = preset;
         mixer.network.update(preset);
         mixer.network.sample([1., 0., 0., 0.]);
-        let early = mixer.render();
+        let mut early = [0.; 512];
+        mixer.render(&mut early);
         assert!(early.iter().all(|sample| *sample == 0.));
-        let tail = (0..3).flat_map(|_| mixer.render()).collect::<Vec<_>>();
+        let mut tail = [0.; 1536];
+        for block in tail.chunks_exact_mut(512) {
+            mixer.render(block.try_into().unwrap());
+        }
         assert!(mixer.voices.is_empty());
         assert!(tail.iter().any(|sample| sample.abs() > 0.00001));
         assert!(tail.iter().all(|sample| sample.is_finite()));

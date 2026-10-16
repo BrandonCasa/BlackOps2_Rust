@@ -14,7 +14,7 @@ use bevy::{prelude::*, world_serialization::WorldInstanceReady};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 mod eyes;
 mod gibs;
-mod ragdoll;
+pub(crate) mod ragdoll;
 pub(crate) use ragdoll::{RagdollBullet, RagdollCollisionHooks, RagdollExplosion};
 
 pub(crate) fn reset(world: &mut World) {
@@ -66,6 +66,29 @@ pub(crate) fn resolve_floor_overlap(
         .shape_intersections(shape, supported, Quat::IDENTITY, filter)
         .is_empty()
         .then_some(supported)
+}
+
+fn melee_facing(rotation: Quat, delta: Vec3, continuing: bool) -> bool {
+    // zm_melee::canmeleeinternal allows 60 degrees to start and 110 to continue.
+    let direction = delta.with_y(0.).normalize_or_zero();
+    direction == Vec3::ZERO
+        || (rotation * Vec3::X).dot(direction)
+            >= if continuing {
+                110_f32.to_radians().cos()
+            } else {
+                0.5
+            }
+}
+
+#[cfg(test)]
+#[test]
+fn native_melee_facing_keeps_separate_start_and_continuation_cones() {
+    let direction = |angle: f32| Quat::from_rotation_y(angle.to_radians()) * Vec3::X;
+    assert!(melee_facing(Quat::IDENTITY, direction(59.), false));
+    assert!(!melee_facing(Quat::IDENTITY, direction(61.), false));
+    assert!(melee_facing(Quat::IDENTITY, direction(109.), true));
+    assert!(!melee_facing(Quat::IDENTITY, direction(111.), true));
+    assert!(!melee_facing(Quat::IDENTITY, Vec3::NEG_X, false));
 }
 
 pub(crate) fn body_center(enemy: &EnemyDefinition, crawler: bool) -> Vec3 {
@@ -161,6 +184,28 @@ pub struct Zombie {
     eye_spawn: eyes::EyeSpawn,
 }
 impl Zombie {
+    pub(crate) fn resume_after_physics(&mut self) {
+        self.velocity = Vec3::ZERO;
+        self.navigation = 0.;
+        self.route_revision = u32::MAX;
+        self.traversal = None;
+        self.traversal_clip = None;
+        self.spawn_anchor = None;
+        self.source_entrance = None;
+        self.spawn_show = None;
+        self.tear = None;
+        self.barrier_action = None;
+        self.barrier_post = None;
+        self.barrier_slot = None;
+        self.stuck = 0.;
+        self.stunned = 0.;
+        self.landing = 0.;
+        self.barrier_wait = 0.;
+        self.transition(EnemyAnimation::Idle);
+        self.elapsed = 0.;
+        self.next_hit = 0;
+        self.combat = None;
+    }
     pub fn new(position: Vec3, definition: ContentId, gait: crate::rounds::Gait) -> Self {
         Self {
             definition,
@@ -535,6 +580,9 @@ pub(crate) struct ActorRig {
     sockets: HashMap<String, Entity>,
 }
 impl ActorRig {
+    pub(crate) fn owner(&self) -> Entity {
+        self.owner
+    }
     pub(crate) fn ready_for(&self, owner: Entity) -> bool {
         self.owner == owner && self.primary && self.ready && self.attached
     }
@@ -561,7 +609,7 @@ struct HasActor;
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
 pub(crate) struct EnemyRetirement;
 #[derive(Component)]
-struct ClientRagdollRequested;
+pub(crate) struct ClientRagdollRequested;
 #[derive(Component, Clone, Copy, Debug)]
 pub(crate) struct ActorCorpse {
     pub(crate) slot: u8,
@@ -584,6 +632,7 @@ impl Plugin for EnemyPlugin {
                 FixedUpdate,
                 lifecycle
                     .in_set(GameStep::EnemyIntent)
+                    .run_if(crate::cheats::enemies_active)
                     .run_if(in_state(GameState::Playing)),
             )
             .add_systems(
@@ -768,13 +817,14 @@ pub(crate) fn lifecycle(
             &Collider,
             &Vitality,
             Has<ActorReady>,
-            &crate::combat_effects::Wounds,
+            &mut crate::combat_effects::Wounds,
         ),
         (
             Without<Player>,
             Without<crate::panzer::Panzer>,
             Without<crate::tank::TankMotion>,
             Without<crate::quest_recovery::Pilot>,
+            Without<crate::cheats::physics::LivingRagdoll>,
         ),
     >,
     slide: MoveAndSlide,
@@ -791,7 +841,7 @@ pub(crate) fn lifecycle(
         .filter(|(_, _, _, _, v, _, _)| v.state() == LifeState::ActorAlive)
         .map(|(e, _, t, _, _, _, _)| (e, t.translation))
         .collect();
-    for (entity, mut zombie, mut transform, shape, vitality, ready, wounds) in &mut enemies {
+    for (entity, mut zombie, mut transform, shape, vitality, ready, mut wounds) in &mut enemies {
         let Some(enemy) = definition
             .content
             .enemies
@@ -874,7 +924,23 @@ pub(crate) fn lifecycle(
         if zombie.stunned > 0. {
             zombie.stunned = (zombie.stunned - dt).max(0.);
             if zombie.traversal.is_none() && zombie.tear.is_none() {
-                zombie.transition(EnemyAnimation::Idle);
+                if wounds.electrical > 0.
+                    && !zombie.crawler
+                    && enemy.combat_states.contains_key(&EnemyCombat::ElectricStun)
+                {
+                    if zombie.action != EnemyAnimation::Stunned {
+                        zombie.transition(EnemyAnimation::Stunned);
+                        zombie.start_combat(enemy, EnemyCombat::ElectricStun);
+                        // stun_zombie waits for the selected ASD animation's end,
+                        // rather than imposing the same hold on every reaction.
+                        let seconds = zombie.combat_clip(enemy).unwrap().seconds;
+                        wounds.electrical = seconds;
+                        zombie.stunned = seconds;
+                    }
+                    zombie.elapsed += dt;
+                } else {
+                    zombie.transition(EnemyAnimation::Idle);
+                }
             }
             zombie.velocity = Vec3::ZERO;
             continue;
@@ -1191,6 +1257,14 @@ pub(crate) fn lifecycle(
             })
         };
         let distance = transform.translation.distance(target);
+        let melee_delta = if goal.is_none() {
+            target
+                - Vec3::Y * (player_state.height * 0.5)
+                - (transform.translation - Vec3::Y * half_height)
+        } else {
+            target - transform.translation
+        };
+        let melee_distance = melee_delta.length();
         let stop_check = zombie.combat_clip(enemy).is_some_and(|clip| {
             clip.stops.iter().any(|time| {
                 *time > zombie.elapsed - dt * wounds.movement_scale() && *time <= zombie.elapsed
@@ -1201,7 +1275,8 @@ pub(crate) fn lifecycle(
                 || ignored
                 || lure.is_some()
                 || (stop_check
-                    && (distance > goal.map_or(64_f32 * 0.0254, |g| g.radius)
+                    && (melee_distance > goal.map_or(64_f32 * 0.0254, |g| g.radius)
+                        || !melee_facing(transform.rotation, melee_delta, true)
                         || !visible(transform.translation, target))))
         {
             zombie.transition(EnemyAnimation::Idle);
@@ -1211,7 +1286,8 @@ pub(crate) fn lifecycle(
             && !wounds.melee_disabled()
             && !ignored
             && zombie.action != EnemyAnimation::Attack
-            && distance <= goal.map_or(64_f32 * 0.0254, |g| g.radius)
+            && melee_distance <= goal.map_or(64_f32 * 0.0254, |g| g.radius)
+            && melee_facing(transform.rotation, melee_delta, false)
             && visible(transform.translation, target)
         {
             zombie.transition(EnemyAnimation::Attack);
@@ -1225,6 +1301,8 @@ pub(crate) fn lifecycle(
                 }
             } else if goal.is_some() {
                 EnemyCombat::GeneratorMelee
+            } else if wounds.body_gib == Some(crate::combat_effects::BodyGib::NoLegs) {
+                EnemyCombat::StumpyMelee
             } else if zombie.gait == crate::rounds::Gait::Walk {
                 if zombie.crawler {
                     EnemyCombat::WalkMeleeCrawl
@@ -1252,7 +1330,7 @@ pub(crate) fn lifecycle(
                 zombie.next_hit += 1;
                 if goal.is_none()
                     && !ignored
-                    && distance <= 64_f32 * 0.0254
+                    && melee_distance <= 64_f32 * 0.0254
                     && visible(transform.translation, target)
                     && health.state() == LifeState::Standing
                 {
@@ -1834,7 +1912,11 @@ fn corpses(
             zombie.combat_rotation = pose.rotation;
             zombie.start_combat(
                 enemy,
-                if wounds.crawler {
+                if wounds.electrical > 0. && wounds.crawler {
+                    EnemyCombat::LightningDeathCrawl
+                } else if wounds.electrical > 0. {
+                    EnemyCombat::LightningDeath
+                } else if wounds.crawler {
                     EnemyCombat::DeathCrawl
                 } else if wounds.burned {
                     EnemyCombat::FireDeath
@@ -2386,7 +2468,10 @@ fn replace_distant(
             &Vitality,
             &crate::rounds::PopulationKind,
         ),
-        Without<crate::panzer::Panzer>,
+        (
+            Without<crate::panzer::Panzer>,
+            Without<crate::cheats::physics::LivingRagdoll>,
+        ),
     >,
     players: Query<(Entity, &Player, &Transform), Without<Zombie>>,
     query: SpatialQuery,
