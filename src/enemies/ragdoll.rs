@@ -974,7 +974,7 @@ fn tick(
     mut commands: Commands,
     clock: Res<ClientPhysicsClock>,
     mut actors: Query<&mut PhysicalRagdoll>,
-    bodies: Query<(), (With<RigidBody>, Without<Sleeping>)>,
+    mut bodies: Query<(&mut LinearVelocity, &mut AngularVelocity, Has<Sleeping>), With<RigidBody>>,
 ) {
     for mut ragdoll in &mut actors {
         ragdoll.seconds += clock.delta.as_secs_f32();
@@ -982,11 +982,17 @@ fn tick(
             .bodies
             .iter()
             .flatten()
-            .any(|&body| bodies.contains(body))
+            .any(|&body| bodies.get(body).is_ok_and(|(_, _, sleeping)| !sleeping))
         {
             ragdoll.active_seconds += clock.delta.as_secs_f32();
             if ragdoll.active_seconds >= RAGDOLL_ACTIVE_SECONDS {
                 for &body in ragdoll.bodies.iter().flatten() {
+                    if let Ok((mut linear, mut angular, _)) = bodies.get_mut(body) {
+                        // Forced sleep must discard the old fall/spin. Avoid
+                        // flagging a user velocity edit that wakes it next tick.
+                        *linear.bypass_change_detection() = LinearVelocity::ZERO;
+                        *angular.bypass_change_detection() = AngularVelocity::ZERO;
+                    }
                     commands.queue(SleepBody(body));
                 }
                 ragdoll.active_seconds = 0.;
@@ -1164,6 +1170,18 @@ mod tests {
             assert!(!app.world().entity(part).contains::<Sleeping>());
         }
         app.world_mut().run_system_cached(tick).unwrap();
+        for &part in &parts {
+            assert!(app.world().entity(part).contains::<Sleeping>());
+            assert_eq!(
+                *app.world().get::<LinearVelocity>(part).unwrap(),
+                LinearVelocity::ZERO
+            );
+            assert_eq!(
+                *app.world().get::<AngularVelocity>(part).unwrap(),
+                AngularVelocity::ZERO
+            );
+        }
+        app.update();
         for &part in &parts {
             assert!(app.world().entity(part).contains::<Sleeping>());
         }
