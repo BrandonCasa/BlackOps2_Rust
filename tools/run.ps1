@@ -1,14 +1,15 @@
 param(
-    [switch] $Release,
+    [ValidateSet('dev', 'staging', 'release')]
+    [string] $Profile = 'dev',
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]] $GameArguments
 )
 
 $ErrorActionPreference = 'Stop'
-$profileDirectory = if ($Release) { 'release' } else { 'debug' }
+$profileDirectory = if ($Profile -eq 'dev') { 'debug' } else { $Profile }
 $executable = Join-Path $PSScriptRoot "../target/$profileDirectory/origins.exe"
 if (-not (Test-Path -LiteralPath $executable)) {
-    throw "Build Origins first: cargo build$(if ($Release) { ' --release' })"
+    throw "Build Origins first: cargo build --profile $Profile --locked"
 }
 
 $start = [System.Diagnostics.ProcessStartInfo]::new($executable)
