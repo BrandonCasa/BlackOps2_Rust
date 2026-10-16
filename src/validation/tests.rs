@@ -43,6 +43,7 @@ pub(crate) fn harness() -> App {
     .add_message::<crate::damage::DamageApplied>()
     .add_message::<crate::damage::EnemyDeath>()
     .add_message::<crate::movement::Landing>()
+    .add_message::<crate::movement::Jump>()
     .init_resource::<Trace>()
     .add_systems(
         PreUpdate,
@@ -118,6 +119,71 @@ fn frame(app: &mut App, ticks: u32) {
         .resource_mut::<bevy::time::TimeUpdateStrategy>() =
         bevy::time::TimeUpdateStrategy::ManualDuration(duration);
     app.update();
+}
+
+#[test]
+fn jump_evidence_requires_native_takeoff_and_keeps_the_previous_platform() {
+    let mut app = harness();
+    let platform = app.world_mut().spawn_empty().id();
+    let mut support = crate::movement::platforms::PlatformSupport::default();
+    support.entity = Some(platform);
+    let player = app
+        .world_mut()
+        .spawn((
+            crate::player::Player {
+                yaw: 0.,
+                pitch: 0.,
+                velocity: Vec3::Y,
+                height: 1.8,
+                grounded: false,
+                crouched: false,
+                prone: false,
+                eye_height: 1.62,
+            },
+            Transform::default(),
+            support,
+        ))
+        .id();
+    frame(&mut app, 1);
+    assert!(
+        !app.world()
+            .resource::<Controller>()
+            .evidence
+            .events
+            .iter()
+            .any(|event| event["kind"] == "jump"),
+        "An upward step or platform carry is not a native jump"
+    );
+    app.world_mut()
+        .get_mut::<crate::movement::platforms::PlatformSupport>(player)
+        .unwrap()
+        .entity = None;
+    app.world_mut().write_message(crate::movement::Jump {
+        owner: player,
+        position: Vec3::new(1., 2., 3.),
+        velocity: Vec3::new(0., 6.3, 0.),
+    });
+    frame(&mut app, 1);
+    let evidence = &app.world().resource::<Controller>().evidence;
+    let jumps: Vec<_> = evidence
+        .events
+        .iter()
+        .filter(|event| event["kind"] == "jump")
+        .collect();
+    assert_eq!(jumps.len(), 1);
+    assert_eq!(jumps[0]["data"]["platform"], platform.to_bits());
+    assert_eq!(jumps[0]["data"]["position"], json!([1., 2., 3.]));
+    frame(&mut app, 2);
+    assert_eq!(
+        app.world()
+            .resource::<Controller>()
+            .evidence
+            .events
+            .iter()
+            .filter(|event| event["kind"] == "jump")
+            .count(),
+        1
+    );
 }
 
 #[test]

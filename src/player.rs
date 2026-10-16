@@ -59,6 +59,8 @@ pub struct TickActions {
 pub struct PlayerPlugin;
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
+        #[cfg(feature = "dev-tools")]
+        app.add_message::<crate::movement::Jump>();
         let look_system = look.after(crate::input::collect);
         #[cfg(feature = "dev-tools")]
         let look_system = look_system.run_if(crate::validation::physical_look);
@@ -212,6 +214,7 @@ pub(crate) fn move_player(
     mut commands: Commands,
     slide: MoveAndSlide,
     mut landings: MessageWriter<crate::movement::Landing>,
+    #[cfg(feature = "dev-tools")] mut jumps: MessageWriter<crate::movement::Jump>,
     surfaces: Query<&crate::movement::physics::SurfaceFlags>,
 ) {
     let prone_edge = std::mem::take(&mut input.prone);
@@ -642,6 +645,12 @@ pub(crate) fn move_player(
     } else if jump_started {
         player.velocity.y = tuning.jump_speed;
         mobility.jump_recovery = m.jump_recovery;
+        #[cfg(feature = "dev-tools")]
+        jumps.write(crate::movement::Jump {
+            owner: entity,
+            position: feet,
+            velocity: player.velocity,
+        });
     }
     if let Some(dive) = mobility.dive {
         let dive_grounded = motion_grounded;
@@ -834,6 +843,8 @@ mod map_movement_tests {
         .init_resource::<crate::input::Actions>()
         .init_resource::<TickActions>()
         .add_message::<crate::movement::Landing>();
+        #[cfg(feature = "dev-tools")]
+        app.add_message::<crate::movement::Jump>();
         app.finish();
         app.cleanup();
         let server = app.world().resource::<AssetServer>().clone();

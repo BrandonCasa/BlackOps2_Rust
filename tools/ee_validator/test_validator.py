@@ -2,10 +2,24 @@ import json
 import unittest
 from unittest.mock import patch
 from client import Client, ValidationFailure
-from routes import tank_point, walk_to
+from routes import tank_point, walk_to, shoot_at
 
 
 class RunnerTests(unittest.TestCase):
+    def test_shooting_queues_native_cadence_without_round_trips_between_shots(self):
+        from unittest.mock import Mock
+        for speed in [1, 10]:
+            client = Mock()
+            client.state.return_value = {"speed":speed, "firing":{"interval":.096,"automatic":False,"magazine":8,"capacity":8},
+                "player":{"eye":[0,1.62,0],"yaw":0,"pitch":0},
+                "enemies":[{"entity":42,"position":[0,0,-5],"head":[0,1.62,-5]}]}
+            shoot_at(client, 42)
+            client.send.assert_called_once()
+            steps = client.send.call_args.args[0]
+            self.assertEqual([(s["ticks"],s["held"]) for s in steps[1:]], [(1,["fire"]),(5,[])]*4)
+            self.assertTrue(all(s["aim_entity"]==42 for s in steps))
+            client.input.assert_not_called()
+
     def walking_client(self, samples):
         from unittest.mock import Mock
         client = Mock()

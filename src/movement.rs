@@ -370,6 +370,13 @@ impl Mobility {
         self.dive.is_some() || self.recovery > 0.
     }
 }
+#[cfg(feature = "dev-tools")]
+#[derive(Message)]
+pub(crate) struct Jump {
+    pub owner: Entity,
+    pub position: Vec3,
+    pub velocity: Vec3,
+}
 #[derive(Message, Clone)]
 pub struct Landing {
     pub owner: Entity,

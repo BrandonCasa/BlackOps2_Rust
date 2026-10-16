@@ -85,6 +85,35 @@ def walk_to(client, point, tolerance=0.8, seconds=30, *, on_tank=False):
                 client.send({"op": "cancel", "command": command}, label="Release walking input")
 
 
+def shoot_at(client, entity, *, shots=4, label="Fire equipped weapon at its native cadence"):
+    state = client.state()
+    firing = state["firing"]
+    enemy = next(e for e in state["enemies"] if e["entity"] == entity)
+    height = enemy["head"][1] - enemy["position"][1] if enemy.get("head") else 1.2
+    target = [enemy["position"][0], enemy["position"][1] + height, enemy["position"][2]]
+    eye = state["player"]["eye"]
+    yaw = math.atan2(eye[0] - target[0], eye[2] - target[2])
+    pitch = math.atan2(target[1] - eye[1], distance(eye, target))
+    turn = max(abs((yaw - state["player"]["yaw"] + math.pi) % math.tau - math.pi),
+               abs(pitch - state["player"]["pitch"]))
+    aiming = {"op": "input", "aim_entity": entity, "aim_offset": [0, height, 0], "look": [0, 0]}
+    steps = []
+    if not firing["magazine"]:
+        steps.extend([{**aiming, "ticks": 1, "held": ["reload"]},
+                      {**aiming, "ticks": math.ceil(firing["reload_seconds"] * 60) + 2, "held": []}])
+    steps.append({**aiming, "ticks": max(1, math.ceil(turn / (math.pi / 2) * 60)), "held": []})
+    count = min(shots, firing["magazine"] or firing["capacity"])
+    interval = max(2, math.ceil(firing["interval"] * 60))
+    if firing["automatic"]:
+        steps.append({**aiming, "ticks": interval * count, "held": ["fire"]})
+        steps.append({**aiming, "ticks": 1, "held": []})
+    else:
+        for _ in range(count):
+            steps.extend([{**aiming, "ticks": 1, "held": ["fire"]},
+                          {**aiming, "ticks": interval - 1, "held": []}])
+    client.send(steps, label=label)
+
+
 def foundation(client):
     results = {}
     client.send({"op": "assist", "god": True, "points": 100000, "ammo": True, "doors": False}, label="Foundation: assistance enabled")
@@ -120,9 +149,7 @@ def foundation(client):
     deadline = state["control"]["simulation_seconds"] + 60
     killed = False
     while client.state()["control"]["simulation_seconds"] < deadline:
-        client.input(30, aim_entity=enemy, label="Foundation: aim at a native zombie")
-        client.input(10, ("fire",), aim_entity=enemy, label="Foundation: fire equipped weapon")
-        client.input(10, aim_entity=enemy)
+        shoot_at(client, enemy, label="Foundation: aim and fire at the equipped weapon's native cadence")
         state = client.state()
         events = [e for e in state["evidence"]["events"] if e["sequence"] > before_sequence]
         if any(e["kind"] == "kill" and e["data"]["target"] == enemy for e in events):
@@ -258,10 +285,14 @@ def generators_tank(client):
         live = [e for e in guards if e["emerged"] and e["life"] == "ActorAlive"]
         if live:
             enemy = min(live, key=lambda e: distance(e["position"], state["player"]["feet"]))
-            client.input(20, aim_entity=enemy["entity"], label="Defend the generator against its native guards")
             attack = "melee" if distance(enemy["position"], state["player"]["feet"]) < 1.5 else "fire"
-            client.input(8, (attack,), aim_entity=enemy["entity"])
-            client.input(6, aim_entity=enemy["entity"])
+            if attack == "fire":
+                shoot_at(client, enemy["entity"], label="Defend the generator at the equipped rifle's native cadence")
+            else:
+                client.send([{"op":"input","ticks":20,"held":[],"aim_entity":enemy["entity"]},
+                             {"op":"input","ticks":8,"held":["melee"],"aim_entity":enemy["entity"]},
+                             {"op":"input","ticks":6,"held":[],"aim_entity":enemy["entity"]}],
+                            label="Knife the nearby generator guard")
             client.send({"op": "assist", "god": True, "points": state["round"]["points"], "ammo": True, "doors": False})
         else:
             client.input(12, label="Hold the generator capture area")
@@ -303,6 +334,15 @@ def board_tank(client):
         {"op": "input", "ticks": 24, "held": ["forward", "jump"], "look": [0, 0], "aim": None, "aim_entity": None},
     ], label="Jump upward, then move over the rear tank lip")
     client.input(24)
+    walk_to(client, tank_point(tank, [0.7, 1.272, 2.1]), tolerance=0.12, seconds=8)
+    roof = tank_point(tank, [0.7, 1.81, 1.0])
+    aim = [roof[0], client.state()["player"]["eye"][1], roof[2]]
+    client.input(120, aim=aim, label="Face the raised tank roof")
+    client.send([
+        {"op": "input", "ticks": 14, "held": ["jump"], "look": [0, 0]},
+        {"op": "input", "ticks": 18, "held": ["forward", "jump"], "aim": aim, "look": [0, 0]},
+        {"op": "input", "ticks": 30, "held": [], "look": [0, 0]},
+    ], label="Jump normally onto the raised native tank roof")
     walk_to(client, tank_point(tank, [0.0, 2.398, -3.5]), tolerance=0.15, seconds=12)
     state = client.state()
     if state["player"]["platform"] != tank["entity"]:
