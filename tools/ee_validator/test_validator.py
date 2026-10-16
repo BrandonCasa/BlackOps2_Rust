@@ -203,6 +203,7 @@ class RunnerTests(unittest.TestCase):
 
     def test_heartbeat_thread_stops_with_its_client(self):
         client = Client()
+        client.process_id = 123
         with patch.object(client, "rpc", return_value={}):
             client.beat_start()
             thread = client._heartbeat_thread

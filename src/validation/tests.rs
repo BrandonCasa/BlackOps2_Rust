@@ -1087,6 +1087,31 @@ fn stale_commands_are_rejected_before_world_access() {
 }
 
 #[test]
+fn a_previous_game_process_cannot_keep_the_current_watchdog_alive() {
+    let mut app = harness();
+    let previous = Instant::now() - Duration::from_secs(6);
+    app.world_mut().resource_mut::<Controller>().heartbeat = previous;
+    assert!(
+        remote_heartbeat(
+            In(Some(
+                json!({"session":1,"process_id":u64::from(std::process::id())+1})
+            )),
+            app.world_mut()
+        )
+        .is_err()
+    );
+    assert_eq!(app.world().resource::<Controller>().heartbeat, previous);
+    assert!(
+        remote_heartbeat(
+            In(Some(json!({"session":1,"process_id":std::process::id()}))),
+            app.world_mut()
+        )
+        .is_ok()
+    );
+    assert!(app.world().resource::<Controller>().heartbeat > previous);
+}
+
+#[test]
 fn completed_checkpoint_releases_lease_without_triggering_a_dead_runner_failure() {
     let mut app = harness();
     command(&mut app, 1, Command::Finish);

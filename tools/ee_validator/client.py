@@ -19,6 +19,7 @@ class Client:
         self.port = port
         self.report = report
         self.session = 0
+        self.process_id = None
         self.next_id = time.time_ns()
         self._heartbeat_stop = threading.Event()
         self._heartbeat_thread = None
@@ -33,7 +34,12 @@ class Client:
         return result["result"]
 
     def state(self):
-        return self.rpc("origins/validator/state")
+        state = self.rpc("origins/validator/state")
+        if self.process_id is None:
+            self.process_id = state["process_id"]
+        elif self.process_id != state["process_id"]:
+            raise ValidationFailure("The BRP endpoint now belongs to a different game process")
+        return state
 
     def receipt(self, command, *, session=None):
         return self.rpc("origins/validator/receipt", {"session": self.session if session is None else session, "id": command})
@@ -109,7 +115,10 @@ class Client:
         def heartbeat():
             while not self._heartbeat_stop.is_set():
                 try:
-                    self.rpc("origins/validator/heartbeat", {"session": self.session}, timeout=1)
+                    if self.process_id is None:
+                        self.state()
+                    self.rpc("origins/validator/heartbeat", {"session": self.session,
+                                                            "process_id": self.process_id}, timeout=1)
                 except ValidationFailure:
                     try:
                         self.session = self.state()["session"]

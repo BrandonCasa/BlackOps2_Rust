@@ -295,6 +295,14 @@ fn remote_receipt(In(params): In<Option<Value>>, world: &mut World) -> BrpResult
 }
 
 fn remote_heartbeat(In(params): In<Option<Value>>, world: &mut World) -> BrpResult {
+    if params
+        .as_ref()
+        .and_then(|p| p.get("process_id"))
+        .and_then(Value::as_u64)
+        != Some(u64::from(std::process::id()))
+    {
+        return Err(error("Stale heartbeat process"));
+    }
     let session = params
         .as_ref()
         .and_then(|p| p.get("session"))
