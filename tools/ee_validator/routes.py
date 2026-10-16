@@ -273,6 +273,9 @@ def board_tank(client):
     tank = client.state()["tank"]
     if tank["phase"] != "Ready" or tank["station"] != 0:
         raise ValidationFailure("Tank must begin at its ordinary church station")
+    client.send({"op": "teleport", "feet": [3.0, 1.05, 67.0]}, label="Inspect the native church tank placement")
+    client.input(120, aim=[11.19886, 2.4, 67.925188])
+    capture(client, "tank-placement")
     # Stage beside the rear hull. Boarding and the staff jump use movement only.
     client.send({"op": "teleport", "feet": tank_point(tank, [0.0, 0.35, 4.8])},
                 label="Stage beside the tank at the church")

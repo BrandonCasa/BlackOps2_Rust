@@ -103,7 +103,7 @@ impl Plugin for TankPlugin {
                 FixedUpdate,
                 (
                     bind_triggers.before(movement),
-                    movement.before(crate::movement::platforms::carry),
+                    movement.before(crate::movement::platforms::sync),
                     follow_triggers.after(movement),
                     rescue.after(movement),
                 )

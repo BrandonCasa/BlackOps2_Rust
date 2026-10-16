@@ -5,6 +5,10 @@ use crate::{
     player::Player,
 };
 use avian3d::prelude::*;
+use avian3d::{
+    collider_tree::{ColliderTreeProxyKey, ColliderTrees, MovedProxies},
+    collision::collider::{ColliderAabbMargin, EnlargedAabb},
+};
 use bevy::prelude::*;
 
 #[derive(Component)]
@@ -24,6 +28,12 @@ impl Plugin for PlatformPlugin {
         app.register_required_components::<Player, PlatformSupport>()
             .add_systems(
                 FixedUpdate,
+                sync.in_set(GameStep::Movement)
+                    .before(carry)
+                    .run_if(in_state(GameState::Playing)),
+            )
+            .add_systems(
+                FixedUpdate,
                 carry
                     .in_set(GameStep::Movement)
                     .before(crate::player::move_player)
@@ -37,6 +47,96 @@ impl Plugin for PlatformPlugin {
                     .run_if(in_state(GameState::Playing)),
             );
     }
+}
+
+pub(crate) fn sync(
+    mut platforms: Query<
+        (
+            Entity,
+            &Collider,
+            &ColliderTreeProxyKey,
+            &mut ColliderAabb,
+            &mut EnlargedAabb,
+            &ColliderAabbMargin,
+            Option<&CollisionMargin>,
+        ),
+        (With<MovingPlatform>, Changed<Transform>),
+    >,
+    mut physics: PhysicsTransformHelper,
+    mut trees: ResMut<ColliderTrees>,
+    mut moved: ResMut<MovedProxies>,
+    config: Res<NarrowPhaseConfig>,
+    length_unit: Res<PhysicsLengthUnit>,
+) {
+    // Player movement queries Position/Rotation during FixedUpdate, before
+    // Avian's ordinary PostUpdate transform synchronization.
+    for (entity, shape, key, mut bounds, mut enlarged, margin, collision_margin) in &mut platforms {
+        let (position, rotation) = physics
+            .update_physics_transform(entity)
+            .expect("Moving platform physics pose");
+        *bounds = shape.aabb(
+            position.0,
+            rotation.0,
+            length_unit.0 * config.contact_tolerance + collision_margin.map_or(0., |m| m.0),
+        );
+        if enlarged.update(&bounds, margin.0) {
+            let tree = trees.tree_for_type_mut(key.tree_type());
+            tree.resize_proxy_aabb(key.id(), enlarged.get().into());
+            if moved.insert(*key) {
+                tree.moved_proxies.push(key.id());
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn raised_platform_floor_is_queryable_before_the_next_physics_frame() {
+    let mut app = App::new();
+    app.add_plugins((
+        MinimalPlugins,
+        TransformPlugin,
+        AssetPlugin::default(),
+        PhysicsPlugins::new(Update),
+    ))
+    .init_asset::<Mesh>();
+    let platform = app
+        .world_mut()
+        .spawn((
+            MovingPlatform,
+            RigidBody::Kinematic,
+            CustomPositionIntegration,
+            Collider::cuboid(4., 1., 4.),
+            Transform::default(),
+        ))
+        .id();
+    app.finish();
+    app.cleanup();
+    app.update();
+    app.world_mut()
+        .get_mut::<Transform>(platform)
+        .unwrap()
+        .translation
+        .y = 0.15;
+    let floor = |query: SpatialQuery| {
+        query.cast_ray(
+            Vec3::new(0., 0.66, 0.),
+            Dir3::NEG_Y,
+            0.0254,
+            false,
+            &SpatialQueryFilter::default(),
+        )
+    };
+    use bevy::ecs::system::RunSystemOnce;
+    assert!(app.world_mut().run_system_once(floor).unwrap().is_none());
+    app.world_mut().run_system_cached(sync).unwrap();
+    let hit = app
+        .world_mut()
+        .run_system_once(floor)
+        .unwrap()
+        .expect("Updated platform floor");
+    assert_eq!(hit.entity, platform);
+    assert!((hit.distance - 0.01).abs() < 1e-5);
 }
 
 pub(crate) fn carry(
