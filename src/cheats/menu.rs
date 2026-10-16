@@ -2,12 +2,20 @@ use super::{Cheats, Gun, physics, tools};
 use crate::{GameState, player::Player};
 use avian3d::prelude::*;
 use bevy::{
-    picking::{events::PointerPress, pointer::PointerButton},
+    input_focus::{
+        AutoFocus, FocusCause, InputFocus,
+        tab_navigation::{TabGroup, TabIndex, TabNavigationPlugin},
+    },
+    picking::hover::Hovered,
     prelude::*,
-    ui_widgets::Button,
+    text::{EditableText, TextCursorStyle},
+    ui::Pressed,
+    ui_widgets::{
+        Activate, Button, ControlOrientation, ScrollArea, ScrollIntoView, Scrollbar,
+        ScrollbarThumb, TextInput,
+    },
 };
 
-const PAGE_SIZE: usize = 12;
 #[derive(Default, Clone, Copy, PartialEq, Eq)]
 enum Category {
     #[default]
@@ -46,25 +54,80 @@ struct Choice(Click);
 enum Click {
     Action(Action),
     Category(Category),
-    Page(bool),
     Close,
 }
 #[derive(Resource, Default)]
 struct Menu {
     category: Category,
-    page: usize,
-    selected: usize,
     pending: Option<Click>,
 }
 #[derive(Component)]
 struct MenuRoot;
+#[derive(Component)]
+struct Row {
+    index: usize,
+    search: String,
+}
+#[derive(Component)]
+struct Search;
+#[derive(Component)]
+struct Badge(Click);
+#[derive(Component)]
+struct Notice;
+#[derive(Component)]
+struct ResultCount;
+#[derive(Component)]
+struct NoResults;
+
+impl Action {
+    fn enabled(&self, cheats: &Cheats) -> Option<bool> {
+        Some(match self {
+            Self::God => cheats.god,
+            Self::Noclip => cheats.noclip,
+            Self::Ammo => cheats.ammo,
+            Self::Sprint => cheats.sprint,
+            Self::OneHit => cheats.one_hit,
+            Self::FreezeEnemies => cheats.freeze_enemies,
+            Self::FreezeRounds => cheats.freeze_rounds,
+            _ => return None,
+        })
+    }
+}
+impl Category {
+    fn title(self) -> &'static str {
+        match self {
+            Self::Cheats => "Player & world",
+            Self::Weapons => "Weapons",
+            Self::Spawns => "Tool Gun spawns",
+        }
+    }
+    fn description(self) -> &'static str {
+        match self {
+            Self::Cheats => "Change player abilities and control the world.",
+            Self::Weapons => "Click a weapon to equip it with full ammunition.",
+            Self::Spawns => "Choose an object, close the menu, then use the Tool Gun to place it.",
+        }
+    }
+}
 
 pub(super) fn install(app: &mut App) {
+    if !app.is_plugin_added::<TabNavigationPlugin>() {
+        app.add_plugins(TabNavigationPlugin);
+    }
     app.init_resource::<Menu>()
+        .init_resource::<InputFocus>()
         .add_observer(click)
         .add_systems(
             Update,
-            (keyboard, apply, rebuild)
+            (
+                keyboard,
+                apply,
+                rebuild,
+                filter,
+                refresh,
+                styles,
+                reveal_focus,
+            )
                 .chain()
                 .before(crate::input::menu::navigate)
                 .before(crate::input::pause_and_restart),
@@ -72,27 +135,16 @@ pub(super) fn install(app: &mut App) {
         .add_systems(OnExit(GameState::Paused), close);
 }
 
-fn choices(
-    cheats: &Cheats,
-    game: &crate::assets::GameDefinition,
-    category: Category,
-) -> Vec<(String, Action)> {
-    let toggle = |label: &str, value| format!("{label}   [{}]", if value { "ON" } else { "OFF" });
+fn choices(game: &crate::assets::GameDefinition, category: Category) -> Vec<(String, Action)> {
     match category {
         Category::Cheats => vec![
-            (toggle("God mode", cheats.god), Action::God),
-            (toggle("Noclip / fly", cheats.noclip), Action::Noclip),
-            (toggle("Unlimited ammo", cheats.ammo), Action::Ammo),
-            (toggle("Unlimited sprint", cheats.sprint), Action::Sprint),
-            (toggle("One hit kills", cheats.one_hit), Action::OneHit),
-            (
-                toggle("Freeze enemy AI", cheats.freeze_enemies),
-                Action::FreezeEnemies,
-            ),
-            (
-                toggle("Freeze round spawning", cheats.freeze_rounds),
-                Action::FreezeRounds,
-            ),
+            ("God mode".into(), Action::God),
+            ("Noclip / fly".into(), Action::Noclip),
+            ("Unlimited ammo".into(), Action::Ammo),
+            ("Unlimited sprint".into(), Action::Sprint),
+            ("One hit kills".into(), Action::OneHit),
+            ("Freeze enemy AI".into(), Action::FreezeEnemies),
+            ("Freeze round spawning".into(), Action::FreezeRounds),
             ("Give 10,000 points".into(), Action::Points),
             ("Heal player".into(), Action::Heal),
             ("Refill ammunition".into(), Action::Refill),
@@ -117,12 +169,7 @@ fn choices(
                     && weapon.mine.is_none()
                     && weapon.magazine > 0
             })
-            .map(|weapon| {
-                (
-                    weapon.id.0.trim_start_matches("weapon.").to_owned(),
-                    Action::Weapon(weapon.id.0.clone()),
-                )
-            })
+            .map(|weapon| (weapon.name.clone(), Action::Weapon(weapon.id.0.clone())))
             .collect(),
         Category::Spawns => std::iter::once((
             "Mystery Box".into(),
@@ -146,7 +193,7 @@ fn choices(
                 })
                 .map(|p| {
                     (
-                        p.id.0.clone(),
+                        p.id.0.trim_start_matches("powerup.").replace('_', " "),
                         Action::Spawn(tools::Spawn::Powerup(p.id.0.clone())),
                     )
                 }),
@@ -158,7 +205,7 @@ fn choices(
                 .filter(|enemy| enemy.presentation.is_some())
                 .map(|enemy| {
                     (
-                        enemy.id.0.clone(),
+                        enemy.id.0.trim_start_matches("enemy.").replace('_', " "),
                         Action::Spawn(tools::Spawn::Enemy(enemy.id.0.clone())),
                     )
                 }),
@@ -168,13 +215,16 @@ fn choices(
 }
 
 fn keyboard(
+    mut commands: Commands,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     state: Res<State<GameState>>,
     mut next: ResMut<NextState<GameState>>,
     mut cheats: ResMut<Cheats>,
     mut menu: ResMut<Menu>,
-    game: Option<Res<crate::assets::GameDefinition>>,
     mut input: ResMut<crate::input::GameInput>,
+    mut focus: ResMut<InputFocus>,
+    rows: Query<(Entity, &Row, &Node)>,
+    search: Query<Entity, With<Search>>,
     #[cfg(feature = "dev-tools")] validator: Option<Res<crate::validation::Controller>>,
 ) {
     #[cfg(feature = "dev-tools")]
@@ -190,9 +240,9 @@ fn keyboard(
         } else {
             cheats.return_to_pause = **state == GameState::Paused;
             cheats.menu_open = true;
-            cheats.revision += 1;
             *menu = default();
             input.clear();
+            focus.clear();
             if **state == GameState::Playing {
                 next.set(GameState::Paused);
             }
@@ -204,50 +254,85 @@ fn keyboard(
     if keys.just_pressed(KeyCode::Escape) {
         keys.clear_just_pressed(KeyCode::Escape);
         menu.pending = Some(Click::Close);
+        return;
     }
-    if keys.just_pressed(KeyCode::Tab) {
-        menu.pending = Some(Click::Category(match menu.category {
-            Category::Cheats => Category::Weapons,
-            Category::Weapons => Category::Spawns,
-            Category::Spawns => Category::Cheats,
-        }));
-    }
-    if keys.just_pressed(KeyCode::ArrowLeft) {
-        menu.pending = Some(Click::Page(false));
-    }
-    if keys.just_pressed(KeyCode::ArrowRight) {
-        menu.pending = Some(Click::Page(true));
-    }
-    if keys.just_pressed(KeyCode::ArrowUp)
-        || keys.just_pressed(KeyCode::ArrowDown)
-        || keys.just_pressed(KeyCode::Enter)
-    {
-        let Some(game) = game else { return };
-        let rows = choices(&cheats, &game, menu.category);
-        let count = rows
-            .len()
-            .saturating_sub(menu.page * PAGE_SIZE)
-            .min(PAGE_SIZE);
-        if count == 0 {
-            return;
+    let control = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
+    if control {
+        for (key, category) in [
+            (KeyCode::Digit1, Category::Cheats),
+            (KeyCode::Digit2, Category::Weapons),
+            (KeyCode::Digit3, Category::Spawns),
+        ] {
+            if keys.just_pressed(key) {
+                menu.pending = Some(Click::Category(category));
+            }
         }
-        if keys.just_pressed(KeyCode::ArrowUp) {
-            menu.selected = (menu.selected + count - 1) % count;
+        if keys.just_pressed(KeyCode::KeyF)
+            && let Ok(entity) = search.single()
+        {
+            focus.set(entity, FocusCause::Navigated);
         }
-        if keys.just_pressed(KeyCode::ArrowDown) {
-            menu.selected = (menu.selected + 1) % count;
-        }
-        if keys.just_pressed(KeyCode::Enter) {
-            menu.pending = Some(Click::Action(
-                rows[menu.page * PAGE_SIZE + menu.selected].1.clone(),
-            ));
-        }
-        cheats.revision += 1;
     }
+    // Native buttons own Enter/Space and Tab/Shift+Tab. List navigation also
+    // works from the search field, without rebuilding or losing pointer targets.
+    if !keys.any_just_pressed([
+        KeyCode::ArrowUp,
+        KeyCode::ArrowDown,
+        KeyCode::Home,
+        KeyCode::End,
+        KeyCode::PageUp,
+        KeyCode::PageDown,
+        KeyCode::Enter,
+    ]) {
+        return;
+    }
+    let mut visible: Vec<_> = rows
+        .iter()
+        .filter(|(_, _, node)| node.display != Display::None)
+        .map(|(entity, row, _)| (row.index, entity))
+        .collect();
+    if visible.is_empty() {
+        return;
+    }
+    visible.sort_unstable_by_key(|row| row.0);
+    let current = visible
+        .iter()
+        .position(|(_, entity)| Some(*entity) == focus.get());
+    let searching = focus.get().is_some_and(|entity| search.contains(entity));
+    if searching && keys.just_pressed(KeyCode::Enter) {
+        commands.trigger(Activate {
+            entity: visible[0].1,
+        });
+        return;
+    }
+    if searching && !keys.any_just_pressed([KeyCode::ArrowUp, KeyCode::ArrowDown]) {
+        return;
+    }
+    let index = if keys.just_pressed(KeyCode::Home) {
+        0
+    } else if keys.just_pressed(KeyCode::End) {
+        visible.len() - 1
+    } else if keys.just_pressed(KeyCode::ArrowUp) {
+        current.map_or(visible.len() - 1, |i| i.saturating_sub(1))
+    } else if keys.just_pressed(KeyCode::ArrowDown) {
+        current.map_or(0, |i| (i + 1).min(visible.len() - 1))
+    } else if keys.just_pressed(KeyCode::PageUp) {
+        current.unwrap_or(0).saturating_sub(8)
+    } else if keys.just_pressed(KeyCode::PageDown) {
+        (current.unwrap_or(0) + 8).min(visible.len() - 1)
+    } else {
+        return;
+    };
+    focus.set(visible[index].1, FocusCause::Navigated);
 }
 
-fn click(event: On<PointerPress>, choices: Query<&Choice>, mut menu: ResMut<Menu>) {
-    if event.button == PointerButton::Primary
+fn click(
+    event: On<Activate>,
+    choices: Query<&Choice>,
+    cheats: Res<Cheats>,
+    mut menu: ResMut<Menu>,
+) {
+    if cheats.menu_open
         && let Ok(choice) = choices.get(event.entity)
     {
         menu.pending = Some(choice.0.clone());
@@ -260,11 +345,11 @@ fn apply(world: &mut World) {
     if !world.resource::<Cheats>().menu_open {
         return;
     }
-    world.resource_mut::<Cheats>().revision += 1;
     match pending {
         Click::Close => {
             let return_to_pause = world.resource::<Cheats>().return_to_pause;
             world.resource_mut::<Cheats>().menu_open = false;
+            world.resource_mut::<InputFocus>().clear();
             crate::input::reset(world);
             if !return_to_pause {
                 world
@@ -272,26 +357,7 @@ fn apply(world: &mut World) {
                     .set(GameState::Playing);
             }
         }
-        Click::Category(category) => {
-            let mut menu = world.resource_mut::<Menu>();
-            menu.category = category;
-            menu.page = 0;
-            menu.selected = 0;
-        }
-        Click::Page(forward) => {
-            let menu = world.resource::<Menu>();
-            let pages = choices(
-                world.resource::<Cheats>(),
-                world.resource::<crate::assets::GameDefinition>(),
-                menu.category,
-            )
-            .len()
-            .div_ceil(PAGE_SIZE)
-            .max(1);
-            let mut menu = world.resource_mut::<Menu>();
-            menu.page = (menu.page + if forward { 1 } else { pages - 1 }) % pages;
-            menu.selected = 0;
-        }
+        Click::Category(category) => world.resource_mut::<Menu>().category = category,
         Click::Action(action) => execute(world, action),
     }
 }
@@ -535,7 +601,7 @@ fn rebuild(
     game: Option<Res<crate::assets::GameDefinition>>,
     cameras: Query<Entity, With<crate::rendering::display::GameUiCamera>>,
     roots: Query<Entity, With<MenuRoot>>,
-    mut revision: Local<Option<u64>>,
+    mut built: Local<Option<Category>>,
 ) {
     if !cheats.menu_open || **state != GameState::Paused {
         for root in &roots {
@@ -543,81 +609,293 @@ fn rebuild(
         }
         return;
     }
-    if *revision == Some(cheats.revision) && !roots.is_empty() {
+    // Actions and hover/focus changes update existing controls in place.
+    if *built == Some(menu.category) && !roots.is_empty() {
         return;
     }
     let (Some(game), Ok(camera)) = (game, cameras.single()) else {
         return;
     };
-    let rows = choices(&cheats, &game, menu.category);
-    let pages = rows.len().div_ceil(PAGE_SIZE).max(1);
+    let rows = choices(&game, menu.category);
     for root in &roots {
         commands.entity(root).despawn();
     }
-    *revision = Some(cheats.revision);
-    commands.spawn((MenuRoot, UiTargetCamera(camera), GlobalZIndex(200),
+    *built = Some(menu.category);
+    commands.spawn((MenuRoot, UiTargetCamera(camera), GlobalZIndex(200), TabGroup::modal(),
         Node { position_type: PositionType::Absolute, width: percent(100.), height: percent(100.),
             align_items: AlignItems::Center, justify_content: JustifyContent::Center, ..default() },
-        BackgroundColor(Color::srgba(0.01, 0.015, 0.02, 0.88)),
+        BackgroundColor(Color::srgba(0.005, 0.008, 0.012, 0.85)),
     )).with_children(|root| {
-        root.spawn((Node { width: percent(90.), max_width: px(1100.), padding: UiRect::all(px(18.)),
-            flex_direction: FlexDirection::Column, row_gap: px(10.), ..default() },
-            BackgroundColor(Color::srgb(0.045, 0.065, 0.085)),
+        root.spawn((Node { width: vw(92.), max_width: units(1100.), height: vh(90.),
+            padding: UiRect::all(units(20.)), flex_direction: FlexDirection::Column,
+            row_gap: units(16.), border: UiRect::all(px(1.)), border_radius: BorderRadius::all(units(8.)), ..default() },
+            BackgroundColor(Color::srgb(0.025, 0.035, 0.045)),
+            BorderColor::all(Color::srgb(0.23, 0.29, 0.32)),
         )).with_children(|panel| {
-            panel.spawn(text("ORIGINS  /  CHEATS", 30.));
-            panel.spawn(text("GAME PAUSED    F1 / Esc: close    Tab: category    Arrows / Enter: select", 16.));
-            panel.spawn(Node { column_gap: px(12.), ..default() }).with_children(|tabs| {
-                for (label, category) in [("CHEATS", Category::Cheats), ("WEAPONS", Category::Weapons), ("TOOL GUN SPAWNS", Category::Spawns)] {
-                    tabs.spawn(button(label, Click::Category(category), category == menu.category));
-                }
-            });
-            panel.spawn(Node { flex_wrap: FlexWrap::Wrap, column_gap: px(12.), row_gap: px(8.), ..default() })
-                .with_children(|list| {
-                    for (index, (label, action)) in rows.into_iter().skip(menu.page * PAGE_SIZE).take(PAGE_SIZE).enumerate() {
-                        list.spawn(button(&label, Click::Action(action), index == menu.selected));
-                    }
+            panel.spawn(Node { align_items: AlignItems::Center, justify_content: JustifyContent::SpaceBetween, flex_shrink: 0., ..default() })
+                .with_children(|header| {
+                    header.spawn(Node { flex_direction: FlexDirection::Column, row_gap: units(3.), ..default() })
+                        .with_children(|title| {
+                            title.spawn(text("ORIGINS  /  SANDBOX", 27.));
+                            title.spawn(text("Game paused", 13.)).insert(TextColor(Color::srgb(0.50, 0.72, 0.72)));
+                        });
+                    header.spawn(button("Close", Click::Close, 0)).insert(Node { width: units(125.), height: units(40.), ..button_node() });
                 });
-            panel.spawn(Node { column_gap: px(12.), align_items: AlignItems::Center, ..default() }).with_children(|footer| {
-                footer.spawn(button("< PREVIOUS", Click::Page(false), false));
-                footer.spawn(text(format!("{} / {}", menu.page + 1, pages), 18.));
-                footer.spawn(button("NEXT >", Click::Page(true), false));
-                footer.spawn(button("CLOSE", Click::Close, false));
-            });
-            panel.spawn(text(format!("Selected spawn: {}", cheats.spawn.label()), 17.));
-            if !cheats.notice.is_empty() { panel.spawn(text(&cheats.notice, 17.)); }
-            panel.spawn(text("Noclip: jump / crouch to rise / descend, sprint to boost.  F2: Tool Gun  F3: Physics Gun  F4: weapon", 15.));
+            panel.spawn(Node { flex_grow: 1., min_height: px(0.), column_gap: units(18.), ..default() })
+                .with_children(|body| {
+                    body.spawn(Node { width: units(205.), flex_shrink: 0., flex_direction: FlexDirection::Column,
+                        row_gap: units(8.), ..default() }).with_children(|sidebar| {
+                        for (index, category) in [Category::Cheats, Category::Weapons, Category::Spawns].into_iter().enumerate() {
+                            sidebar.spawn(button(category.title(), Click::Category(category), index as i32 + 1));
+                        }
+                        sidebar.spawn((text("Ctrl+1 / 2 / 3: switch section", 12.), Node { margin: UiRect::top(units(8.)), ..default() }));
+                        sidebar.spawn(text("F2  Tool Gun\nF3  Physics Gun\nF4  Normal weapon", 14.));
+                        sidebar.spawn((text("Tab / Shift+Tab: focus\nArrows: browse list\nEnter / Space: activate\nCtrl+F: search\nEsc / F1: close", 12.),
+                            Node { margin: UiRect::top(units(18.)), ..default() }));
+                    });
+                    body.spawn(Node { flex_grow: 1., min_width: px(0.), flex_direction: FlexDirection::Column,
+                        row_gap: units(8.), ..default() }).with_children(|content| {
+                        content.spawn(text(menu.category.title(), 22.));
+                        content.spawn(text(menu.category.description(), 13.));
+                        content.spawn(text("Search this list   /   Ctrl+F", 12.));
+                        content.spawn((Search, TextInput, EditableText { allow_newlines: false, ..default() },
+                            TextLayout::no_wrap(), TextCursorStyle::default(), TabIndex(4),
+                            TextFont::from_font_size(FontSize::Vh(16. / 7.2)), TextColor(Color::srgb(0.92, 0.95, 0.96)),
+                            Node { height: units(40.), flex_shrink: 0., padding: UiRect::all(units(9.)),
+                                border: UiRect::all(px(1.)), border_radius: BorderRadius::all(units(4.)), ..default() },
+                            BorderColor::all(Color::srgb(0.27, 0.34, 0.38)),
+                            BackgroundColor(Color::srgb(0.045, 0.06, 0.075)),
+                        ));
+                        content.spawn((ResultCount, text(format!("{} items", rows.len()), 12.)));
+                        content.spawn((NoResults, text("No matching items. Try another name.", 16.),
+                            Node { display: Display::None, padding: UiRect::all(units(16.)), ..default() }));
+                        content.spawn(Node { display: Display::Grid, flex_grow: 1., min_height: px(0.),
+                            grid_template_columns: vec![RepeatedGridTrack::flex(1, 1.), RepeatedGridTrack::auto(1)],
+                            grid_template_rows: vec![RepeatedGridTrack::flex(1, 1.)], column_gap: units(8.), ..default() })
+                            .with_children(|frame| {
+                                let scroll = frame.spawn((ScrollArea, Node { flex_direction: FlexDirection::Column,
+                                    min_height: px(0.), overflow: Overflow::scroll_y(), row_gap: units(5.),
+                                    padding: UiRect::right(units(3.)), ..default() },
+                                )).with_children(|list| {
+                                    for (index, (label, action)) in rows.into_iter().enumerate() {
+                                        let id = match &action { Action::Weapon(id) => id.as_str(), Action::Spawn(spawn) => spawn.label(), _ => "" };
+                                        let mut row = list.spawn((button(&label, Click::Action(action.clone()), 10 + index as i32),
+                                            Row { index, search: format!("{label} {id}").to_lowercase() }));
+                                        if index == 0 { row.insert(AutoFocus); }
+                                    }
+                                }).id();
+                                frame.spawn((Node { width: units(12.), ..default() },
+                                    Scrollbar::new(scroll, ControlOrientation::Vertical, 24.),
+                                    BackgroundColor(Color::srgb(0.04, 0.06, 0.07)),
+                                )).with_child((ScrollbarThumb { border_radius: BorderRadius::all(units(6.)), ..default() },
+                                    Hovered::default(), BackgroundColor(Color::srgb(0.28, 0.40, 0.44))));
+                            });
+                    });
+                });
+            panel.spawn((Notice, text("", 13.), Node { flex_shrink: 0., min_height: units(20.), ..default() }));
         });
     });
 }
 
+fn units(value: f32) -> Val {
+    vh(value / 7.2)
+}
 fn text(label: impl Into<String>, size: f32) -> impl Bundle {
     (
         Text::new(label),
-        TextFont {
-            font_size: size.into(),
-            ..default()
-        },
-        TextColor(Color::srgb(0.88, 0.94, 0.97)),
+        TextFont::from_font_size(FontSize::Vh(size / 7.2)),
+        TextColor(Color::srgb(0.86, 0.91, 0.93)),
+        Pickable::IGNORE,
     )
 }
-fn button(label: &str, click: Click, selected: bool) -> impl Bundle {
-    let row = matches!(click, Click::Action(_));
+fn button_node() -> Node {
+    Node {
+        width: percent(100.),
+        min_height: units(44.),
+        flex_shrink: 0.,
+        padding: UiRect::axes(units(12.), units(8.)),
+        border: UiRect::all(px(1.)),
+        border_radius: BorderRadius::all(units(4.)),
+        align_items: AlignItems::Center,
+        justify_content: JustifyContent::SpaceBetween,
+        column_gap: units(10.),
+        ..default()
+    }
+}
+fn button(label: &str, click: Click, tab: i32) -> impl Bundle {
     (
         Button,
-        Choice(click),
-        Node {
-            padding: UiRect::all(px(10.)),
-            width: if row { percent(48.) } else { Val::Auto },
-            min_height: px(42.),
-            ..default()
-        },
-        BackgroundColor(if selected {
-            Color::srgb(0.08, 0.35, 0.43)
-        } else {
-            Color::srgb(0.09, 0.13, 0.17)
-        }),
-        children![(text(label, 17.), Pickable::IGNORE)],
+        Hovered::default(),
+        Choice(click.clone()),
+        TabIndex(tab),
+        button_node(),
+        BackgroundColor(Color::srgb(0.065, 0.085, 0.10)),
+        BorderColor::all(Color::srgb(0.18, 0.24, 0.27)),
+        children![
+            (
+                text(label, 16.),
+                Node {
+                    flex_grow: 1.,
+                    ..default()
+                }
+            ),
+            (Badge(click), text("", 12.))
+        ],
     )
+}
+
+fn filter(
+    search: Query<Ref<EditableText>, With<Search>>,
+    mut rows: Query<(&Row, &mut Node, &mut TabIndex)>,
+    mut counts: Query<&mut Text, With<ResultCount>>,
+    mut empty: Query<&mut Node, (With<NoResults>, Without<Row>)>,
+) {
+    let Ok(search) = search.single() else { return };
+    if !search.is_changed() {
+        return;
+    }
+    let query = search.value().to_string().trim().to_lowercase();
+    let mut total = 0;
+    let mut visible = 0;
+    for (row, mut node, mut tab) in &mut rows {
+        total += 1;
+        let matches = row.search.contains(&query);
+        visible += usize::from(matches);
+        let display = if matches {
+            Display::Flex
+        } else {
+            Display::None
+        };
+        if node.display != display {
+            node.display = display;
+        }
+        tab.0 = if matches { 10 + row.index as i32 } else { -1 };
+    }
+    for mut text in &mut counts {
+        text.0 = format!("{visible} of {total} items");
+    }
+    for mut node in &mut empty {
+        node.display = if visible == 0 {
+            Display::Flex
+        } else {
+            Display::None
+        };
+    }
+}
+
+fn refresh(
+    cheats: Res<Cheats>,
+    mut badges: Query<(Ref<Badge>, &mut Text, &mut TextColor)>,
+    mut notices: Query<(Ref<Notice>, &mut Text), Without<Badge>>,
+) {
+    for (badge, mut text, mut color) in &mut badges {
+        if !cheats.is_changed() && !badge.is_added() {
+            continue;
+        }
+        let enabled = match &badge.0 {
+            Click::Action(action) => action.enabled(&cheats),
+            _ => None,
+        };
+        text.0 = match (&badge.0, enabled) {
+            (_, Some(true)) => "ON",
+            (_, Some(false)) => "OFF",
+            (Click::Action(Action::Weapon(_)), _) => "EQUIP",
+            (Click::Action(Action::Spawn(_)), _) => "SELECT",
+            (Click::Action(_), _) => "RUN",
+            (Click::Close, _) => "ESC",
+            (Click::Category(Category::Cheats), _) => "1",
+            (Click::Category(Category::Weapons), _) => "2",
+            (Click::Category(Category::Spawns), _) => "3",
+        }
+        .into();
+        color.0 = if enabled == Some(true) {
+            Color::srgb(0.42, 0.90, 0.71)
+        } else {
+            Color::srgb(0.55, 0.69, 0.72)
+        };
+    }
+    for (notice, mut text) in &mut notices {
+        if !cheats.is_changed() && !notice.is_added() {
+            continue;
+        }
+        let value = if cheats.notice.is_empty() {
+            format!(
+                "Tool Gun selection: {}   /   Close the menu to return to the game.",
+                cheats.spawn.label()
+            )
+        } else {
+            cheats.notice.clone()
+        };
+        if text.0 != value {
+            text.0 = value;
+        }
+    }
+}
+
+fn styles(
+    menu: Res<Menu>,
+    focus: Res<InputFocus>,
+    mut buttons: Query<
+        (
+            Entity,
+            &Choice,
+            &Hovered,
+            Has<Pressed>,
+            &mut BackgroundColor,
+            &mut BorderColor,
+        ),
+        Without<Search>,
+    >,
+    mut searches: Query<(Entity, &mut BorderColor), With<Search>>,
+) {
+    for (entity, choice, hovered, pressed, mut background, mut border) in &mut buttons {
+        let active = match &choice.0 {
+            Click::Category(category) => category.eq(&menu.category),
+            _ => false,
+        };
+        let color = if pressed {
+            Color::srgb(0.16, 0.37, 0.39)
+        } else if hovered.0 {
+            Color::srgb(0.15, 0.22, 0.26)
+        } else if active {
+            Color::srgb(0.08, 0.24, 0.27)
+        } else {
+            Color::srgb(0.065, 0.085, 0.10)
+        };
+        let edge = if focus.get() == Some(entity) {
+            Color::srgb(0.50, 0.90, 0.91)
+        } else if hovered.0 || active {
+            Color::srgb(0.30, 0.55, 0.59)
+        } else {
+            Color::srgb(0.18, 0.24, 0.27)
+        };
+        if background.0 != color {
+            background.0 = color;
+        }
+        let edge = BorderColor::all(edge);
+        if *border != edge {
+            *border = edge;
+        }
+    }
+    for (entity, mut border) in &mut searches {
+        let color = if focus.get() == Some(entity) {
+            Color::srgb(0.50, 0.90, 0.91)
+        } else {
+            Color::srgb(0.27, 0.34, 0.38)
+        };
+        let wanted = BorderColor::all(color);
+        if *border != wanted {
+            *border = wanted;
+        }
+    }
+}
+fn reveal_focus(mut commands: Commands, focus: Res<InputFocus>, rows: Query<(), With<Row>>) {
+    if focus.is_changed()
+        && let Some(entity) = focus.get()
+        && rows.contains(entity)
+    {
+        commands.trigger(ScrollIntoView { entity });
+    }
 }
 
 #[cfg(test)]
@@ -711,5 +989,390 @@ mod tests {
             GameState::Paused
         );
         assert!(app.world().resource::<Time<Virtual>>().is_paused());
+    }
+    fn ui() -> App {
+        let mut app = app(GameState::Paused);
+        app.add_plugins(bevy::ui_widgets::ButtonPlugin);
+        app.init_resource::<physics::PhysicsGun>();
+        app.insert_resource(
+            serde_json::from_str::<crate::assets::GameDefinition>(include_str!(
+                "../../gameplay/origins/game.json"
+            ))
+            .unwrap(),
+        );
+        app.world_mut()
+            .spawn(crate::rendering::display::GameUiCamera);
+        app.world_mut().spawn(Player {
+            yaw: 0.,
+            pitch: 0.,
+            velocity: Vec3::ZERO,
+            height: 1.8,
+            grounded: true,
+            crouched: false,
+            prone: false,
+            eye_height: 1.62,
+        });
+        app.world_mut().resource_mut::<Cheats>().menu_open = true;
+        app.update();
+        app
+    }
+
+    #[test]
+    fn mouse_activation_preserves_button_identity_hover_and_scroll() {
+        use bevy::{
+            camera::RenderTarget,
+            picking::{
+                backend::HitData,
+                events::{Pointer, PointerClick, PointerPress, PointerRelease},
+                pointer::{Location, PointerButton, PointerId},
+            },
+            window::WindowRef,
+        };
+        let mut app = ui();
+        let world = app.world_mut();
+        let button = world
+            .query::<(Entity, &Choice)>()
+            .iter(world)
+            .find(|(_, c)| matches!(c.0, Click::Action(Action::God)))
+            .unwrap()
+            .0;
+        let scroll = world
+            .query_filtered::<Entity, With<ScrollArea>>()
+            .single(world)
+            .unwrap();
+        world.get_mut::<ScrollPosition>(scroll).unwrap().y = 91.;
+        let window = world.spawn(Window::default()).id();
+        let pointer = Pointer::new(
+            PointerId::Mouse,
+            Location {
+                target: RenderTarget::Window(WindowRef::Entity(window))
+                    .normalize(Some(window))
+                    .unwrap(),
+                position: Vec2::ZERO,
+            },
+        );
+        let hit = HitData::new(window, 0., None, None);
+        world.trigger(PointerPress {
+            entity: button,
+            pointer: pointer.clone(),
+            button: PointerButton::Primary,
+            hit: hit.clone(),
+            count: 1,
+        });
+        app.update();
+        assert!(
+            !app.world().resource::<Cheats>().god,
+            "Pressing does not execute before the click completes"
+        );
+        app.world_mut().trigger(PointerClick {
+            entity: button,
+            pointer: pointer.clone(),
+            button: PointerButton::Primary,
+            hit: hit.clone(),
+            count: 1,
+            duration: std::time::Duration::from_millis(80),
+        });
+        app.world_mut().trigger(PointerRelease {
+            entity: button,
+            pointer,
+            button: PointerButton::Primary,
+            hit,
+        });
+        app.update();
+        assert!(app.world().resource::<Cheats>().god);
+        assert!(app.world().get_entity(button).is_ok());
+        assert_eq!(app.world().get::<ScrollPosition>(scroll).unwrap().y, 91.);
+        let idle = app.world().get::<BackgroundColor>(button).unwrap().0;
+        app.world_mut().entity_mut(button).insert(Hovered(true));
+        app.update();
+        assert_ne!(app.world().get::<BackgroundColor>(button).unwrap().0, idle);
+        app.world_mut().trigger(Activate { entity: button });
+        app.update();
+        assert!(
+            !app.world().resource::<Cheats>().god,
+            "Keyboard activation uses the same stable control"
+        );
+    }
+
+    #[test]
+    fn search_filters_tab_order_and_keyboard_navigation_to_visible_rows() {
+        let mut app = ui();
+        let search = app
+            .world_mut()
+            .query_filtered::<Entity, With<Search>>()
+            .single(app.world())
+            .unwrap();
+        app.world_mut()
+            .entity_mut(search)
+            .insert(EditableText::new("FREEZE"));
+        app.update();
+        let visible: Vec<_> = app
+            .world_mut()
+            .query::<(Entity, &Row, &Node, &TabIndex)>()
+            .iter(app.world())
+            .filter(|(_, _, n, _)| n.display != Display::None)
+            .map(|(e, r, _, t)| {
+                assert!(t.0 >= 0);
+                (r.index, e)
+            })
+            .collect();
+        assert_eq!(visible.len(), 2);
+        assert!(
+            app.world_mut()
+                .query::<(&Node, &TabIndex, &Row)>()
+                .iter(app.world())
+                .all(|(n, t, _)| n.display != Display::None || t.0 == -1)
+        );
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(search, FocusCause::Navigated);
+        tap(&mut app, KeyCode::ArrowDown);
+        assert_eq!(
+            app.world().resource::<InputFocus>().get(),
+            Some(visible.iter().min_by_key(|r| r.0).unwrap().1)
+        );
+        tap(&mut app, KeyCode::End);
+        assert_eq!(
+            app.world().resource::<InputFocus>().get(),
+            Some(visible.iter().max_by_key(|r| r.0).unwrap().1)
+        );
+        app.world_mut()
+            .entity_mut(search)
+            .insert(EditableText::new("no such cheat"));
+        app.update();
+        assert!(
+            app.world_mut()
+                .query::<(&Node, &Row)>()
+                .iter(app.world())
+                .all(|(n, _)| n.display == Display::None)
+        );
+        tap(&mut app, KeyCode::ArrowDown);
+    }
+
+    #[test]
+    fn opening_menu_releases_cursor_before_the_pause_transition() {
+        use bevy::window::{CursorGrabMode, CursorOptions};
+        let mut app = app(GameState::Playing);
+        let window = app
+            .world_mut()
+            .spawn((
+                Window {
+                    focused: true,
+                    ..default()
+                },
+                CursorOptions {
+                    visible: false,
+                    grab_mode: CursorGrabMode::Locked,
+                    ..default()
+                },
+            ))
+            .id();
+        tap(&mut app, KeyCode::F1);
+        let cursor = app.world().get::<CursorOptions>(window).unwrap();
+        assert!(cursor.visible);
+        assert_eq!(cursor.grab_mode, CursorGrabMode::None);
+    }
+
+    #[test]
+    #[ignore = "requires installed Origins assets and a windowed GPU session"]
+    fn cheat_menu_native_pointer_and_keyboard_preview() {
+        use bevy::{
+            camera::RenderTarget,
+            input::{
+                ButtonState,
+                keyboard::{Key, KeyboardInput},
+                mouse::MouseScrollUnit,
+                touch::TouchPhase,
+            },
+            picking::pointer::{Location, PointerAction, PointerButton, PointerId, PointerInput},
+            render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk},
+            window::{PrimaryWindow, WindowRef},
+        };
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let output = root.join("target/reports/cheat-menu-preview.png");
+        let mut app = App::new();
+        app.insert_resource(bevy::winit::WinitSettings::game())
+            .insert_resource(bevy::anti_alias::dlss::DlssProjectId(
+                bevy::asset::uuid::Uuid::from_u128(0x8e091984_d832_4d03_9f7c_38a3fca674dc),
+            ))
+            .add_plugins(
+                DefaultPlugins
+                    .build()
+                    .disable::<bevy::audio::AudioPlugin>()
+                    .set(bevy::winit::WinitPlugin {
+                        run_on_any_thread: true,
+                        ..default()
+                    })
+                    .set(WindowPlugin {
+                        primary_window: Some(Window {
+                            title: "Origins cheat menu preview".into(),
+                            resolution: (1600, 1000).into(),
+                            ..default()
+                        }),
+                        ..default()
+                    }),
+            )
+            .init_state::<GameState>()
+            .insert_state(GameState::Paused)
+            .init_resource::<crate::input::GameInput>()
+            .insert_resource(crate::assets::GameDefinition::load_from_root(
+                &root.join("target/assets"),
+            ))
+            .insert_resource(Cheats {
+                menu_open: true,
+                return_to_pause: true,
+                ..default()
+            });
+        install(&mut app);
+        app.init_resource::<physics::PhysicsGun>();
+        app.world_mut()
+            .spawn((Camera2d, crate::rendering::display::GameUiCamera));
+        app.world_mut().spawn(Player {
+            yaw: 0.,
+            pitch: 0.,
+            velocity: Vec3::ZERO,
+            height: 1.8,
+            grounded: true,
+            crouched: false,
+            prone: false,
+            eye_height: 1.62,
+        });
+        app.add_systems(
+            Update,
+            (move |mut commands: Commands,
+                   mut frame: Local<u32>,
+                   mut target: Local<Option<(Entity, Location)>>,
+                   rows: Query<(Entity, &Row, &UiGlobalTransform, &ComputedNode)>,
+                   focus: Res<InputFocus>,
+                   cheats: Res<Cheats>,
+                   choices: Query<&Choice>,
+                   windows: Query<Entity, With<PrimaryWindow>>,
+                   scroll: Query<&ScrollPosition, With<ScrollArea>>,
+                   mut pointer: MessageWriter<PointerInput>,
+                   mut keyboard: MessageWriter<KeyboardInput>| {
+                *frame += 1;
+                let window = windows.single().unwrap();
+                if *frame == 20 {
+                    let (entity, _, pose, node) =
+                        rows.iter().find(|(_, row, _, _)| row.index == 0).unwrap();
+                    assert!(node.size().x > 0. && node.size().y > 0.);
+                    let location = Location {
+                        target: RenderTarget::Window(WindowRef::Entity(window))
+                            .normalize(Some(window))
+                            .unwrap(),
+                        position: pose.translation * node.inverse_scale_factor,
+                    };
+                    pointer.write(PointerInput::new(
+                        PointerId::Mouse,
+                        location.clone(),
+                        PointerAction::Move { delta: Vec2::ZERO },
+                    ));
+                    *target = Some((entity, location));
+                }
+                if let Some((_, location)) = target.as_ref() {
+                    let action = match *frame {
+                        22 => Some(PointerAction::Press(PointerButton::Primary)),
+                        24 => Some(PointerAction::Release(PointerButton::Primary)),
+                        30 => Some(PointerAction::Scroll {
+                            unit: MouseScrollUnit::Line,
+                            x: 0.,
+                            y: -3.,
+                            phase: TouchPhase::Moved,
+                        }),
+                        _ => None,
+                    };
+                    if let Some(action) = action {
+                        pointer.write(PointerInput::new(
+                            PointerId::Mouse,
+                            location.clone(),
+                            action,
+                        ));
+                    }
+                }
+                if *frame == 28 {
+                    assert!(
+                        cheats.god,
+                        "A native pointer click must hit and activate the visible button"
+                    );
+                }
+                if *frame == 34 {
+                    assert!(
+                        scroll.single().unwrap().y > 0.,
+                        "Mouse wheel must scroll over the button"
+                    );
+                }
+                if *frame == 35 || *frame == 40 {
+                    let (key_code, logical_key) = if *frame == 35 {
+                        (KeyCode::End, Key::End)
+                    } else {
+                        (KeyCode::Tab, Key::Tab)
+                    };
+                    keyboard.write(KeyboardInput {
+                        key_code,
+                        logical_key,
+                        state: ButtonState::Pressed,
+                        text: None,
+                        repeat: false,
+                        window,
+                    });
+                }
+                if *frame == 38 {
+                    let entity = focus.get().unwrap();
+                    assert_eq!(
+                        rows.get(entity).unwrap().1.index,
+                        19,
+                        "End focuses and reveals the final list item"
+                    );
+                }
+                if *frame == 43 {
+                    assert!(
+                        matches!(choices.get(focus.get().unwrap()).unwrap().0, Click::Close),
+                        "Tab must wrap inside the modal"
+                    );
+                }
+                let key = match *frame {
+                    44 => Some((KeyCode::ShiftLeft, Key::Shift, ButtonState::Pressed)),
+                    45 => Some((KeyCode::Tab, Key::Tab, ButtonState::Released)),
+                    46 => Some((KeyCode::Tab, Key::Tab, ButtonState::Pressed)),
+                    49 => Some((KeyCode::ShiftLeft, Key::Shift, ButtonState::Released)),
+                    50 => Some((KeyCode::Home, Key::Home, ButtonState::Pressed)),
+                    53 => Some((KeyCode::Enter, Key::Enter, ButtonState::Pressed)),
+                    _ => None,
+                };
+                if let Some((key_code, logical_key, state)) = key {
+                    keyboard.write(KeyboardInput {
+                        key_code,
+                        logical_key,
+                        state,
+                        text: None,
+                        repeat: false,
+                        window,
+                    });
+                }
+                if *frame == 48 {
+                    assert_eq!(
+                        rows.get(focus.get().unwrap()).unwrap().1.index,
+                        19,
+                        "Shift+Tab must return to the last list item"
+                    );
+                }
+                if *frame == 56 {
+                    assert!(!cheats.god, "Enter must activate the focused button once");
+                }
+                if *frame == 58 {
+                    commands
+                        .spawn(Screenshot::primary_window())
+                        .observe(save_to_disk(output.clone()))
+                        .observe(
+                            |_: On<ScreenshotCaptured>, mut exit: MessageWriter<AppExit>| {
+                                exit.write(AppExit::Success);
+                            },
+                        );
+                }
+                assert!(*frame < 240, "Preview capture timed out");
+            })
+            .after(reveal_focus),
+        );
+        app.run();
     }
 }

@@ -443,7 +443,7 @@ pub(crate) fn pause_and_restart(
         return;
     }
     let requested = restart.read().count() > 0;
-    if !cheats.is_some_and(|c| c.menu_open)
+    if !cheats.as_ref().is_some_and(|c| c.menu_open)
         && menu.capturing.is_none()
         && !menu.handled_input
         && (keys.just_pressed(KeyCode::Escape)
@@ -464,7 +464,9 @@ pub(crate) fn pause_and_restart(
         next.set(GameState::StartingSession);
     }
     for (window, mut cursor) in &mut cursors {
-        let capture = window.focused && **state == GameState::Playing;
+        let capture = window.focused
+            && **state == GameState::Playing
+            && !cheats.as_ref().is_some_and(|c| c.menu_open);
         let grab_mode = if capture {
             CursorGrabMode::Locked
         } else {

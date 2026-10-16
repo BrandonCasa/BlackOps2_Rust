@@ -31,7 +31,6 @@ pub(crate) struct Cheats {
     gun: Gun,
     spawn: tools::Spawn,
     notice: String,
-    revision: u64,
 }
 
 pub struct CheatPlugin;
