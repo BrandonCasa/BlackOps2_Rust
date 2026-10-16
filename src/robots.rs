@@ -57,6 +57,7 @@ pub struct Robots {
     pub stomps: u32,
     pub triple_round: u32,
     pub triple_active: bool,
+    foot_activation_delay: f32,
     next: f32,
     last: Option<usize>,
     latched: bool,
@@ -71,6 +72,8 @@ impl Default for Robots {
             stomps: 0,
             triple_round: 0,
             triple_active: false,
+            // the player spawns inside the foot and gets killed somehow, look into this later
+            foot_activation_delay: 30.,
             next: 5.,
             last: None,
             latched: false,
@@ -131,7 +134,7 @@ struct FootTarget(Entity);
 #[derive(Component)]
 struct FootSocket(Entity);
 // Additional membership lets character movement recognize the existing solid foot clips.
-pub(crate) const FOOT_COLLISION_LAYER: u32 = 512;
+pub(crate) const FOOT_COLLISION_LAYER: u32 = 1024;
 #[derive(Component)]
 struct SafeSpot;
 #[derive(Component)]
@@ -525,7 +528,10 @@ fn ready(
             {
                 commands.entity(root).insert((
                     shape,
-                    CollisionLayers::new(1u32 | FOOT_COLLISION_LAYER, LayerMask::ALL),
+                    CollisionLayers::new(
+                        1u32 | crate::assets::DYNENT_WORLD_LAYER | FOOT_COLLISION_LAYER,
+                        LayerMask::ALL,
+                    ),
                 ));
             }
         }
@@ -607,6 +613,7 @@ fn tick(
     globals: Query<&GlobalTransform>,
 ) {
     let dt = time.delta_secs();
+    robots.foot_activation_delay = (robots.foot_activation_delay - dt).max(0.);
     for hit in hits.read() {
         if hit.amount == 0 {
             continue;
@@ -896,7 +903,7 @@ fn foot_events(
                 }
             }
         }
-        if !foot.active {
+        if !foot.active || robots.foot_activation_delay > 0. {
             continue;
         }
         foot.poll -= dt;
@@ -1119,7 +1126,7 @@ fn foot_presentation(
             }
         });
         let open = !matches!(phase, HatchState::Closed);
-        if walking {
+        if walking && robots.foot_activation_delay == 0. {
             commands.entity(entity).remove::<ColliderDisabled>();
         } else {
             commands.entity(entity).insert(ColliderDisabled);

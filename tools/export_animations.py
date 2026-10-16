@@ -28,6 +28,7 @@ from cod.gltf import read_glb, write_glb
 from cod.actors import clip_entry, _write_json, write_clip_glb
 from cod.characters import skeleton_spec
 from cod.t6.actors import read_asd
+from native_animation_inputs import correct_translations
 
 sources = [*args.base, args.oat, *args.overlay]
 scripted_models = {
@@ -88,6 +89,7 @@ written_clips = set()
 def export_clips(original, names, scene=None):
     gltf, _ = read_glb(str(original))
     spec = skeleton_spec(gltf)
+    model = json.loads((args.out / "model_export" / (original.stem.removesuffix("_lod0") + ".native_model")).read_text())
     paths = {}
     signature = []
     for name, parent, node in spec:
@@ -95,7 +97,7 @@ def export_clips(original, names, scene=None):
         paths[name] = path
         signature.append((path, node.get("translation", [0,0,0]),
                           node.get("rotation", [0,0,0,1]), node.get("scale", [1,1,1])))
-    identity = hashlib.sha256(json.dumps(sorted(signature), separators=(",", ":")).encode()).hexdigest()
+    identity = hashlib.sha256(json.dumps([sorted(signature), model["localTranslations"]], separators=(",", ":")).encode()).hexdigest()
     scene = scene or "model_export/" + original.name
     scene_sources[scene] = original
     destination = args.out / scene
@@ -121,6 +123,10 @@ def export_clips(original, names, scene=None):
             if relative not in written_clips:
                 output.parent.mkdir(parents=True, exist_ok=True)
                 problems = write_clip_glb(str(output), [spec], {name:clip})
+                document, binary = read_glb(str(output))
+                binary = bytearray(binary)
+                correct_translations(document, binary, model, clip.asset_type)
+                write_glb(str(output), document, binary)
                 if problems:
                     report.setdefault("clip_warnings", []).append({"clip":name,"scene":scene,"problems":problems})
                 written_clips.add(relative)

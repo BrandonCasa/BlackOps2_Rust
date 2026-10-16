@@ -1,5 +1,4 @@
-//! Source FX model and sound dependencies.
-use crate::assets::GameDefinition;
+//! Source FX model dependencies.
 use bevy::prelude::*;
 
 pub(super) fn model(
@@ -24,20 +23,4 @@ pub(super) fn model(
         WorldAssetRoot(scene.clone()),
     ));
     Ok(scene)
-}
-
-pub(super) fn sound(
-    commands: &mut Commands,
-    game: &GameDefinition,
-    name: &str,
-    position: Vec3,
-) -> Result<(), String> {
-    let name = name.trim_start_matches(',');
-    if crate::audio::resolve_alias(game, name).is_none() {
-        return Err(format!(
-            "Required source effect sound alias is missing: {name}"
-        ));
-    }
-    crate::audio::emit(commands, name, crate::audio::SoundSource::World(position));
-    Ok(())
 }

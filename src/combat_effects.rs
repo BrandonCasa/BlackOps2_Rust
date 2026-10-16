@@ -648,7 +648,7 @@ fn tick(
                 wounds.knockback,
                 time.delta(),
                 &MoveAndSlideConfig::default(),
-                &crate::environment::solids([entity]),
+                &crate::environment::actor_solids([entity]),
                 |_| MoveAndSlideHitResponse::Accept,
             );
             pose.translation = result.position;

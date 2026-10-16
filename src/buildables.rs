@@ -231,7 +231,7 @@ fn actions(
                 Dir3::NEG_Y,
                 2.,
                 true,
-                &crate::environment::solids([owner]),
+                &crate::environment::player_solids([owner]),
             );
             if player.grounded
                 && let Some(hit) = ground
@@ -248,7 +248,7 @@ fn actions(
                             &shape,
                             position,
                             rotation,
-                            &crate::environment::solids([owner]),
+                            &crate::environment::player_solids([owner]),
                         )
                         .is_empty()
                 {

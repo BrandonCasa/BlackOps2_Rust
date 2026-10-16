@@ -52,7 +52,7 @@ impl BrushDefinition {
             .iter()
             .map(|volume| volume.contents)
             .chain(self.triangle_shapes.iter().map(|shape| shape.contents))
-            .filter(|contents| contents & 0x10001 != 0)
+            .filter(|contents| contents & 0x30001 != 0)
             .collect();
         contents
             .into_iter()
@@ -109,12 +109,6 @@ pub(crate) fn compound(
     }
     (!pieces.is_empty()).then(|| Collider::compound(pieces))
 }
-
-
-
-
-
-
 
 #[derive(Component)]
 pub struct MapBrush {
@@ -179,7 +173,7 @@ pub(crate) fn bind(
                 RigidBody::Static,
                 shape,
                 crate::assets::WorldContents(contents),
-                CollisionLayers::new(1, LayerMask::ALL),
+                crate::assets::world_collision_layers(contents),
             ));
         }
     }

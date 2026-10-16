@@ -819,7 +819,7 @@ fn schedule(
                     &Collider::capsule(0.5, 1.4),
                     spawn.pose.translation + Vec3::Y * 1.2,
                     Quat::IDENTITY,
-                    &crate::environment::solids([]),
+                    &crate::environment::actor_solids([]),
                 )
                 .is_empty()
         })
@@ -1654,7 +1654,7 @@ fn behavior(
                         pose.translation,
                         velocity - Vec3::Y * 2.,
                         time.delta(),
-                        &crate::environment::solids([entity]),
+                        &crate::environment::actor_solids([entity]),
                     );
                     if path_check {
                         if target.distance_squared(pose.translation) < 0.0001

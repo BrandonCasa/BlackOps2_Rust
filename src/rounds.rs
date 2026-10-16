@@ -314,7 +314,7 @@ pub(crate) fn advance(
             Dir3::NEG_Y,
             4.,
             false,
-            &crate::environment::solids([]),
+            &crate::environment::actor_solids([]),
         )?;
         if floor.normal.y < 0.5 {
             return None;

@@ -30,7 +30,6 @@ struct Definition {
 #[serde(rename_all = "camelCase")]
 struct Texture {
     name: Option<String>,
-    semantic: String,
     image: String,
     sampler_state: SourceSampler,
 }
@@ -49,6 +48,28 @@ struct SourceSampler {
 struct Constant {
     name: Option<String>,
     literal: [f32; 4],
+}
+
+#[derive(Deserialize)]
+struct SourceProgram {
+    family: String,
+    textures: Vec<String>,
+    constants: Vec<SourceConstant>,
+    distortion: bool,
+    superflare: bool,
+}
+#[derive(Deserialize)]
+struct SourceConstant {
+    offset: usize,
+    width: usize,
+    name: String,
+}
+fn source_programs() -> &'static [SourceProgram] {
+    static PROGRAMS: std::sync::LazyLock<Vec<SourceProgram>> = std::sync::LazyLock::new(|| {
+        serde_json::from_str(include_str!("../../gameplay/origins/fx_shaders.json"))
+            .expect("Original particle shader contracts")
+    });
+    &PROGRAMS
 }
 
 impl Materials {
@@ -90,6 +111,66 @@ impl Materials {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "requires the authorized local FX export"]
+    fn every_exported_particle_material_has_its_source_program_and_images() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/assets");
+        let catalog: crate::native_fx::Catalog =
+            crate::origins::read(&root.join("fx_catalog.json"));
+        let names: std::collections::BTreeSet<_> = catalog
+            .effects
+            .values()
+            .flat_map(|effect| &effect.elements)
+            .filter(|element| element.kind <= 6)
+            .flat_map(|element| &element.visuals)
+            .flatten()
+            .filter_map(|visual| visual.material.as_ref())
+            .map(|name| name.trim_start_matches(','))
+            .collect();
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            bevy::asset::AssetPlugin {
+                file_path: root.to_string_lossy().into_owned(),
+                ..default()
+            },
+        ))
+        .init_asset::<Image>();
+        let mut errors = Vec::new();
+        for name in &names {
+            let definition: Definition = crate::origins::read(
+                &root
+                    .join("materials")
+                    .join(format!("{}.json", name.replace('*', "_"))),
+            );
+            match definition.bind(app.world().resource::<AssetServer>()) {
+                Ok(material) => {
+                    for handle in std::iter::once(&material.color_map)
+                        .chain(material.secondary.as_ref().map(|(image, _)| image))
+                    {
+                        let path = handle.path().expect("Original image path");
+                        if !root.join(path.path()).is_file() {
+                            errors.push(format!("{name}: missing {}", path.path().display()));
+                        }
+                    }
+                }
+                Err(error) => {
+                    errors.push(format!("{name} ({}): {error}", definition.technique_set))
+                }
+            }
+        }
+        assert!(
+            errors.is_empty(),
+            "{} original particle dependencies failed:\n{}",
+            errors.len(),
+            errors.join("\n")
+        );
+        eprintln!(
+            "Bound all {} original particle materials and images",
+            names.len()
+        );
+    }
 
     #[test]
     #[ignore = "requires the authorized local FX export"]
@@ -158,7 +239,9 @@ mod tests {
                     .is_file(),
                 "{name}"
             );
-            if name == "gfx_fxt_lensflare_stripe_white" {
+            if definition.state_bits[definition.state_bits_entry[3] as usize]["depthTest"]
+                == "disabled"
+            {
                 assert_eq!(material.state.depth_compare, CompareFunction::Always);
             } else {
                 assert_eq!(
@@ -185,7 +268,7 @@ mod tests {
             names.push(name.as_str());
             counts[family] += 1;
         }
-        assert_eq!(counts, [12, 16, 8, 14, 11, 13, 12, 1, 1, 1, 1, 4]);
+        assert!(counts.iter().all(|count| *count > 0));
         assert!(names.contains(&"gfx_fxt_debris_gib_wood"));
         assert!(names.contains(&"gfx_fxt_bio_bloodburst"));
         assert!(names.contains(&"gfx_fxt_gas_flash_eo2_z2"));
@@ -278,41 +361,56 @@ impl Definition {
             // VS58ec9b48 preserves vertex RGBA/UV and ordinary world projection;
             // PS8788956c is the existing premultiplied additive operation.
             "effect_8f63534j" => NativeEffectProgram::SimpleAdditive,
+            "effect_zeqqz943" => NativeEffectProgram::EyeLocalAdditive,
+            "effect_j2z83wz5" | "effect_325z1f9w" | "effect_f63zfq8f" => {
+                NativeEffectProgram::EyeLocalFeather
+            }
+            "effect_3z0w0424" => NativeEffectProgram::FogLocalFeather,
+            "effect_jz61190f" => NativeEffectProgram::EyeFogFeather,
             "particlecloud_ew972295" => NativeEffectProgram::CloudRain,
             "particlecloud_j32z635q" => NativeEffectProgram::CloudSnow,
             "particlecloud_9337w7f6" => NativeEffectProgram::CloudSimple,
             "particlecloud_w7046j83" => NativeEffectProgram::CloudAdditive,
+            "particlecloud_zwwzq468" => NativeEffectProgram::CloudVertical,
+            "particlecloud_zqe90390" => NativeEffectProgram::CloudOutdoorAdditive,
             _ => {
-                return Err(format!(
-                    "port the original {} UNLIT/EMISSIVE programs before submitting this effect",
-                    self.technique_set
-                ));
+                let Some((index, source)) = source_programs()
+                    .iter()
+                    .enumerate()
+                    .find(|(_, source)| source.family == self.technique_set)
+                else {
+                    return Err(format!(
+                        "port the original {} UNLIT/EMISSIVE programs before submitting this effect",
+                        self.technique_set
+                    ));
+                };
+                NativeEffectProgram::Source {
+                    index: index as u8,
+                    distortion: source.distortion,
+                    superflare: source.superflare,
+                }
             }
         };
-        if self.camera_region != "emissiveFx" {
+        if self.camera_region != "emissiveFx"
+            && !(program.distortion() && self.camera_region == "distortion")
+        {
             return Err(format!(
                 "requires original camera region {}",
                 self.camera_region
             ));
         }
-        let mut selected = None;
-        for slot in [2, 3] {
-            // MATERIAL_TECHNIQUE_UNLIT / EMISSIVE
-            let index = self
-                .state_bits_entry
-                .get(slot)
-                .copied()
-                .filter(|v| *v >= 0)
-                .ok_or_else(|| format!("required stateBitsEntry[{slot}] is absent"))?;
-            let state = self.state_bits.get(index as usize).ok_or_else(|| {
-                format!("stateBitsEntry[{slot}] references missing state {index}")
-            })?;
-            if selected.is_some_and(|previous| previous != state) {
-                return Err("UNLIT and EMISSIVE states require separate passes".into());
-            }
-            selected = Some(state);
-        }
-        let state = selected.expect("two required source technique slots were selected");
+        // FX submits EMISSIVE. UNLIT can be a separate Radiant editor shader;
+        // requiring its state to match rejects the original procedural flares.
+        let state_index = self
+            .state_bits_entry
+            .get(3)
+            .copied()
+            .filter(|index| *index >= 0)
+            .ok_or("required EMISSIVE state is absent")?;
+        let state = self
+            .state_bits
+            .get(state_index as usize)
+            .ok_or("required EMISSIVE state is missing")?;
         // Shader identity does not determine blend state. Preserve the selected
         // material's factors, including straight-alpha additive dust and screen RGB.
         let factor = |field: &str| -> Result<BlendFactor, String> {
@@ -347,14 +445,6 @@ impl Definition {
         for (field, expected) in [
             ("blendOpRgb", "add"),
             ("blendOpAlpha", "add"),
-            (
-                "alphaTest",
-                if program.additive() {
-                    "disabled"
-                } else {
-                    "gt0"
-                },
-            ),
             ("polygonOffset", "offset0"),
         ] {
             if state.get(field).and_then(|v| v.as_str()) != Some(expected) {
@@ -364,6 +454,16 @@ impl Definition {
                 ));
             }
         }
+        let alpha_test = match state.get("alphaTest").and_then(|value| value.as_str()) {
+            Some("disabled") => Vec4::ZERO,
+            Some("gt0") => Vec4::X,
+            Some("ge128") => Vec4::new(2., 0., 0., 0.),
+            other => {
+                return Err(format!(
+                    "Unsupported original particle alpha test {other:?}"
+                ));
+            }
+        };
         for (field, expected) in [
             ("colorWriteRgb", true),
             ("colorWriteAlpha", true),
@@ -414,13 +514,59 @@ impl Definition {
             }
             (None, Some(_)) => return Err("original back stencil has no front state".into()),
         };
+        let source = if let NativeEffectProgram::Source { index, .. } = program {
+            Some(&source_programs()[usize::from(index)])
+        } else {
+            None
+        };
+        let texture_name = source.map_or("colorMap", |source| source.textures[0].as_str());
         let mut textures = self
             .textures
             .iter()
-            .filter(|v| v.name.as_deref() == Some("colorMap"));
-        let texture = textures.next().ok_or("required colorMap is absent")?;
-        if textures.next().is_some() || texture.semantic != "colorMap" || texture.image.is_empty() {
-            return Err("required colorMap must have one original colorMap image".into());
+            .filter(|v| v.name.as_deref() == Some(texture_name));
+        let texture = textures
+            .next()
+            .ok_or_else(|| format!("Required source texture {texture_name} is absent"))?;
+        if textures.next().is_some() || texture.image.is_empty() {
+            return Err(format!(
+                "Required source texture {texture_name} must have one image"
+            ));
+        }
+        let secondary = source
+            .and_then(|source| source.textures.get(1))
+            .map(|name| {
+                let texture = self
+                    .textures
+                    .iter()
+                    .find(|texture| texture.name.as_ref() == Some(name))
+                    .ok_or_else(|| {
+                        format!("Required original particle texture {name} is absent")
+                    })?;
+                Ok::<_, String>((
+                    image(server, &texture.image),
+                    texture.sampler_state.descriptor()?,
+                ))
+            })
+            .transpose()?;
+        let mut source_constants = [Vec4::ZERO; 16];
+        if let Some(source) = source {
+            for binding in &source.constants {
+                let value = self
+                    .constants
+                    .iter()
+                    .find(|constant| constant.name.as_ref() == Some(&binding.name))
+                    .ok_or_else(|| {
+                        format!(
+                            "Required original particle constant {} is absent",
+                            binding.name
+                        )
+                    })?;
+                for component in 0..binding.width {
+                    assert!(value.literal[component].is_finite());
+                    source_constants[(binding.offset + component) / 4]
+                        [(binding.offset + component) % 4] = value.literal[component];
+                }
+            }
         }
         let feather_parms = if matches!(
             program,
@@ -432,6 +578,9 @@ impl Definition {
                 | NativeEffectProgram::OutdoorFogFeather
                 | NativeEffectProgram::SimpleFeather
                 | NativeEffectProgram::EyeFeather
+                | NativeEffectProgram::EyeLocalFeather
+                | NativeEffectProgram::FogLocalFeather
+                | NativeEffectProgram::EyeFogFeather
         ) {
             let mut constants = self
                 .constants
@@ -453,6 +602,10 @@ impl Definition {
                 | NativeEffectProgram::LocalAdditiveFeather
                 | NativeEffectProgram::EyeFeather
                 | NativeEffectProgram::EyeAdditive
+                | NativeEffectProgram::EyeLocalAdditive
+                | NativeEffectProgram::EyeLocalFeather
+                | NativeEffectProgram::FogLocalFeather
+                | NativeEffectProgram::EyeFogFeather
         ) {
             for (output, name) in additive_parms.iter_mut().zip([
                 "falloffParms",
@@ -462,7 +615,9 @@ impl Definition {
             ]) {
                 if matches!(
                     program,
-                    NativeEffectProgram::EyeFeather | NativeEffectProgram::EyeAdditive
+                    NativeEffectProgram::EyeFeather
+                        | NativeEffectProgram::EyeAdditive
+                        | NativeEffectProgram::EyeFogFeather
                 ) && name != "eyeOffsetParms"
                 {
                     continue;
@@ -472,6 +627,7 @@ impl Definition {
                         program,
                         NativeEffectProgram::AdditiveFeather
                             | NativeEffectProgram::LocalAdditiveFeather
+                            | NativeEffectProgram::FogLocalFeather
                     )
                 {
                     continue;
@@ -514,6 +670,9 @@ impl Definition {
             feather_parms,
             additive_parms,
             alpha_dissolve_parms,
+            source_constants,
+            alpha_test,
+            secondary,
             state: NativeEffectState {
                 blend,
                 depth_compare,

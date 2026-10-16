@@ -46,6 +46,9 @@ struct AudioState {
     heartbeat_interval: f32,
     heartbeat_volume: f32,
     revive_gasp: Option<f32>,
+    ammo_wait: f32,
+    ammo_low: bool,
+    ammo_out: bool,
     position: Option<Vec3>,
     crawl_distance: f32,
     raid: bool,
@@ -443,29 +446,6 @@ fn trigger_audio(
         }
     }
 }
-pub(crate) fn voice(
-    commands: &mut Commands,
-    game: &GameDefinition,
-    session: &Session,
-    event: &str,
-    speaker: Entity,
-    index: u32,
-) {
-    let prefix = format!("vox_plr_{}_{}", session.character, event);
-    let choices: Vec<_> = game
-        .audio
-        .aliases
-        .keys()
-        .filter(|n| n.starts_with(&prefix))
-        .collect();
-    if !choices.is_empty() {
-        emit(
-            commands,
-            choices[index as usize % choices.len()].clone(),
-            SoundSource::attached(speaker),
-        );
-    }
-}
 fn actions(
     mut commands: Commands,
     game: Res<GameDefinition>,
@@ -663,7 +643,7 @@ fn actors(
                         Dir3::NEG_Y,
                         30. * 0.0254,
                         true,
-                        &crate::environment::solids([owner]),
+                        &crate::environment::actor_solids([owner]),
                         &|entity| surfaces.contains(entity),
                     )
                     .and_then(|hit| surfaces.get(hit.entity).ok())
@@ -798,6 +778,7 @@ fn world(
             &Vitality,
             &crate::solo_revive::PerkInventory,
             &Player,
+            &crate::weapons::WeaponInventory,
         ),
         With<Player>,
     >,
@@ -813,7 +794,7 @@ fn world(
     session_id: Res<crate::session::SessionId>,
     mut started: MessageReader<crate::rounds::RoundStarted>,
 ) {
-    let Ok((player, pose, health, perks, body)) = players.single() else {
+    let Ok((player, pose, health, perks, body, inventory)) = players.single() else {
         return;
     };
     if state.player != Some(player) {
@@ -826,10 +807,43 @@ fn world(
             player: Some(player),
             health_heartbeat: 2.2,
             health_heartbeat_wait: 0.2,
+            ammo_wait: 0.5,
             ..default()
         };
     }
     let position = pose.translation;
+    // zm_tomb::tomb_custom_player_track_ammo_count counts all ammunition,
+    // polls every half second, and waits twenty seconds after a low/out check.
+    state.ammo_wait -= time.delta_secs();
+    if state.ammo_wait <= 0. {
+        state.ammo_wait = 0.5;
+        if let Some(owned) = inventory.active()
+            && let Some(weapon) = game
+                .content
+                .weapons
+                .iter()
+                .find(|w| w.id == owned.definition)
+            && weapon.magazine > 0
+            && !owned.definition.0.contains("knife_ballistic_")
+            && owned.definition.0 != "weapon.staff_revive_zm"
+        {
+            let ammo =
+                owned.magazine + owned.left_magazine.unwrap_or(0) + inventory.reserve(weapon);
+            if ammo > 5 || health.state() == LifeState::Downed {
+                state.ammo_low = false;
+                state.ammo_out = false;
+            } else {
+                if ammo > 0 && !state.ammo_low {
+                    voice(&mut commands, "ammo_low", player);
+                    state.ammo_low = true;
+                } else if ammo == 0 && !state.ammo_out {
+                    voice(&mut commands, "ammo_out", player);
+                    state.ammo_out = true;
+                }
+                state.ammo_wait = 20.5;
+            }
+        }
+    }
     let distance = state
         .position
         .map_or(0., |p| p.xz().distance(position.xz()));
@@ -916,16 +930,6 @@ fn world(
             SoundSource::World(Vec3::ZERO),
         );
         state.revive_gasp = Some(0.7);
-        if health.state() == LifeState::Standing {
-            voice(
-                &mut commands,
-                &game,
-                &session,
-                "heal_revived",
-                player,
-                session.kills,
-            );
-        }
     }
     state.downed = downed;
     if !last_stand_ended && let Some(remaining) = state.revive_gasp.as_mut() {
@@ -1017,7 +1021,7 @@ fn world(
                 _ => None,
             };
             if let Some(event) = event {
-                voice(&mut commands, &game, &session, event, player, 0);
+                voice(&mut commands, event, player);
             }
         }
     }
@@ -1110,7 +1114,7 @@ fn perk_music(id: &str) -> Option<&'static str> {
 fn feedback(
     mut commands: Commands,
     game: Res<GameDefinition>,
-    session: Res<Session>,
+    mut session: ResMut<Session>,
     mut choke: ResMut<VocalChoke>,
     mut steps: MessageReader<crate::environment::Footstep>,
     mut deaths: MessageReader<crate::damage::EnemyDeath>,
@@ -1122,6 +1126,8 @@ fn feedback(
     players: Query<(Entity, &crate::movement::SprintState, &Player), With<Player>>,
     query: SpatialQuery,
     surfaces: Query<&SurfaceSound>,
+    wounds: Query<&crate::combat_effects::Wounds>,
+    (time, mut kill_after): (Res<Time<Fixed>>, Local<f64>),
 ) {
     let Ok((player, _, _)) = players.single() else {
         return;
@@ -1178,43 +1184,128 @@ fn feedback(
                 SoundSource::attached(receipt.impact.target),
             );
         }
-        if nuked.contains(receipt.impact.target) {
+        if nuked.contains(receipt.impact.target)
+            || receipt.impact.attacker != player
+            || !matches!(
+                receipt.impact.source,
+                crate::damage::ImpactSource::Weapon(_)
+                    | crate::damage::ImpactSource::Projectile(_)
+                    | crate::damage::ImpactSource::Status(_)
+            )
+            || time.elapsed_secs_f64() < *kill_after
+        {
             continue;
         }
-        let event = if receipt.impact.region.head() {
-            Some("kill_headshot")
-        } else if matches!(
-            receipt.impact.source,
-            crate::damage::ImpactSource::Projectile(_)
-        ) {
-            Some("kill_explo")
-        } else if matches!(
-            receipt.impact.category,
-            crate::origins::DamageCategory::Melee
-        ) {
-            Some("kill_close")
-        } else {
-            None
+        let (Ok(origin), Ok(target)) = (poses.get(player), poses.get(receipt.impact.target)) else {
+            continue;
         };
-        if let Some(event) = event {
-            voice(&mut commands, &game, &session, event, player, session.kills);
+        let wound = wounds.get(receipt.impact.target).ok();
+        let (event, chance) = kill_line(
+            receipt,
+            origin.translation.distance_squared(target.translation) / 0.0254_f32.powi(2),
+            wound.is_some_and(|w| w.crawler),
+            wound.is_some_and(|w| w.burning > 0.),
+            session.random(),
+        );
+        // _zm_audio::player_zombie_kill_vox rolls 1..100 and has a two-second lock.
+        if chance > 1 + session.random() % 99 {
+            voice(&mut commands, event, player);
+            *kill_after = time.elapsed_secs_f64() + 2.;
         }
     }
     for damage in damages.read() {
         if damage.impact.target == player {
-            voice(
-                &mut commands,
-                &game,
-                &session,
-                if damage.after < 25 {
-                    "exert_pain_high"
-                } else {
-                    "exert_pain_low"
-                },
-                player,
-                session.shots,
-            );
+            voice(&mut commands, "exert_pain_medium", player);
         }
+    }
+}
+
+// zm_tomb_vo::tomb_audio_get_mod_type_override chooses among every matching
+// cause, using the damage weapon rather than the weapon currently in hand.
+fn kill_line(
+    receipt: &crate::damage::DamageReceipt,
+    distance_squared: f32,
+    crawler: bool,
+    burning: bool,
+    random: u32,
+) -> (&'static str, u32) {
+    use crate::origins::DamageCategory;
+    let weapon = receipt.impact.source.id();
+    let mut choices = [("kill_streak", 1); 8];
+    let mut count = 0;
+    let mut add = |condition, line, chance| {
+        if condition {
+            choices[count] = (line, chance);
+            count += 1;
+        }
+    };
+    let charged = weapon.contains("_upgraded2_") || weapon.contains("_upgraded3_");
+    for (family, normal, upgrade) in [
+        ("staff_water_", "kill_ice", "kill_ice_upgrade"),
+        ("staff_fire_", "kill_fire", "kill_fire_upgrade"),
+        ("staff_lightning_", "kill_light", "kill_light_upgrade"),
+        ("staff_air_", "kill_wind", "kill_wind_upgrade"),
+    ] {
+        add(
+            weapon.contains(family),
+            if charged { upgrade } else { normal },
+            15,
+        );
+    }
+    add(
+        receipt.impact.region.head()
+            && matches!(receipt.impact.category, DamageCategory::Bullet)
+            && distance_squared >= 75625.,
+        "kill_headshot",
+        25,
+    );
+    let ray = weapon.contains("ray_gun_") || weapon.contains("raygun_mark2_");
+    add(
+        ray && distance_squared > 75625.,
+        if receipt.insta_kill {
+            "kill_insta"
+        } else if weapon.contains("raygun_mark2_") {
+            "kill_raymk2"
+        } else {
+            "kill_ray"
+        },
+        if receipt.insta_kill { 10 } else { 15 },
+    );
+    add(
+        matches!(receipt.impact.category, DamageCategory::Explosive)
+            && !ray
+            && !weapon.contains("staff_")
+            && !burning,
+        if receipt.insta_kill {
+            "kill_insta"
+        } else {
+            "kill_explo"
+        },
+        if receipt.insta_kill { 10 } else { 60 },
+    );
+    add(
+        receipt.insta_kill,
+        "kill_insta",
+        if matches!(receipt.impact.category, DamageCategory::Melee) {
+            99
+        } else {
+            10
+        },
+    );
+    add(
+        crawler && !matches!(receipt.impact.category, DamageCategory::Melee),
+        "crawler_kill",
+        30,
+    );
+    add(
+        !matches!(receipt.impact.category, DamageCategory::Fire) && distance_squared < 4096.,
+        "kill_close",
+        15,
+    );
+    if count == 0 {
+        ("kill_streak", 1)
+    } else {
+        choices[random as usize % count]
     }
 }
 
@@ -1229,7 +1320,7 @@ fn ground_surface<'a>(
             Dir3::NEG_Y,
             2.,
             true,
-            &crate::environment::solids([]),
+            &crate::environment::player_solids([]),
             &|e| surfaces.contains(e),
         )
         .and_then(|hit| surfaces.get(hit.entity).ok())
@@ -1239,6 +1330,82 @@ fn ground_surface<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn kill_barks_use_original_distance_cause_and_response_chance() {
+        use crate::{
+            damage::{DamageReceipt, Impact, ImpactSource},
+            origins::{DamageCategory, WeaponId},
+            weapons::HitRegion,
+        };
+        let mut receipt = DamageReceipt {
+            impact: Impact {
+                point: None,
+                attacker: Entity::PLACEHOLDER,
+                target: Entity::PLACEHOLDER,
+                source: ImpactSource::Weapon(WeaponId("weapon.m1911_zm".into())),
+                category: DamageCategory::Bullet,
+                region: HitRegion::Head,
+                amount: 100,
+            },
+            base_amount: 100,
+            lethal: true,
+            points: 100,
+            aimed_bullet: true,
+            insta_kill: false,
+        };
+        assert_eq!(
+            kill_line(&receipt, 75624., false, false, 0),
+            ("kill_streak", 1)
+        );
+        assert_eq!(
+            kill_line(&receipt, 75625., false, false, 0),
+            ("kill_headshot", 25)
+        );
+        assert_eq!(
+            kill_line(&receipt, 4095., false, false, 0),
+            ("kill_close", 15)
+        );
+        receipt.impact.region = HitRegion::Torso;
+        receipt.impact.source = ImpactSource::Projectile(WeaponId("weapon.ray_gun_zm".into()));
+        receipt.impact.category = DamageCategory::Explosive;
+        assert_eq!(
+            kill_line(&receipt, 80000., false, false, 0),
+            ("kill_ray", 15)
+        );
+        assert_eq!(
+            kill_line(&receipt, 8000., false, false, 0),
+            ("kill_streak", 1)
+        );
+        receipt.impact.source = ImpactSource::Projectile(WeaponId("weapon.frag_grenade_zm".into()));
+        assert_eq!(
+            kill_line(&receipt, 8000., false, false, 0),
+            ("kill_explo", 60)
+        );
+        assert_eq!(
+            kill_line(&receipt, 8000., false, true, 0),
+            ("kill_streak", 1)
+        );
+        receipt.impact.source = ImpactSource::Status(WeaponId("weapon.staff_water_zm".into()));
+        receipt.impact.category = DamageCategory::Ice;
+        assert_eq!(
+            kill_line(&receipt, 8000., false, false, 0),
+            ("kill_ice", 15)
+        );
+        receipt.impact.source =
+            ImpactSource::Status(WeaponId("weapon.staff_water_upgraded3_zm".into()));
+        assert_eq!(
+            kill_line(&receipt, 8000., false, false, 0),
+            ("kill_ice_upgrade", 15)
+        );
+        receipt.impact.source = ImpactSource::Weapon(WeaponId("weapon.one_inch_punch_zm".into()));
+        receipt.impact.category = DamageCategory::Melee;
+        receipt.insta_kill = true;
+        assert_eq!(
+            kill_line(&receipt, 8000., false, false, 0),
+            ("kill_insta", 99)
+        );
+    }
 
     #[test]
     fn sound_notifies_cross_loop_seams_once() {

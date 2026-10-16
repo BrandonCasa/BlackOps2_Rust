@@ -125,7 +125,7 @@ fn delayed_cues(
     for (entity, mut cue) in &mut cues {
         cue.remaining -= time.delta_secs();
         if cue.remaining <= 0. {
-            crate::audio::emit(
+            crate::audio::samantha(
                 &mut commands,
                 cue.alias.clone(),
                 crate::audio::SoundSource::World(cue.position),

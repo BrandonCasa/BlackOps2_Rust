@@ -901,7 +901,6 @@ fn audio_evidence(
 fn presentation(
     mut commands: Commands,
     time: Res<Time>,
-    session: Res<Session>,
     definition: Res<GameDefinition>,
     generators: Res<Generators>,
     mut assets: crate::animation::ClipAssets,
@@ -950,14 +949,7 @@ fn presentation(
         if let Some((speaker, remaining)) = visual.capture_voice.as_mut() {
             *remaining -= time.delta_secs();
             if *remaining <= 0. {
-                crate::audio::voice(
-                    &mut commands,
-                    &definition,
-                    &session,
-                    "capture_zombies",
-                    *speaker,
-                    u32::from(d.number),
-                );
+                crate::audio::voice(&mut commands, "capture_zombies", *speaker);
                 visual.capture_voice = None;
             }
         }

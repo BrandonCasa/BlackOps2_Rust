@@ -17,11 +17,14 @@ struct Node {
     point: Vec3,
     zone: ZoneId,
     native: Option<NativePathNode>,
+    exterior: bool,
 }
 impl Node {
     fn accessible(&self, access: &ZoneAccess) -> bool {
-        // Exterior paths have no player-volume owner; their links still obey doors.
-        self.zone.0 == "zone.unassigned" || access.reachable.contains(&self.zone)
+        // Player volumes can overlap the approach outside a window (including
+        // the locked fire stairs above the starting room). Native exterior
+        // paths remain usable; their links and window exits still obey doors.
+        self.exterior || self.zone.0 == "zone.unassigned" || access.reachable.contains(&self.zone)
     }
 
     fn disconnectable(&self, origin: Vec3, radius: f32) -> bool {
@@ -98,6 +101,22 @@ impl Ord for Work {
     }
 }
 impl Navigation {
+    fn mark_exterior_approaches(&mut self) {
+        let mut pending = self.entrance_nodes.values().copied().collect::<Vec<_>>();
+        while let Some(from) = pending.pop() {
+            if self.nodes[from].exterior {
+                continue;
+            }
+            self.nodes[from].exterior = true;
+            pending.extend(
+                self.edges[from]
+                    .iter()
+                    .filter(|edge| matches!(edge.traversal, Traversal::Walk))
+                    .map(|edge| edge.to),
+            );
+        }
+    }
+
     fn invalidate(&mut self) {
         self.cache.clear();
         self.order.clear();
@@ -431,7 +450,12 @@ impl Navigation {
         let mut pending = vec![start];
         while let Some(from) = pending.pop() {
             for edge in &self.edges[from] {
-                if !reachable[edge.to] && self.allowed(from, edge, access) {
+                // Choosing a window must not cross another window into the
+                // playable area and then select a different entrance.
+                if matches!(edge.traversal, Traversal::Walk)
+                    && !reachable[edge.to]
+                    && self.allowed(from, edge, access)
+                {
                     reachable[edge.to] = true;
                     pending.push(edge.to);
                 }
@@ -515,6 +539,7 @@ fn reset(
             point: Vec3::from_array(source.position),
             zone: source.zone.clone(),
             native: source.native,
+            exterior: false,
         })
         .collect();
     let ids: HashMap<_, _> = definition
@@ -588,6 +613,7 @@ fn reset(
             (entrance.node.clone(), index)
         })
         .collect();
+    nav.mark_exterior_approaches();
     info!(
         "Native navigation: {} authored nodes, {} directed links, {} spawns",
         nav.nodes.len(),
@@ -678,11 +704,60 @@ mod tests {
         Node {
             point,
             zone: ZoneId("zone.start".into()),
+            exterior: false,
             native: Some(NativePathNode {
                 r#type: kind,
                 spawn_flags: flags,
             }),
         }
+    }
+
+    #[test]
+    fn window_approach_uses_exterior_nodes_inside_a_locked_player_volume() {
+        let mut access = ZoneAccess::default();
+        access.reachable.insert(ZoneId("zone.start".into()));
+        let mut nav = Navigation::default();
+        nav.nodes = [0., 1., 2., 3.].map(|x| node(Vec3::X * x, 1, 0)).to_vec();
+        for index in [0, 1] {
+            nav.nodes[index].zone = ZoneId("zone.fire_stairs".into());
+        }
+        let edge = |to, traversal| Edge {
+            to,
+            traversal,
+            animation: Some("zm_mantle_over_40".into()),
+            blockers: Vec::new(),
+            cost: 1.,
+            native: None,
+        };
+        nav.edges = vec![
+            vec![edge(1, Traversal::Walk)],
+            vec![edge(0, Traversal::Walk), edge(2, Traversal::Walk)],
+            vec![edge(1, Traversal::Walk), edge(3, Traversal::Climb)],
+            Vec::new(),
+        ];
+        let entrance = crate::access::SpawnEntranceDefinition {
+            node: ContentId("node.window".into()),
+            position: nav.nodes[2].point.to_array(),
+        };
+        nav.entrance_nodes.insert(entrance.node.clone(), 2);
+        nav.entrances.push(entrance.clone());
+        nav.mark_exterior_approaches();
+        assert!(nav.nodes[0].exterior);
+        assert!(nav.nodes[1].exterior);
+        assert!(!nav.nodes[3].exterior);
+        assert_eq!(
+            nav.entrance_destination(Vec3::ZERO, &entrance, &access),
+            Vec3::X
+        );
+
+        // The exterior exception must not unlock the playable window exit.
+        nav.nodes[3].zone = ZoneId("zone.closed".into());
+        assert!(!nav.allowed(2, &nav.edges[2][1], &access));
+        let gate = ContentId("connection.gate".into());
+        nav.edges[0][0].blockers.push(gate.clone());
+        assert!(!nav.direct_allowed(Vec3::ZERO, Vec3::X, &access));
+        access.open.insert(gate);
+        assert!(nav.direct_allowed(Vec3::ZERO, Vec3::X, &access));
     }
 
     #[test]
@@ -859,6 +934,62 @@ mod tests {
                 .node
                 .0,
             "node.2"
+        );
+    }
+
+    #[test]
+    fn entrance_choice_does_not_cross_a_window_to_reach_another() {
+        let mut access = ZoneAccess::default();
+        access.reachable.insert(ZoneId("zone.start".into()));
+        let mut nav = Navigation::default();
+        nav.nodes = [0., 10., 11., 1., 2.]
+            .map(|x| node(Vec3::X * x, 1, 0))
+            .to_vec();
+        let edge = |to, traversal| Edge {
+            to,
+            traversal,
+            animation: Some("zm_mantle_over_40".into()),
+            blockers: Vec::new(),
+            cost: 1.,
+            native: None,
+        };
+        nav.edges = vec![
+            vec![edge(1, Traversal::Walk)],
+            vec![edge(2, Traversal::Climb)],
+            vec![edge(3, Traversal::Walk)],
+            vec![edge(4, Traversal::Climb)],
+            Vec::new(),
+        ];
+        for index in [1, 3] {
+            let id = ContentId(format!("node.{index}"));
+            nav.entrance_nodes.insert(id.clone(), index);
+            nav.entrances.push(crate::access::SpawnEntranceDefinition {
+                node: id,
+                position: nav.nodes[index].point.to_array(),
+            });
+        }
+        let spawn = Admission {
+            position: Vec3::ZERO,
+            zone: ZoneId("zone.start".into()),
+            source: "spawn.test".into(),
+            rising: false,
+            find_flesh: false,
+            yaw: 0.,
+            desired_origin: Some(Vec3::X),
+        };
+        let spawner = crate::access::ActorSpawnerDefinition {
+            id: "spawner.test".into(),
+            archetype: "zombie".into(),
+            position: [0.; 3],
+            yaw: 0.,
+            desired_origin: None,
+        };
+        assert_eq!(
+            nav.choose_entrance(&spawn, &spawner, &access, &mut Session::default())
+                .unwrap()
+                .node
+                .0,
+            "node.1"
         );
     }
 

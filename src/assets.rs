@@ -90,7 +90,17 @@ pub(crate) struct WorldTerrain;
 pub(crate) const RAGDOLL_WORLD_LAYER: u32 = 256;
 pub(crate) const DYNENT_WORLD_LAYER: u32 = 512;
 pub(crate) fn world_collision_layers(contents: u32) -> CollisionLayers {
-    let membership = if contents & 0x10001 != 0 { 1 } else { 0 }
+    let membership = if contents & 1 != 0 { 1 } else { 0 }
+        | if contents & 0x10000 != 0 {
+            crate::environment::PLAYER_INGRESS_LAYER
+        } else {
+            0
+        }
+        | if contents & 0x20000 != 0 {
+            crate::environment::MONSTER_CLIP_LAYER
+        } else {
+            0
+        }
         | if contents & 0x0281ee93 != 0 {
             RAGDOLL_WORLD_LAYER
         } else {
@@ -252,7 +262,7 @@ fn native_surface_type(surface: usize) -> Result<u32, String> {
     }
 }
 
-fn world_surface_colliders(mesh: &Mesh) -> Result<Vec<(usize, Collider)>, String> {
+pub(crate) fn world_surface_colliders(mesh: &Mesh) -> Result<Vec<(usize, Collider)>, String> {
     use bevy::mesh::{PrimitiveTopology, VertexAttributeValues};
     if mesh.primitive_topology() != PrimitiveTopology::TriangleList {
         return Err("Required collision mesh is not a triangle list".into());
@@ -323,6 +333,32 @@ fn world_surface_colliders(mesh: &Mesh) -> Result<Vec<(usize, Collider)>, String
 #[cfg(test)]
 mod collision_tests {
     use super::*;
+
+    #[test]
+    fn native_player_and_monster_clips_block_only_their_actor() {
+        let entity = Entity::from_bits(1);
+        let player = crate::environment::player_solids([]);
+        let zombie = crate::environment::actor_solids([]);
+        for (contents, blocks_player, blocks_zombie) in [
+            (1, true, true),
+            (0x10000, true, false),
+            (0x08020000, false, true),
+            (0x30000, true, true),
+            (0x40000000, false, false),
+        ] {
+            let layers = world_collision_layers(contents);
+            assert_eq!(player.test(entity, layers), blocks_player, "{contents:#x}");
+            assert_eq!(zombie.test(entity, layers), blocks_zombie, "{contents:#x}");
+            assert_eq!(
+                layers.memberships.0 & RAGDOLL_WORLD_LAYER != 0,
+                contents & 0x0281ee93 != 0,
+            );
+            assert_eq!(
+                layers.memberships.0 & DYNENT_WORLD_LAYER != 0,
+                contents & 0x0280ec93 != 0,
+            );
+        }
+    }
 
     fn external_brush(contents: u32) -> serde_json::Value {
         serde_json::json!({

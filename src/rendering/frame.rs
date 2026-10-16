@@ -174,6 +174,7 @@ impl Plugin for NativeFramePlugin {
                             { super::native::NativeWorldPass::Translucent as u8 },
                         >,
                         render_native_transparent,
+                        render_native_distortion,
                     )
                         .chain()
                         .in_set(NativeMainPass),
@@ -503,6 +504,46 @@ fn render_native_transparent(
     phase
         .render(&mut pass, world, entity)
         .expect("native transparent phase");
+}
+
+fn render_native_distortion(
+    world: &World,
+    view: ViewQuery<(
+        &ExtractedCamera,
+        &ExtractedView,
+        &NativeSceneColor,
+        &ViewDepthStencilTexture,
+        Option<&bevy::camera::MainPassResolutionOverride>,
+    )>,
+    phases: Res<super::native_effect::DistortionPhases>,
+    mut ctx: RenderContext,
+) {
+    let entity = view.entity();
+    let (camera, view, color, depth, resolution) = view.into_inner();
+    let Some(phase) = phases
+        .0
+        .get(&view.retained_view_entity)
+        .filter(|phase| !phase.items.is_empty())
+    else {
+        return;
+    };
+    let attachments = [Some(color.attachment())];
+    let mut pass = ctx.begin_tracked_render_pass(RenderPassDescriptor {
+        label: Some("T6 source particle distortion"),
+        color_attachments: &attachments,
+        depth_stencil_attachment: Some(depth.get_attachment(StoreOp::Store)),
+        timestamp_writes: None,
+        occlusion_query_set: None,
+        multiview_mask: None,
+    });
+    if let Some(viewport) =
+        bevy::camera::Viewport::from_viewport_and_override(camera.viewport.as_ref(), resolution)
+    {
+        pass.set_camera_viewport(&viewport);
+    }
+    phase
+        .render(&mut pass, world, entity)
+        .expect("Original distortion phase");
 }
 
 #[derive(Component)]

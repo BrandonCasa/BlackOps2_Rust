@@ -788,3 +788,168 @@ pub fn slide_character(
     )
     .slide
 }
+
+#[cfg(test)]
+mod map_movement_tests {
+    use super::*;
+    use bevy::{
+        asset::RenderAssetUsages,
+        gltf::{Gltf, GltfLoaderSettings, GltfMesh, GltfNode, GltfPlugin},
+        mesh::MeshPlugin,
+        time::TimeUpdateStrategy,
+        world_serialization::WorldSerializationPlugin,
+    };
+
+    #[test]
+    #[ignore = "requires the authorized local Origins export"]
+    fn exported_initial_spawn_settles_and_player_can_walk_and_strafe() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/assets");
+        let game = GameDefinition::load_from_root(&root);
+        let spawn = Vec3::from_array(game.spawn);
+        let tuning = game.tuning.clone();
+        let yaw = game.yaw;
+        let collision = game.collision_scene.split('#').next().unwrap().to_owned();
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            TransformPlugin,
+            AssetPlugin {
+                file_path: root.to_string_lossy().into_owned(),
+                ..default()
+            },
+            WorldSerializationPlugin,
+            MeshPlugin,
+            GltfPlugin::default()
+                .add_custom_vertex_attribute("SURFACE", crate::assets::ATTRIBUTE_SURFACE),
+            PhysicsPlugins::new(PostUpdate),
+        ))
+        .insert_resource(game)
+        .insert_resource(Time::<Fixed>::from_hz(60.))
+        .insert_resource(TimeUpdateStrategy::FixedTimesteps(1))
+        .init_resource::<GameInput>()
+        .init_resource::<crate::input::ControlSettings>()
+        .init_resource::<crate::input::Actions>()
+        .init_resource::<TickActions>()
+        .add_message::<crate::movement::Landing>();
+        app.finish();
+        app.cleanup();
+        let server = app.world().resource::<AssetServer>().clone();
+        let handle: Handle<Gltf> = server
+            .load_builder()
+            .with_settings(|settings: &mut GltfLoaderSettings| {
+                settings.load_meshes = RenderAssetUsages::MAIN_WORLD;
+                settings.load_materials = RenderAssetUsages::empty();
+                settings.load_animations = false;
+            })
+            .load(collision);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        while !server.is_loaded_with_dependencies(handle.id()) {
+            app.update();
+            if let Some(bevy::asset::LoadState::Failed(error)) = server.get_load_state(handle.id())
+            {
+                panic!("Required collision export: {error}");
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "Collision export load timed out"
+            );
+            std::thread::yield_now();
+        }
+        let gltfs = app.world().resource::<Assets<Gltf>>();
+        let nodes = app.world().resource::<Assets<GltfNode>>();
+        let gltf_meshes = app.world().resource::<Assets<GltfMesh>>();
+        let meshes = app.world().resource::<Assets<Mesh>>();
+        let mut colliders = Vec::new();
+        for handle in &gltfs.get(&handle).unwrap().nodes {
+            let node = nodes.get(handle).unwrap();
+            let metadata: serde_json::Value =
+                serde_json::from_str(&node.extras.as_ref().unwrap().value).unwrap();
+            if metadata.get("part").is_some() {
+                continue;
+            }
+            assert!(
+                node.children.is_empty(),
+                "Collision export must contain flat mesh nodes"
+            );
+            let contents = metadata["contents"]
+                .as_str()
+                .map(|bits| u32::from_str_radix(bits.trim_start_matches("0x"), 16).unwrap())
+                .unwrap_or_else(|| {
+                    assert_eq!(metadata["group"], "soup");
+                    1
+                });
+            for primitive in &gltf_meshes
+                .get(node.mesh.as_ref().unwrap())
+                .unwrap()
+                .primitives
+            {
+                for (_, collider) in
+                    crate::assets::world_surface_colliders(meshes.get(&primitive.mesh).unwrap())
+                        .unwrap()
+                {
+                    colliders.push((
+                        RigidBody::Static,
+                        collider,
+                        node.transform,
+                        crate::assets::world_collision_layers(contents),
+                    ));
+                }
+            }
+        }
+        assert!(!colliders.is_empty());
+        app.world_mut().spawn_batch(colliders);
+        app.update();
+        let floor_y = app
+            .world_mut()
+            .run_system_cached(|query: SpatialQuery, game: Res<GameDefinition>| {
+                let spawn = Vec3::from_array(game.spawn);
+                let hit = query
+                    .cast_ray(
+                        spawn,
+                        Dir3::NEG_Y,
+                        game.tuning.standing_height,
+                        false,
+                        &crate::environment::player_solids([]),
+                    )
+                    .expect("Initial spawn has no map support");
+                spawn.y - hit.distance
+            })
+            .unwrap();
+        app.world_mut().run_system_cached(spawn_player).unwrap();
+        app.add_systems(FixedUpdate, move_player);
+        for _ in 0..60 {
+            app.update();
+        }
+        let (entity, settled) = {
+            let mut players = app.world_mut().query::<(Entity, &Player, &Transform)>();
+            let (entity, player, pose) = players.single(app.world()).unwrap();
+            let feet = pose.translation - Vec3::Y * (player.height * 0.5);
+            assert!(player.grounded, "Player failed to settle at {feet:?}");
+            assert!(feet.xz().distance(spawn.xz()) < tuning.radius);
+            assert!(
+                (feet.y - floor_y - tuning.physics.skin_width).abs() < tuning.physics.ground_probe,
+                "Player settled at {feet:?}, map floor is {floor_y}"
+            );
+            (entity, pose.translation)
+        };
+        for movement in [Vec2::Y, Vec2::X] {
+            let mut player = app.world_mut().entity_mut(entity);
+            player.get_mut::<Transform>().unwrap().translation = settled;
+            player.get_mut::<Player>().unwrap().velocity = Vec3::ZERO;
+            player.insert(crate::movement::Mobility::new(tuning.eye_height));
+            app.world_mut().resource_mut::<GameInput>().movement = movement;
+            for _ in 0..15 {
+                app.update();
+            }
+            let pose = app.world().get::<Transform>(entity).unwrap();
+            let direction = Quat::from_rotation_y(yaw) * Vec3::new(movement.x, 0., -movement.y);
+            let distance = (pose.translation - settled).dot(direction);
+            assert!(
+                distance > 0.2,
+                "Player trapped moving {movement:?}: {settled:?} -> {:?}",
+                pose.translation
+            );
+            assert!(app.world().get::<Player>(entity).unwrap().grounded);
+        }
+    }
+}

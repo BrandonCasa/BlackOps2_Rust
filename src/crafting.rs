@@ -340,6 +340,22 @@ pub(crate) fn interact(
                     "zmb_craftable_pickup",
                     crate::audio::SoundSource::attached(owner),
                 );
+                let line = if id == "part.gramophone_vinyl.player" {
+                    "pickup_gramophone"
+                } else if id.starts_with("part.gramophone_vinyl.") {
+                    "pickup_record"
+                } else if id.starts_with("part.tomb_shield_zm.") {
+                    "build_zs_pickup"
+                } else if id == "part.equip_dieseldrone_zm.brain" {
+                    "pickup_brain"
+                } else if id.starts_with("part.equip_dieseldrone_zm.") {
+                    "build_dd_pickup"
+                } else if id.ends_with(".gem") {
+                    "pickup_crystal"
+                } else {
+                    "pickup_staff_part"
+                };
+                crate::audio::voice(&mut commands, line, owner);
                 focus.accepted += 1;
             }
         }
@@ -431,6 +447,13 @@ pub(crate) fn interact(
                     crate::audio::SoundSource::attached(owner),
                 );
                 crafting.crafted.insert(recipe.clone());
+                if recipe == DRONE {
+                    commands.write_message(crate::audio::NarrativeEvent::DroneBuilt(
+                        crate::audio::SoundSource::World(Vec3::from_array(bench.position)),
+                    ));
+                } else if recipe == SHIELD {
+                    crate::audio::voice(&mut commands, "build_zs_final", owner);
+                }
                 crafting.benches.insert(*index, recipe.clone());
                 crafting.progress = 0.;
                 commands
@@ -464,6 +487,15 @@ pub(crate) fn interact(
                     equipment.shield_health = SHIELD_HEALTH;
                     equipment.shield_held = false;
                 }
+                crate::audio::voice(
+                    &mut commands,
+                    if recipe == SHIELD {
+                        "build_zs_take"
+                    } else {
+                        "build_dd_take"
+                    },
+                    owner,
+                );
             } else {
                 let Some((_, weapon)) = STAFFS.iter().find(|(family, _)| *family == recipe) else {
                     return;
@@ -500,6 +532,9 @@ pub(crate) fn interact(
                 if inventory.exchange_staff(d).is_err() {
                     focus.rejection = Some(InteractionRejection::Busy);
                     return;
+                }
+                if !upgrades.charged[element] {
+                    commands.write_message(crate::audio::NarrativeEvent::StaffTaken(element));
                 }
             }
             crafting.latched = true;

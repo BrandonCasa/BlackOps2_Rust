@@ -333,8 +333,6 @@ fn clear_removed_player_contacts(
         contacts.0.clear();
     }
 }
-#[derive(Component, Default)]
-struct ZoneCheckpoint(Option<Vec3>);
 const ZONE_SENSOR_LAYER: u32 = 8;
 #[derive(Component)]
 struct ZoneSensor {
@@ -342,20 +340,14 @@ struct ZoneSensor {
 }
 fn locate(
     query: SpatialQuery,
-    mut players: Query<(
-        &mut Transform,
-        &mut Player,
-        &mut ZoneCheckpoint,
-        &Collider,
-        &crate::life::Vitality,
-    )>,
+    players: Query<(&Transform, &Collider, &crate::life::Vitality), With<Player>>,
     volumes: Query<&ZoneSensor, Without<Player>>,
     mut zone: ResMut<CurrentZone>,
     mut contacts: ResMut<PlayerZoneContacts>,
     access: Res<ZoneAccess>,
     game: Res<GameDefinition>,
 ) {
-    let Ok((mut pose, mut player, mut checkpoint, shape, life)) = players.single_mut() else {
+    let Ok((pose, shape, life)) = players.single() else {
         zone.0 = None;
         contacts.0.clear();
         return;
@@ -381,14 +373,6 @@ fn locate(
         .iter()
         .find(|zone| touching.contains(&zone.id) && access.reachable.contains(&zone.id))
         .map(|zone| zone.id.clone());
-    if candidate.is_none() && !touching.is_empty() {
-        pose.translation = checkpoint
-            .0
-            .unwrap_or(Vec3::from_array(game.spawn) + Vec3::Y * (player.height * 0.5));
-        player.velocity = Vec3::ZERO;
-        return;
-    }
-    checkpoint.0 = Some(pose.translation);
     contacts.0 = touching;
     zone.0 = candidate;
 }
@@ -396,7 +380,6 @@ pub struct AccessPlugin;
 impl Plugin for AccessPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ZoneAccess>()
-            .register_required_components::<Player, ZoneCheckpoint>()
             .register_required_components::<Player, TriggerClientMode>()
             .add_message::<ZoneFlagSet>()
             .add_message::<NewZoneActive>()
@@ -695,6 +678,78 @@ mod tests {
         );
         access.refresh(&content);
         (content, access)
+    }
+
+    #[test]
+    fn disabled_zone_sensor_never_rewinds_player_movement() {
+        let (content, access) = source_zones();
+        let mut game: GameDefinition =
+            serde_json::from_str(include_str!("../gameplay/origins/game.json")).unwrap();
+        game.content = content;
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            TransformPlugin,
+            AssetPlugin::default(),
+            PhysicsPlugins::new(PostUpdate),
+        ))
+        .init_asset::<Mesh>()
+        .insert_resource(Time::<Fixed>::from_hz(60.))
+        .insert_resource(bevy::time::TimeUpdateStrategy::FixedTimesteps(1))
+        .insert_resource(game)
+        .insert_resource(access)
+        .init_resource::<CurrentZone>()
+        .init_resource::<PlayerZoneContacts>();
+        for (id, x) in [("zone.start", 0.), ("zone.deferred", 4.)] {
+            app.world_mut().spawn((
+                ZoneSensor {
+                    zone: ZoneId(id.into()),
+                },
+                RigidBody::Static,
+                Collider::cuboid(2., 4., 2.),
+                Sensor,
+                CollisionLayers::new(ZONE_SENSOR_LAYER, LayerMask::NONE),
+                Transform::from_xyz(x, 0., 0.),
+            ));
+        }
+        let owner = app
+            .world_mut()
+            .spawn((
+                player(),
+                Collider::cuboid(0.7, 1.8, 0.7),
+                Transform::IDENTITY,
+                Vitality::human(100, 100, 1, PlayerLethalPolicy::SoloSelfRevive).unwrap(),
+            ))
+            .id();
+        app.finish();
+        app.cleanup();
+        app.update();
+        app.update();
+        app.world_mut().run_system_cached(locate).unwrap();
+        assert_eq!(
+            app.world().resource::<CurrentZone>().0,
+            Some(ZoneId("zone.start".into()))
+        );
+
+        let destination = Vec3::new(4., 0., 0.);
+        let velocity = Vec3::new(2., 0., 0.);
+        app.world_mut()
+            .get_mut::<Transform>(owner)
+            .unwrap()
+            .translation = destination;
+        app.world_mut().get_mut::<Player>(owner).unwrap().velocity = velocity;
+        app.update();
+        app.world_mut().run_system_cached(locate).unwrap();
+        assert_eq!(
+            app.world().get::<Transform>(owner).unwrap().translation,
+            destination
+        );
+        assert_eq!(app.world().get::<Player>(owner).unwrap().velocity, velocity);
+        assert!(app.world().resource::<CurrentZone>().0.is_none());
+        assert_eq!(
+            app.world().resource::<PlayerZoneContacts>().0,
+            BTreeSet::from([ZoneId("zone.deferred".into())])
+        );
     }
 
     #[test]

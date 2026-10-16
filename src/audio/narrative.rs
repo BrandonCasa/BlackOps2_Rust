@@ -8,10 +8,22 @@ use std::collections::VecDeque;
 pub(crate) struct NarrativeProgress {
     pub player: Entity,
 }
+#[derive(Message)]
+pub(crate) enum NarrativeEvent {
+    DroneBuilt(SoundSource),
+    StaffTaken(usize),
+    Samantha { alias: String, source: SoundSource },
+}
 #[derive(Message, Clone, Copy)]
 pub(crate) struct RobotPurgeReady {
     pub player: Entity,
     pub robot: usize,
+}
+pub(crate) fn samantha(commands: &mut Commands, alias: impl Into<String>, source: SoundSource) {
+    commands.write_message(NarrativeEvent::Samantha {
+        alias: alias.into(),
+        source,
+    });
 }
 struct Line {
     alias: String,
@@ -23,12 +35,10 @@ struct Line {
 }
 #[derive(Resource, Default)]
 struct Narrative {
-    round: u32,
-    intermission: bool,
     entries: u32,
     evacuations: u32,
     raid: Option<String>,
-    crafted: BTreeSet<String>,
+    staffs_claimed: BTreeSet<usize>,
     queue: VecDeque<Line>,
     active: Option<Entity>,
     owner: Option<Entity>,
@@ -48,6 +58,7 @@ pub(super) fn install(app: &mut App) {
     app.init_resource::<Narrative>()
         .add_observer(discover_pap)
         .add_message::<NarrativeProgress>()
+        .add_message::<NarrativeEvent>()
         .add_message::<RobotPurgeReady>()
         .add_systems(OnEnter(GameState::StartingSession), reset)
         .add_systems(
@@ -129,8 +140,109 @@ mod trigger_tests {
         world.add_observer(discover_pap);
         world.flush();
     }
+
+    fn app() -> App {
+        let mut app = App::new();
+        app.insert_resource(super::super::dialogue::tests::game())
+            .init_resource::<Time<Fixed>>()
+            .init_resource::<Session>()
+            .init_resource::<crate::robots::Robots>()
+            .init_resource::<crate::generators::GeneratorRaids>()
+            .init_resource::<crate::crafting::Crafting>()
+            .init_resource::<crate::side_secrets::Secrets>()
+            .init_resource::<StoryReservation>()
+            .insert_resource(crate::session::SessionId(1))
+            .insert_resource(Narrative {
+                opening_done: true,
+                ..default()
+            })
+            .add_message::<PlaybackEvent>()
+            .add_message::<NarrativeProgress>()
+            .add_message::<NarrativeEvent>()
+            .add_message::<crate::rounds::RoundStarted>()
+            .add_message::<crate::rounds::RoundEnding>()
+            .add_message::<RobotPurgeReady>()
+            .add_systems(Update, events);
+        super::super::dialogue::tests::player(app.world_mut());
+        app
+    }
+
+    #[test]
+    fn narrative_uses_round_receipts_instead_of_the_already_incremented_round() {
+        let mut app = app();
+        app.world_mut().resource_mut::<Session>().round = 2;
+        app.world_mut().write_message(crate::rounds::RoundEnding {
+            session: crate::session::SessionId(1),
+            round: 1,
+        });
+        app.update();
+        let narrative = app.world().resource::<Narrative>();
+        assert_eq!(
+            narrative
+                .queue
+                .iter()
+                .map(|line| line.alias.as_str())
+                .collect::<Vec<_>>(),
+            ["vox_plr_0_end_round_1_5_0", "vox_plr_0_end_round_1_6_1"]
+        );
+        app.world_mut().resource_mut::<Narrative>().queue.clear();
+        app.world_mut().resource_mut::<Session>().round = 5;
+        app.update();
+        assert!(app.world().resource::<Narrative>().queue.is_empty());
+        app.world_mut().write_message(crate::rounds::RoundStarted {
+            session: crate::session::SessionId(1),
+            round: 5,
+        });
+        app.update();
+        assert_eq!(
+            app.world().resource::<Narrative>().queue[0].alias,
+            "vox_sam_sam_help_5_0"
+        );
+    }
+
+    #[test]
+    fn staff_conversation_starts_on_pickup_and_samantha_waits_for_her_intro() {
+        let mut app = app();
+        app.world_mut()
+            .resource_mut::<crate::crafting::Crafting>()
+            .crafted
+            .insert("elemental_staff_fire".into());
+        app.update();
+        assert!(app.world().resource::<Narrative>().queue.is_empty());
+        app.world_mut().write_message(NarrativeEvent::StaffTaken(0));
+        app.update();
+        assert!(
+            app.world()
+                .resource::<Narrative>()
+                .queue
+                .iter()
+                .all(|line| line.alias.starts_with("vox_plr_0_pickup_fire_"))
+        );
+        app.world_mut().resource_mut::<Narrative>().queue.clear();
+        app.world_mut().write_message(NarrativeEvent::Samantha {
+            alias: "vox_sam_fire_puz_solve_0".into(),
+            source: SoundSource::World(Vec3::ZERO),
+        });
+        app.update();
+        assert!(app.world().resource::<Narrative>().queue.is_empty());
+        app.world_mut().resource_mut::<Narrative>().intro_done = true;
+        app.world_mut().write_message(NarrativeEvent::Samantha {
+            alias: "vox_sam_fire_puz_solve_0".into(),
+            source: SoundSource::World(Vec3::ZERO),
+        });
+        app.update();
+        assert_eq!(
+            app.world().resource::<Narrative>().queue[0].alias,
+            "vox_sam_fire_puz_solve_0"
+        );
+    }
 }
-fn reset(mut commands: Commands, mut state: ResMut<Narrative>) {
+fn reset(
+    mut commands: Commands,
+    mut state: ResMut<Narrative>,
+    mut cues: ResMut<Messages<NarrativeEvent>>,
+) {
+    cues.clear();
     *state = default();
     state.opening = 10.;
     state.owner = Some(
@@ -145,27 +257,7 @@ fn choose(
     session: &mut Session,
     prefix: &str,
 ) -> Option<String> {
-    let pool = state.pools.entry(prefix.into()).or_default();
-    if pool.is_empty() {
-        pool.extend(
-            game.audio
-                .aliases
-                .keys()
-                .filter(|name| {
-                    !(prefix == "vox_sam_generic_encourage" && name.ends_with("_6"))
-                        && name.strip_prefix(prefix).is_some_and(|tail| {
-                            tail.starts_with('_')
-                                && tail[1..].chars().all(|c| c.is_ascii_digit() || c == '_')
-                        })
-                })
-                .cloned(),
-        );
-    }
-    if pool.is_empty() {
-        return None;
-    }
-    let index = session.random() as usize % pool.len();
-    Some(pool.remove(index))
+    super::dialogue::choose(&mut state.pools, game, session, prefix)
 }
 fn push(
     state: &mut Narrative,
@@ -198,6 +290,7 @@ fn category(
     let event = match event {
         "recapture_generator_attacked" => "recapture_initiated",
         "buildable_built" => "build_zs_final",
+        "pap_discovered" => "capture_zones",
         other => other,
     };
     let prefix = format!("vox_plr_{}_{}", session.character, event);
@@ -220,7 +313,16 @@ fn events(
     secrets: Res<crate::side_secrets::Secrets>,
     players: Query<(Entity, &Transform), With<Player>>,
     mut playback: MessageReader<PlaybackEvent>,
-    mut progress: MessageReader<NarrativeProgress>,
+    (mut progress, mut crafting_voice): (
+        MessageReader<NarrativeProgress>,
+        MessageReader<NarrativeEvent>,
+    ),
+    (mut rounds, mut endings, session_id): (
+        MessageReader<crate::rounds::RoundStarted>,
+        MessageReader<crate::rounds::RoundEnding>,
+        Res<crate::session::SessionId>,
+    ),
+    sounds: Query<&PlayingSound>,
     mut reservation: ResMut<StoryReservation>,
     mut purge: MessageWriter<RobotPurgeReady>,
 ) {
@@ -286,7 +388,7 @@ fn events(
                 format!("vox_plr_{character}_game_start_0"),
                 source,
                 None,
-                1.,
+                if character == 2 { 1. } else { 0. },
             );
             if character == 2 {
                 push(
@@ -302,9 +404,8 @@ fn events(
             state.opening_done = true;
         }
     }
-    if state.round != session.round {
-        state.round = session.round;
-        match session.round {
+    for event in rounds.read().filter(|event| event.session == *session_id) {
+        match event.round {
             5 => {
                 push(&mut state, &game, "vox_sam_sam_help_5_0", source, None, 0.);
                 if session.character != 2 {
@@ -339,24 +440,14 @@ fn events(
                     line.intro_end = true;
                 }
             }
-            2..=4 => {
-                let round = session.round;
-                category(
-                    &mut state,
-                    &game,
-                    &mut session,
-                    &format!("during_round_{round}"),
-                    source,
-                    None,
-                );
-            }
             _ => {}
         }
     }
-    let intermission = session.intermission.is_some();
-    if intermission && !state.intermission {
+    // rounds::advance increments Session.round before intermission. Use the
+    // ending receipt so Round 1/2 conversations belong to the round just ended.
+    for event in endings.read().filter(|event| event.session == *session_id) {
         let character = session.character;
-        if session.round == 1 {
+        if event.round == 1 {
             match character {
                 0 => {
                     push(
@@ -382,7 +473,7 @@ fn events(
                     "vox_plr_1_end_round_1_9_0",
                     source,
                     None,
-                    1.,
+                    0.,
                 ),
                 2 => push(
                     &mut state,
@@ -390,7 +481,7 @@ fn events(
                     "vox_plr_2_end_round_1_7_0",
                     source,
                     None,
-                    1.,
+                    0.,
                 ),
                 _ => push(
                     &mut state,
@@ -398,11 +489,11 @@ fn events(
                     "vox_plr_3_end_round_1_8_0",
                     source,
                     None,
-                    1.,
+                    0.,
                 ),
             }
         }
-        if session.round == 2 {
+        if event.round == 2 {
             match character {
                 0 => push(
                     &mut state,
@@ -410,7 +501,7 @@ fn events(
                     "vox_plr_0_end_round_2_1_0",
                     source,
                     None,
-                    1.,
+                    0.,
                 ),
                 1 => push(
                     &mut state,
@@ -418,7 +509,7 @@ fn events(
                     "vox_plr_1_end_round_2_5_0",
                     source,
                     None,
-                    1.,
+                    0.,
                 ),
                 2 => {
                     push(
@@ -444,12 +535,11 @@ fn events(
                     "vox_plr_3_end_round_2_4_0",
                     source,
                     None,
-                    1.,
+                    0.,
                 ),
             }
         }
     }
-    state.intermission = intermission;
     let raid = raids
         .target
         .as_ref()
@@ -539,62 +629,51 @@ fn events(
         }
         state.purge_started = true;
     }
-    for recipe in &crafting.crafted {
-        if recipe.starts_with("elemental_staff_") && !state.intro_done {
-            continue;
-        }
-        if state.crafted.insert(recipe.clone()) {
-            if recipe == "equip_dieseldrone_zm" {
-                push(
-                    &mut state,
-                    &game,
-                    "vox_maxi_maxis_drone_1_0",
-                    source,
-                    None,
-                    0.,
-                );
-                push(
-                    &mut state,
-                    &game,
-                    "vox_maxi_maxis_drone_4_0",
-                    source,
-                    None,
-                    0.,
-                );
-            } else if recipe == "tomb_shield_zm" {
-                category(
-                    &mut state,
-                    &game,
-                    &mut session,
-                    "build_zs_final",
-                    source,
-                    None,
-                );
-            } else if recipe.starts_with("elemental_staff_") {
-                let count = state
-                    .crafted
-                    .iter()
-                    .filter(|id| id.starts_with("elemental_staff_"))
-                    .count();
-                if count < 4 {
+    for event in crafting_voice.read() {
+        match event {
+            NarrativeEvent::Samantha { alias, source } => {
+                if state.intro_done {
+                    push(&mut state, &game, alias.clone(), *source, None, 0.);
+                }
+            }
+            NarrativeEvent::DroneBuilt(origin) => {
+                if state.queue.is_empty() {
+                    state.wait = state.wait.max(1.);
+                }
+                for alias in ["vox_maxi_maxis_drone_1_0", "vox_maxi_maxis_drone_4_0"] {
+                    push(&mut state, &game, alias, *origin, None, 1.);
+                }
+                if session.character == 2 {
                     push(
                         &mut state,
                         &game,
-                        format!(
-                            "vox_sam_{count}{}",
-                            if count == 1 {
-                                "st_staff_crafted_0"
-                            } else if count == 2 {
-                                "nd_staff_crafted_0"
-                            } else {
-                                "rd_staff_crafted_0"
-                            }
-                        ),
+                        "vox_plr_2_maxis_drone_5_0",
                         source,
                         None,
                         0.,
                     );
-                } else {
+                }
+            }
+            NarrativeEvent::StaffTaken(element) => {
+                if reservation.0.is_none() && state.queue.is_empty() {
+                    category(
+                        &mut state,
+                        &game,
+                        &mut session,
+                        ["pickup_fire", "pickup_ice", "pickup_wind", "pickup_light"][*element],
+                        source,
+                        None,
+                    );
+                }
+                if !state.staffs_claimed.insert(*element) {
+                    continue;
+                }
+                let count = crafting
+                    .crafted
+                    .iter()
+                    .filter(|id| id.starts_with("elemental_staff_"))
+                    .count();
+                if count == 4 {
                     let character = session.character;
                     for alias in [
                         "vox_sam_4th_staff_crafted_0".to_owned(),
@@ -603,8 +682,20 @@ fn events(
                         format!("vox_plr_{character}_4th_staff_crafted_1"),
                         "vox_sam_generic_encourage_6".into(),
                     ] {
-                        push(&mut state, &game, alias, source, None, 0.);
+                        if state.intro_done || !alias.starts_with("vox_sam_") {
+                            push(&mut state, &game, alias, source, None, 0.);
+                        }
                     }
+                } else if state.intro_done && (1..=3).contains(&count) {
+                    let ordinal = ["1st", "2nd", "3rd"][count - 1];
+                    push(
+                        &mut state,
+                        &game,
+                        format!("vox_sam_{ordinal}_staff_crafted_0"),
+                        source,
+                        None,
+                        0.,
+                    );
                 }
             }
         }
@@ -632,9 +723,16 @@ fn events(
         }
     }
     state.wait = (state.wait - dt).max(0.);
+    if !state.queue.is_empty() && reservation.0.is_none() {
+        reservation.0 = state.owner;
+    }
     if state.active.is_none()
         && state.wait == 0.
         && state.opening_done
+        && !sounds.iter().any(|sound| {
+            sound.channel == Channel::Dialogue
+                && matches!(sound.source, SoundSource::Entity { entity, .. } if entity == player)
+        })
         && let Some(line) = state.queue.front()
     {
         if reservation.0.is_none() || reservation.0 == state.owner {
@@ -647,6 +745,7 @@ fn events(
     if state.opening_done
         && state.queue.is_empty()
         && state.active.is_none()
+        && state.wait == 0.
         && reservation.0 == state.owner
     {
         reservation.0 = None;

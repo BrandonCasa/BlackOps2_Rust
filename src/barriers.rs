@@ -678,7 +678,7 @@ fn assemble(
                 Dir3::NEG_Y,
                 100000. * 0.0254,
                 false,
-                &crate::environment::solids([]),
+                &crate::environment::actor_solids([]),
             ) else {
                 panic!(
                     "{}",
@@ -697,7 +697,7 @@ fn assemble(
             Dir3::NEG_Y,
             100000. * 0.0254,
             false,
-            &crate::environment::solids([]),
+            &crate::environment::player_solids([]),
         ) else {
             panic!(
                 "{}",

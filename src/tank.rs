@@ -533,7 +533,7 @@ fn movement(
                             collider,
                             point,
                             Quat::IDENTITY,
-                            &crate::environment::solids([target]),
+                            &crate::environment::player_solids([target]),
                         )
                         .is_empty()
             }) {

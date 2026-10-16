@@ -1,10 +1,26 @@
-"""Restore weapon alias levels from the exported original packed sound records."""
+"""Restore weapon levels and stereo routing from the original sound records."""
 import argparse
+import csv
 import json
+import math
 from pathlib import Path
 
 
-def repair(assets, catalog):
+def stereo_pan(preset):
+    front, back, center, lfe, left, right = (
+        float(preset[key]) for key in ("front", "back", "center", "lfe", "left", "right")
+    )
+    surround = math.sqrt(0.5)
+    sides = front + back * surround
+    # Native 0083d870/0083da00 keep full front/rear gain for both input layouts.
+    # Fold center and subwoofer into stereo instead of dropping those layers.
+    mono = [sides * side + (center + lfe) * surround for side in (left, right)]
+    stereo = [(sides + (center * 0.7 + lfe * 0.5) * surround) * side
+              for side in (left, right)]
+    return [mono, stereo]
+
+
+def repair(assets, catalog, pans):
     weapons = json.loads((assets / "source-weapons.json").read_text())
     audio = catalog["audio"]
     aliases = {name.lower(): name for name in audio["aliases"]}
@@ -50,6 +66,8 @@ def repair(assets, catalog):
             if definition is not None:
                 definition["volume"] = minimum
             sound["volume_max"] = maximum
+            if not sound["spatial"] and not sound["panning"]:
+                sound["pan"] = stereo_pan(pans[original["pan"]])
         corrected.append(aliases[key])
     return {"source_aliases": len(corrected), "undefined_source_aliases": sorted(required - aliases.keys())}
 
@@ -58,10 +76,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--assets", type=Path, required=True)
     parser.add_argument("--catalog", type=Path, required=True)
+    parser.add_argument("--pans", type=Path, required=True,
+                        help="Original soundbank/globals/pan.csv")
     parser.add_argument("--report", type=Path, required=True)
     args = parser.parse_args()
     catalog = json.loads(args.catalog.read_text())
-    report = repair(args.assets, catalog)
+    with args.pans.open(encoding="utf-8", newline="") as stream:
+        pans = list(csv.DictReader(stream))
+    report = repair(args.assets, catalog, pans)
     args.catalog.write_text(json.dumps(catalog, indent=2) + "\n", encoding="utf-8")
     args.report.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     print(f"Restored original levels for {report['source_aliases']} weapon aliases")

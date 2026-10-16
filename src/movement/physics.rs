@@ -496,6 +496,36 @@ mod collision_tests {
     }
 
     #[test]
+    fn ordinary_world_collision_remains_walkable() {
+        use bevy::ecs::system::RunSystemOnce;
+        let (mut app, floor) = scene(
+            Collider::cuboid(8., 0.3, 4.),
+            Transform::from_xyz(0., 0.15, 0.),
+            false,
+        );
+        app.world_mut()
+            .entity_mut(floor)
+            .insert(crate::assets::world_collision_layers(1));
+        app.update();
+        app.world_mut()
+            .run_system_once(move |slide: MoveAndSlide| {
+                assert!(!is_robot_foot(&slide, floor));
+                assert_eq!(
+                    walkable_surface(
+                        &slide,
+                        floor,
+                        Vec3::new(0., 0.3, 0.),
+                        Vec3::Y,
+                        &crate::environment::player_solids([]),
+                        &PhysicsTuning::default(),
+                    ),
+                    Some((Vec3::Y, 0.3)),
+                );
+            })
+            .unwrap();
+    }
+
+    #[test]
     fn rising_robot_foot_blocks_without_lifting_or_trapping_the_player() {
         let (mut app, foot) = scene(
             Collider::cuboid(2., 4., 4.),

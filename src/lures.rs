@@ -125,7 +125,7 @@ fn assign(
                 Dir3::NEG_Y,
                 2.,
                 false,
-                &crate::environment::solids([]),
+                &crate::environment::actor_solids([]),
                 &|e| enemies.get(e).is_err() && !players.contains(e),
             );
             if let Some(hit) = hit

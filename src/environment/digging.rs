@@ -675,14 +675,7 @@ fn interact(
             commands.entity(entity).despawn();
             sound(&mut commands, &game, "zmb_craftable_pickup", owner);
             state.record(serde_json::json!({"event":"shovel","site":i}));
-            dialogue(
-                &mut commands,
-                &game,
-                &session,
-                owner,
-                "pickup_shovel",
-                voice_cooldown,
-            );
+            dialogue(&mut commands, owner, "pickup_shovel", voice_cooldown);
         }
         DigTarget::Mound(i) => {
             if !digger.shovel {
@@ -719,14 +712,7 @@ fn interact(
             if let Some(id) = part {
                 spawn_part(&mut commands, &server, &game, &mut parts, &id, point);
                 outcome = id.0;
-                dialogue(
-                    &mut commands,
-                    &game,
-                    &session,
-                    owner,
-                    "dig_staff_part",
-                    voice_cooldown,
-                );
+                dialogue(&mut commands, owner, "dig_staff_part", voice_cooldown);
             } else {
                 let mut good = 50;
                 if digger.qualifying_digs == 0 || digger.losing_streak == 3 {
@@ -767,33 +753,17 @@ fn interact(
                         }
                         sound(&mut commands, &game, "evt_grenade_digup", owner);
                         outcome = "grenade".into();
-                        dialogue(
-                            &mut commands,
-                            &game,
-                            &session,
-                            owner,
-                            "dig_grenade",
-                            voice_cooldown,
-                        );
+                        dialogue(&mut commands, owner, "dig_grenade", voice_cooldown);
                     } else {
                         dug_zombie(&mut commands, &game, &mut session, position);
                         outcome = "zombie".into();
-                        dialogue(
-                            &mut commands,
-                            &game,
-                            &session,
-                            owner,
-                            "dig_zombie",
-                            voice_cooldown,
-                        );
+                        dialogue(&mut commands, owner, "dig_zombie", voice_cooldown);
                     }
                 } else if session.random() % 2 == 0 {
                     outcome = powerup_loot(&mut state, &mut session, &digger, drops.count);
                     spawn_powerup(&mut commands, &server, &game, &outcome, point);
                     dialogue(
                         &mut commands,
-                        &game,
-                        &session,
                         owner,
                         if outcome == "bonus_points_player" {
                             "dig_cash"
@@ -841,14 +811,7 @@ fn interact(
                     ));
                     sound(&mut commands, &game, "evt_weapon_digup", entity);
                     outcome = id.0;
-                    dialogue(
-                        &mut commands,
-                        &game,
-                        &session,
-                        owner,
-                        "dig_gun",
-                        voice_cooldown,
-                    );
+                    dialogue(&mut commands, owner, "dig_gun", voice_cooldown);
                 }
             }
             if !digger.golden {
@@ -1056,18 +1019,11 @@ fn sound(commands: &mut Commands, game: &GameDefinition, alias: &str, owner: Ent
         crate::audio::emit(commands, alias, crate::audio::SoundSource::attached(owner));
     }
 }
-fn dialogue(
-    commands: &mut Commands,
-    game: &GameDefinition,
-    session: &Session,
-    owner: Entity,
-    event: &str,
-    cooldown: bool,
-) {
+fn dialogue(commands: &mut Commands, owner: Entity, event: &str, cooldown: bool) {
     if cooldown {
         return;
     }
-    crate::audio::voice(commands, game, session, event, owner, session.shots);
+    crate::audio::voice(commands, event, owner);
     if event != "pickup_shovel" {
         commands.entity(owner).insert(DigVoice { remaining: 60. });
     }

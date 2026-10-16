@@ -536,6 +536,7 @@ pub(crate) fn interact(
                         refund: price,
                     };
                     stations.purchases += 1;
+                    crate::audio::voice(&mut commands, "use_box", player_entity);
                     focus.accepted += 1;
                 }
                 BoxPhase::Reward {
@@ -558,6 +559,7 @@ pub(crate) fn interact(
                             stations.uses += u32::from(normal);
                             stations.boxes[index] = BoxPhase::Idle;
                             stations.collections += 1;
+                            crate::audio::voice(&mut commands, "take_box_weapon", player_entity);
                             focus.accepted += 1;
                         } else {
                             focus.rejection = Some(InteractionRejection::Unavailable);

@@ -37,6 +37,7 @@ pub(super) fn pack_normal(normal: Vec3) -> u32 {
 }
 
 pub(super) fn quad(
+    pose: Transform,
     normal: Vec3,
     color: [u8; 4],
     uv: Affine2,
@@ -46,7 +47,11 @@ pub(super) fn quad(
     // Convert the engine's axes back to the original Z-up frame first.
     let normal = Vec3::new(normal.x, -normal.z, normal.y).clamp(Vec3::NEG_ONE, Vec3::ONE);
     let packed_normal = pack_normal(normal);
+    let tangent = pose.rotation * Vec3::X;
+    let tangent = pack_normal(Vec3::new(tangent.x, -tangent.z, tangent.y));
     let mut vertices = Vec::with_capacity(128);
+    let mut minimum = Vec3::splat(f32::INFINITY);
+    let mut maximum = Vec3::splat(f32::NEG_INFINITY);
     // Source 005b52a0 A=right*cos+up*sin, B=right*sin-up*cos.
     // Transform rotates local X/Y normally, so its local Y represents -B.
     let minimum_u = (1. - trim[0]) * 0.5;
@@ -64,9 +69,14 @@ pub(super) fn quad(
         ),
         (Vec3::new(trim[1] * 0.5, -0.5, 0.), Vec2::new(maximum_u, 1.)),
     ] {
+        // Visibility bounds stay in entity-local coordinates even though the
+        // original vertex stream bakes rotation and size into world offsets.
+        minimum = minimum.min(position);
+        maximum = maximum.max(position);
+        let position = pose.rotation * (pose.scale * position);
         vertex(
             &mut vertices,
-            position,
+            Vec3::new(position.x, -position.z, position.y) / 0.0254,
             color,
             uv.transform_point2(texcoord),
             packed_normal,
@@ -76,16 +86,16 @@ pub(super) fn quad(
         .into_iter()
         .flat_map(u16::to_le_bytes)
         .collect();
+    for vertex in vertices.chunks_exact_mut(32) {
+        vertex[28..32].copy_from_slice(&tangent.to_le_bytes());
+    }
     (
         NativeEffectGeometry {
             layout: NativeEffectVertexLayout::Packed32,
             vertices,
             indices,
         },
-        Aabb::from_min_max(
-            Vec3::new(-trim[0].abs().max(trim[1].abs()) * 0.5, -0.5, 0.),
-            Vec3::new(trim[0].abs().max(trim[1].abs()) * 0.5, 0.5, 0.),
-        ),
+        Aabb::from_min_max(minimum, maximum),
         6,
     )
 }
@@ -293,6 +303,36 @@ mod tests {
             pack_normal(Vec3::splat(-0.5)),
             768 | (768 << 10) | (768 << 20)
         );
+    }
+
+    #[test]
+    fn quad_bakes_source_offsets_and_packs_unit_normal_and_tangent() {
+        let pose = Transform::from_xyz(10., 20., 30.)
+            .with_rotation(Quat::from_rotation_y(std::f32::consts::FRAC_PI_2))
+            .with_scale(Vec3::new(0.1016, 0.1524, 9.));
+        let (geometry, bounds, count) = quad(
+            pose,
+            pose.rotation * Vec3::Z,
+            [1, 2, 3, 4],
+            Affine2::IDENTITY,
+            [1., 1.],
+        );
+        assert_eq!(count, 6);
+        assert!(position(&geometry, 0).abs_diff_eq(Vec3::new(0., -2., -3.), 1e-5));
+        assert!(position(&geometry, 2).abs_diff_eq(Vec3::new(0., 2., 3.), 1e-5));
+        assert!(Vec3::from(bounds.center).abs_diff_eq(Vec3::ZERO, 1e-6));
+        assert!(Vec3::from(bounds.half_extents).abs_diff_eq(Vec3::new(0.5, 0.5, 0.), 1e-5));
+        for vertex in geometry.vertices.chunks_exact(32) {
+            assert_eq!(&vertex[16..20], &[1, 2, 3, 4]);
+            assert_eq!(
+                u32::from_le_bytes(vertex[24..28].try_into().unwrap()),
+                pack_normal(Vec3::X)
+            );
+            assert_eq!(
+                u32::from_le_bytes(vertex[28..32].try_into().unwrap()),
+                pack_normal(Vec3::Y)
+            );
+        }
     }
 
     #[test]

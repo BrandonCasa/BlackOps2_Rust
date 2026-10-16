@@ -375,7 +375,7 @@ fn tick(
                         Dir3::NEG_Y,
                         3.81,
                         false,
-                        &crate::environment::solids([target]),
+                        &crate::environment::actor_solids([target]),
                     ) {
                         velocity.y = ((ahead.y - floor.distance + 0.85) - pose.translation.y) / dt;
                     }
@@ -386,7 +386,7 @@ fn tick(
                         velocity,
                         time.delta(),
                         &MoveAndSlideConfig::default(),
-                        &crate::environment::solids([target]),
+                        &crate::environment::actor_solids([target]),
                         |_| MoveAndSlideHitResponse::Accept,
                     );
                     pose.translation = result.position;

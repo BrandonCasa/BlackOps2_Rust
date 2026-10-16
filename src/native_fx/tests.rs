@@ -2,6 +2,72 @@ use super::*;
 use std::{path::Path, sync::Arc};
 
 #[test]
+fn source_spawn_range_includes_both_boundaries_and_zero_amplitude_is_unlimited() {
+    let range = Range {
+        base: 100.,
+        amplitude: 200.,
+    };
+    assert!(!in_spawn_range(range, 99. * 99.));
+    assert!(in_spawn_range(range, 100. * 100.));
+    assert!(in_spawn_range(range, 300. * 300.));
+    assert!(!in_spawn_range(range, 301. * 301.));
+    assert!(in_spawn_range(
+        Range {
+            base: 100.,
+            amplitude: 0.
+        },
+        0.
+    ));
+    assert!(in_spawn_range(
+        Range {
+            base: 100.,
+            amplitude: 0.
+        },
+        1e20
+    ));
+}
+
+#[test]
+#[ignore = "requires the authorized local FX export"]
+fn warm_ambient_loop_discards_old_births_and_preserves_emission_sequence() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/assets");
+    let catalog: Catalog = crate::origins::read(&root.join("fx_catalog.json"));
+    let effect = &catalog.effects["maps/zombie_tomb/fx_tomb_light_md"];
+    let element = &effect.elements[3];
+    assert!(matches!(element.spawn, Spawn::Loop { interval_ms: 1, .. }));
+    let mut world = World::new();
+    let id = emit(
+        &mut world.commands(),
+        "maps/zombie_tomb/fx_tomb_light_md",
+        Transform::IDENTITY,
+    );
+    world.flush();
+    let mut emitter = world.get_mut::<Emitter>(id).unwrap();
+    emitter.elapsed = 60.;
+    emitter.next = vec![0.; effect.elements.len()];
+    emitter.counts = vec![0; effect.elements.len()];
+    emitter.limits = vec![i32::MAX as u32; effect.elements.len()];
+    let births = schedule_element(
+        &mut emitter,
+        effect,
+        element,
+        3,
+        Transform::IDENTITY,
+        0.016,
+        &catalog,
+    );
+    assert!(
+        births.len() <= 12,
+        "Expired one-millisecond births must not be replayed: {}",
+        births.len()
+    );
+    assert!(!births.is_empty());
+    assert!(births.iter().all(|birth| *birth >= 59.988));
+    assert!(emitter.counts[3] >= 60000);
+    assert!(emitter.next[3] > 60.);
+}
+
+#[test]
 #[ignore = "requires the authorized local Origins export"]
 fn exported_fx_use_current_poses_before_transform_propagation() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/assets");

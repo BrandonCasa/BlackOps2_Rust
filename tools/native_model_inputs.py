@@ -3,6 +3,17 @@ import struct
 import json
 
 
+def local_translations(model):
+    """00785ea0 adds packed 12-byte XModel.trans XYZ to each non-root's keys."""
+    roots, count = model["numRootBones"], model["numBones"]
+    source = model["trans"]
+    data = bytes(source.bytes()) if source is not None else b""
+    assert 0 <= roots <= count and len(data) >= (count - roots) * 12, "Incomplete source local translations"
+    return [[0.0, 0.0, 0.0] for _ in range(roots)] + [
+        list(struct.unpack_from("<3f", data, index * 12)) for index in range(count - roots)
+    ]
+
+
 def export_model(walk, asset, destination):
     from scripts.cod.iw5.dumpers import xmodel
     from scripts.cod.materials import material_file_stem
@@ -15,6 +26,7 @@ def export_model(walk, asset, destination):
         "bounds": [list(model.unpack("<3f", key)) for key in ("mins", "maxs")],
         "boneNames": names,
         "rootBoneCount": model["numRootBones"],
+        "localTranslations": local_translations(model),
         "lodRampType": model["lodRampType"],
         "lods": [],
     }

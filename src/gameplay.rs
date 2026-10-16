@@ -282,7 +282,6 @@ pub(crate) fn combat(
         * Quat::from_rotation_x((player.pitch + inventory.recoil.y).clamp(-1.5, 1.5));
     let direction = Dir3::new(rotation * Vec3::NEG_Z).unwrap_or(Dir3::NEG_Z);
     for emission in emissions {
-        let weapon = inventory.definition(&definition.content.weapons);
         let (melee, damage, weapon_id, weapon) = match emission {
             WeaponEmission::Ads { weapon, aiming } => {
                 crate::audio::binding(
@@ -304,20 +303,6 @@ pub(crate) fn combat(
                     &format!("{}.dry_fire", id.0),
                     crate::audio::SoundSource::attached(entity),
                 );
-                if weapon.is_some_and(|w| inventory.reserve(w) == 0)
-                    && inventory
-                        .active()
-                        .is_some_and(|w| w.magazine == 0 && w.left_magazine.is_none_or(|n| n == 0))
-                {
-                    crate::audio::voice(
-                        &mut commands,
-                        &definition,
-                        &session,
-                        "ammo_out",
-                        entity,
-                        inventory.sequence as u32,
-                    );
-                }
                 continue;
             }
             WeaponEmission::ReloadStarted {
@@ -357,22 +342,6 @@ pub(crate) fn combat(
             }
             WeaponEmission::Shot(id) => {
                 session.shots += 1;
-                if inventory.active().is_some_and(|w| {
-                    if w.definition == id {
-                        w.magazine == 1
-                    } else {
-                        w.left_magazine == Some(1)
-                    }
-                }) {
-                    crate::audio::voice(
-                        &mut commands,
-                        &definition,
-                        &session,
-                        "ammo_low",
-                        entity,
-                        session.shots,
-                    );
-                }
                 crate::audio::binding(
                     &mut commands,
                     &definition,

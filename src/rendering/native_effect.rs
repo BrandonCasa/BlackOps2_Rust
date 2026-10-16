@@ -57,6 +57,7 @@ pub struct ExtractedEffectView {
     pub(crate) float_z: AssetId<Image>,
     pub(crate) sampler: SamplerDescriptor<'static>,
     pub(crate) filtering: bool,
+    resolved_scene: Option<AssetId<Image>>,
 }
 
 fn filtering(descriptor: &SamplerDescriptor<'_>) -> bool {
@@ -75,11 +76,17 @@ impl SyncComponent<RenderApp> for NativeEffectView {
 }
 
 impl ExtractComponent<RenderApp> for NativeEffectView {
-    type QueryData = (&'static Self, &'static NativeWorldScene);
+    type QueryData = (
+        &'static Self,
+        &'static NativeWorldScene,
+        Option<&'static super::frame::NativeSceneImage>,
+    );
     type QueryFilter = ();
     type Out = (NativeFxFrame, ExtractedEffectView);
 
-    fn extract_component((view, scene): QueryItem<'_, '_, Self::QueryData>) -> Option<Self::Out> {
+    fn extract_component(
+        (view, scene, resolved): QueryItem<'_, '_, Self::QueryData>,
+    ) -> Option<Self::Out> {
         assert!(
             view.z_near.x.is_finite() && view.z_near.x > 0.0,
             "native zfeather requires the original positive zNear.x"
@@ -104,6 +111,7 @@ impl ExtractComponent<RenderApp> for NativeEffectView {
                 float_z: view.float_z.id(),
                 sampler: view.float_z_sampler.clone(),
                 filtering: filtering(&view.float_z_sampler),
+                resolved_scene: resolved.map(|image| image.0.id()),
             },
         ))
     }
@@ -154,41 +162,64 @@ pub enum NativeEffectProgram {
     EyeFeather,
     SimpleAdditive,
     EyeAdditive,
+    EyeLocalAdditive,
+    EyeLocalFeather,
+    FogLocalFeather,
+    EyeFogFeather,
     OutdoorFeather,
     OutdoorFogFeather,
     CloudRain,
     CloudSnow,
     CloudSimple,
     CloudAdditive,
+    CloudVertical,
+    CloudOutdoorAdditive,
+    Source {
+        index: u8,
+        distortion: bool,
+        superflare: bool,
+    },
 }
 
 impl NativeEffectProgram {
+    pub(crate) fn distortion(self) -> bool {
+        matches!(
+            self,
+            Self::Source {
+                distortion: true,
+                ..
+            }
+        )
+    }
+    pub(crate) fn superflare(self) -> bool {
+        matches!(
+            self,
+            Self::Source {
+                superflare: true,
+                ..
+            }
+        )
+    }
     pub(crate) fn outdoor(self) -> bool {
         matches!(self, Self::OutdoorFeather | Self::OutdoorFogFeather)
     }
 
-    pub(crate) fn additive(self) -> bool {
-        matches!(
-            self,
-            Self::Additive
-                | Self::AdditiveFeather
-                | Self::LocalAdditiveFeather
-                | Self::SimpleFeather
-                | Self::EyeFeather
-                | Self::SimpleAdditive
-                | Self::EyeAdditive
-                | Self::OutdoorFeather
-                | Self::CloudAdditive
-        )
-    }
     pub(crate) fn cloud(self) -> bool {
         matches!(
             self,
-            Self::CloudRain | Self::CloudSnow | Self::CloudSimple | Self::CloudAdditive
+            Self::CloudRain
+                | Self::CloudSnow
+                | Self::CloudSimple
+                | Self::CloudAdditive
+                | Self::CloudVertical
+                | Self::CloudOutdoorAdditive
         )
     }
     pub(crate) fn cloud_outdoor(self) -> bool {
-        matches!(self, Self::CloudRain | Self::CloudSnow)
+        matches!(
+            self,
+            Self::CloudRain | Self::CloudSnow | Self::CloudOutdoorAdditive
+        )
     }
 }
 
@@ -235,6 +266,9 @@ pub struct NativeEffectMaterial {
     pub feather_parms: Vec4,
     pub additive_parms: [Vec4; 4],
     pub alpha_dissolve_parms: Vec4,
+    pub source_constants: [Vec4; 16],
+    pub alpha_test: Vec4,
+    pub secondary: Option<(Handle<Image>, SamplerDescriptor<'static>)>,
     pub state: NativeEffectState,
 }
 
@@ -243,6 +277,8 @@ struct NativeEffectConstants {
     feather_parms: Vec4,
     additive_parms: [Vec4; 4],
     alpha_dissolve_parms: Vec4,
+    source: [Vec4; 16],
+    alpha_test: Vec4,
 }
 
 /// Native PACKED32 vertices and little-endian Uint16 indices. Modified CPU
@@ -261,9 +297,6 @@ pub struct NativeEffectGeometry {
 pub struct NativeEffectDraw {
     pub geometry: Handle<NativeEffectGeometry>,
     pub material: Handle<NativeEffectMaterial>,
-    /// Source-axis inch offsets already include orientation and size; the
-    /// object constant supplies only the particle origin translation.
-    pub source_world_vertices: bool,
     pub vertex_byte_offset: u64,
     pub first_index: u32,
     pub index_count: u32,
@@ -304,6 +337,11 @@ impl ExtractComponent<RenderApp> for NativeEffectDraw {
 
 pub struct NativeEffectPlugin;
 
+/// Distortion consumes resolvedPostSun after ordinary emissive FX. Reuse the
+/// engine's transparent phase item and draw command in this distinct pass.
+#[derive(Resource, Default)]
+pub(crate) struct DistortionPhases(pub ViewSortedRenderPhases<Transparent3d>);
+
 impl Plugin for NativeEffectPlugin {
     fn build(&self, app: &mut App) {
         app.init_asset::<NativeEffectGeometry>()
@@ -326,13 +364,16 @@ impl Plugin for NativeEffectPlugin {
         let shader = load_embedded_asset!(app, "native_fx_entry.wesl");
         embedded_asset!(app, "native_cloud_entry.wesl");
         let cloud_shader = load_embedded_asset!(app, "native_cloud_entry.wesl");
+        embedded_asset!(app, "native_fx_source.wesl");
+        let source_shader = load_embedded_asset!(app, "native_fx_source.wesl");
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
         render_app
-            .insert_resource(EffectPipeline::new(shader, cloud_shader))
+            .insert_resource(EffectPipeline::new(shader, cloud_shader, source_shader))
             .init_resource::<SpecializedRenderPipelines<EffectPipeline>>()
             .init_resource::<EffectObjectGroup>()
+            .init_resource::<DistortionPhases>()
             .add_render_command::<Transparent3d, (SetItemPipeline, DrawNativeEffect)>()
             .add_systems(
                 Render,
@@ -440,6 +481,8 @@ impl RenderAsset for PreparedEffectGeometry {
 struct EffectPipeline {
     shader: Handle<Shader>,
     cloud_shader: Handle<Shader>,
+    source_shader: Handle<Shader>,
+    resolved_layout: BindGroupLayoutDescriptor,
     scene_layouts: [BindGroupLayoutDescriptor; 2],
     object_layout: BindGroupLayoutDescriptor,
     cloud_object_layout: BindGroupLayoutDescriptor,
@@ -469,11 +512,26 @@ pub(crate) fn effect_scene_layout(filtering: bool) -> BindGroupLayoutDescriptor 
 }
 
 impl EffectPipeline {
-    fn new(shader: Handle<Shader>, cloud_shader: Handle<Shader>) -> Self {
+    fn new(
+        shader: Handle<Shader>,
+        cloud_shader: Handle<Shader>,
+        source_shader: Handle<Shader>,
+    ) -> Self {
         let scene_layouts = [false, true].map(effect_scene_layout);
         Self {
             shader,
             cloud_shader,
+            source_shader,
+            resolved_layout: BindGroupLayoutDescriptor::new(
+                "native resolved post-sun image",
+                &BindGroupLayoutEntries::sequential(
+                    ShaderStages::FRAGMENT,
+                    (
+                        texture_2d(TextureSampleType::Float { filterable: true }),
+                        sampler(SamplerBindingType::Filtering),
+                    ),
+                ),
+            ),
             scene_layouts,
             object_layout: BindGroupLayoutDescriptor::new(
                 "native effect transform",
@@ -497,6 +555,8 @@ impl EffectPipeline {
                         texture_2d(TextureSampleType::Float { filterable: true }),
                         sampler(SamplerBindingType::Filtering),
                         uniform_buffer::<NativeEffectConstants>(false),
+                        texture_2d(TextureSampleType::Float { filterable: true }),
+                        sampler(SamplerBindingType::Filtering),
                     ),
                 ),
             ),
@@ -543,12 +603,20 @@ impl SpecializedRenderPipeline for EffectPipeline {
             })
             .unwrap_or_default();
         let cloud = key.program.cloud();
-        let shader = if cloud {
+        let shader = if matches!(key.program, NativeEffectProgram::Source { .. }) {
+            &self.source_shader
+        } else if cloud {
             &self.cloud_shader
         } else {
             &self.shader
         };
+        let source_entry = if let NativeEffectProgram::Source { index, .. } = key.program {
+            format!("source_vertex_{index}")
+        } else {
+            String::new()
+        };
         let vertex_entry = match key.program {
+            NativeEffectProgram::Source { .. } => source_entry.as_str(),
             NativeEffectProgram::Zfeather | NativeEffectProgram::ZfeatherDissolve => "vertex",
             NativeEffectProgram::SimpleFog | NativeEffectProgram::SimpleFogDissolve => {
                 "vertex_simple_fog"
@@ -560,10 +628,17 @@ impl SpecializedRenderPipeline for EffectPipeline {
             NativeEffectProgram::EyeFeather => "vertex_eye_feather",
             NativeEffectProgram::SimpleAdditive => "vertex_simple_additive",
             NativeEffectProgram::EyeAdditive => "vertex_eye_additive",
+            NativeEffectProgram::EyeLocalAdditive => "vertex_eye_local_additive",
+            NativeEffectProgram::EyeLocalFeather => "vertex_eye_local_feather",
+            NativeEffectProgram::FogLocalFeather => "vertex_fog_local_feather",
+            NativeEffectProgram::EyeFogFeather => "vertex_eye_fog_feather",
             NativeEffectProgram::OutdoorFeather => "vertex_outdoor_feather",
             NativeEffectProgram::OutdoorFogFeather => "vertex_outdoor_fog_feather",
             NativeEffectProgram::CloudRain => "vertex_rain",
-            NativeEffectProgram::CloudSnow => "vertex_snow",
+            NativeEffectProgram::CloudSnow | NativeEffectProgram::CloudOutdoorAdditive => {
+                "vertex_snow"
+            }
+            NativeEffectProgram::CloudVertical => "vertex_vertical",
             NativeEffectProgram::CloudSimple | NativeEffectProgram::CloudAdditive => {
                 "vertex_simple"
             }
@@ -603,6 +678,11 @@ impl SpecializedRenderPipeline for EffectPipeline {
                         offset: 24,
                         shader_location: 3,
                     },
+                    VertexAttribute {
+                        format: VertexFormat::Uint32,
+                        offset: 28,
+                        shader_location: 4,
+                    },
                 ],
             }
         };
@@ -622,49 +702,64 @@ impl SpecializedRenderPipeline for EffectPipeline {
         if key.program.outdoor() {
             layout.push(self.scene_layouts[usize::from(key.outdoor_filtering)].clone());
         }
+        if key.program.distortion() {
+            layout.push(self.resolved_layout.clone());
+        }
         RenderPipelineDescriptor {
             label: Some("T6 source particle effect".into()),
             layout,
             vertex: VertexState {
                 shader: shader.clone(),
-                entry_point: Some(vertex_entry.into()),
+                entry_point: Some(vertex_entry.to_owned().into()),
                 buffers: vec![vertex_layout],
                 ..default()
             },
             fragment: Some(FragmentState {
                 shader: shader.clone(),
                 entry_point: Some(
-                    if key.program == NativeEffectProgram::CloudSimple {
-                        "fragment_simple"
-                    } else if key.program == NativeEffectProgram::CloudAdditive {
-                        "fragment_additive"
-                    } else if key.program == NativeEffectProgram::ZfeatherDissolve {
-                        "fragment_dissolve"
-                    } else if key.program == NativeEffectProgram::SimpleFogDissolve {
-                        "fragment_simple_fog_dissolve"
-                    } else if key.program == NativeEffectProgram::SimpleFog {
-                        "fragment_simple_fog"
-                    } else if key.program == NativeEffectProgram::OutdoorFogFeather {
-                        "fragment_outdoor_fog_feather"
-                    } else if key.program.outdoor() {
-                        "fragment_outdoor_feather"
-                    } else if matches!(
-                        key.program,
-                        NativeEffectProgram::AdditiveFeather
-                            | NativeEffectProgram::LocalAdditiveFeather
-                            | NativeEffectProgram::SimpleFeather
-                            | NativeEffectProgram::EyeFeather
-                    ) {
-                        "fragment_additive_feather"
-                    } else if matches!(
-                        key.program,
-                        NativeEffectProgram::Additive
-                            | NativeEffectProgram::SimpleAdditive
-                            | NativeEffectProgram::EyeAdditive
-                    ) {
-                        "fragment_additive"
+                    if let NativeEffectProgram::Source { index, .. } = key.program {
+                        format!("source_fragment_{index}")
                     } else {
-                        "fragment"
+                        if key.program == NativeEffectProgram::CloudSimple {
+                            "fragment_simple"
+                        } else if key.program == NativeEffectProgram::CloudOutdoorAdditive {
+                            "fragment_outdoor_additive"
+                        } else if matches!(
+                            key.program,
+                            NativeEffectProgram::CloudAdditive | NativeEffectProgram::CloudVertical
+                        ) {
+                            "fragment_additive"
+                        } else if key.program == NativeEffectProgram::ZfeatherDissolve {
+                            "fragment_dissolve"
+                        } else if key.program == NativeEffectProgram::SimpleFogDissolve {
+                            "fragment_simple_fog_dissolve"
+                        } else if key.program == NativeEffectProgram::SimpleFog {
+                            "fragment_simple_fog"
+                        } else if key.program == NativeEffectProgram::OutdoorFogFeather {
+                            "fragment_outdoor_fog_feather"
+                        } else if key.program.outdoor() {
+                            "fragment_outdoor_feather"
+                        } else if matches!(
+                            key.program,
+                            NativeEffectProgram::AdditiveFeather
+                                | NativeEffectProgram::LocalAdditiveFeather
+                                | NativeEffectProgram::SimpleFeather
+                                | NativeEffectProgram::EyeFeather
+                                | NativeEffectProgram::EyeLocalFeather
+                        ) {
+                            "fragment_additive_feather"
+                        } else if matches!(
+                            key.program,
+                            NativeEffectProgram::Additive
+                                | NativeEffectProgram::SimpleAdditive
+                                | NativeEffectProgram::EyeAdditive
+                                | NativeEffectProgram::EyeLocalAdditive
+                        ) {
+                            "fragment_additive"
+                        } else {
+                            "fragment"
+                        }
+                        .to_owned()
                     }
                     .into(),
                 ),
@@ -735,6 +830,15 @@ impl RenderAsset for PreparedEffectMaterial {
             "native zfeather material constants must be finite"
         );
         let sampler = device.create_sampler(&source.color_sampler);
+        let (secondary_image, secondary_sampler) =
+            if let Some((handle, descriptor)) = &source.secondary {
+                let Some(image) = images.get(handle.id()) else {
+                    return Err(PrepareAssetError::RetryNextUpdate(source));
+                };
+                (image, device.create_sampler(descriptor))
+            } else {
+                (image, device.create_sampler(&source.color_sampler))
+            };
         let bind_group = if source.program.cloud() {
             device.create_bind_group(
                 "native cloud material",
@@ -746,6 +850,8 @@ impl RenderAsset for PreparedEffectMaterial {
                 feather_parms: source.feather_parms,
                 additive_parms: source.additive_parms,
                 alpha_dissolve_parms: source.alpha_dissolve_parms,
+                source: source.source_constants,
+                alpha_test: source.alpha_test,
             });
             constants.write_buffer(device, queue);
             device.create_bind_group(
@@ -757,6 +863,8 @@ impl RenderAsset for PreparedEffectMaterial {
                     constants
                         .binding()
                         .expect("uploaded native effect material constants"),
+                    &secondary_image.texture_view,
+                    &secondary_sampler,
                 )),
             )
         };
@@ -780,6 +888,7 @@ pub struct PreparedEffectView {
     depth_view: TextureViewId,
     sampler: SamplerDescriptor<'static>,
     pub(crate) bind_group: BindGroup,
+    resolved_scene: Option<(TextureViewId, BindGroup)>,
 }
 
 #[derive(Component)]
@@ -900,6 +1009,11 @@ fn prepare_effect_groups(
             prepared.frame_buffer == buffer.id()
                 && prepared.depth_view == image.texture_view.id()
                 && prepared.sampler == view.sampler
+                && prepared.resolved_scene.as_ref().map(|(id, _)| *id)
+                    == view
+                        .resolved_scene
+                        .and_then(|id| images.get(id))
+                        .map(|image| image.texture_view.id())
         }) {
             continue;
         }
@@ -909,11 +1023,30 @@ fn prepare_effect_groups(
             &cache.get_bind_group_layout(&pipeline.scene_layouts[usize::from(view.filtering)]),
             &BindGroupEntries::sequential((binding.clone(), &image.texture_view, &sampler)),
         );
+        let resolved_scene = view
+            .resolved_scene
+            .and_then(|id| images.get(id))
+            .map(|image| {
+                let sampler = device.create_sampler(&SamplerDescriptor {
+                    mag_filter: FilterMode::Linear,
+                    min_filter: FilterMode::Linear,
+                    address_mode_u: AddressMode::ClampToEdge,
+                    address_mode_v: AddressMode::ClampToEdge,
+                    ..default()
+                });
+                let group = device.create_bind_group(
+                    "native distortion resolved post-sun",
+                    &cache.get_bind_group_layout(&pipeline.resolved_layout),
+                    &BindGroupEntries::sequential((&image.texture_view, &sampler)),
+                );
+                (image.texture_view.id(), group)
+            });
         commands.entity(entity).insert(PreparedEffectView {
             frame_buffer: buffer.id(),
             depth_view: image.texture_view.id(),
             sampler: view.sampler.clone(),
             bind_group,
+            resolved_scene,
         });
     }
 }
@@ -923,6 +1056,7 @@ fn queue_effects(
     cache: Res<PipelineCache>,
     mut variants: ResMut<SpecializedRenderPipelines<EffectPipeline>>,
     mut phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
+    mut distortion: ResMut<DistortionPhases>,
     draw_functions: Res<DrawFunctions<Transparent3d>>,
     geometries: Res<RenderAssets<PreparedEffectGeometry>>,
     materials: Res<RenderAssets<PreparedEffectMaterial>>,
@@ -943,7 +1077,16 @@ fn queue_effects(
     let draw_function = draw_functions
         .read()
         .id::<(SetItemPipeline, DrawNativeEffect)>();
+    distortion.0.retain(|entity, _| {
+        views
+            .iter()
+            .any(|(view, ..)| &view.retained_view_entity == entity)
+    });
     for (view, effect_view, visible, _target, msaa, cloud_view) in &views {
+        distortion
+            .0
+            .prepare_for_new_frame(view.retained_view_entity);
+        let distortion_phase = distortion.0.get_mut(&view.retained_view_entity).unwrap();
         let Some(phase) = phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
@@ -1009,7 +1152,7 @@ fn queue_effects(
                         && filtering(&cloud_view.expect("outdoor view selected").sampler),
                 },
             );
-            phase.add_transient(Transparent3d {
+            let item = Transparent3d {
                 sorting_info: TransparentSortingInfo3d::Sorted {
                     mesh_center: draw.sort_center,
                     depth_bias: 0.0,
@@ -1021,8 +1164,15 @@ fn queue_effects(
                 batch_range: 0..1,
                 extra_index: PhaseItemExtraIndex::None,
                 indexed: true,
-            });
+            };
+            if material.program.distortion() {
+                distortion_phase.add_transient(item);
+            } else {
+                phase.add_transient(item);
+            }
         }
+        distortion_phase.recalculate_sort_keys(view);
+        distortion_phase.sort();
     }
 }
 
@@ -1092,6 +1242,12 @@ impl<P: PhaseItem> RenderCommand<P> for DrawNativeEffect {
                 return RenderCommandResult::Skip;
             };
             pass.set_bind_group(3, &outdoor.bind_group, &[frame.index()]);
+        }
+        if material.program.distortion() {
+            let Some((_, resolved)) = view.and_then(|view| view.resolved_scene.as_ref()) else {
+                return RenderCommandResult::Skip;
+            };
+            pass.set_bind_group(3, resolved, &[]);
         }
         if let Some(stencil) = material.state.stencil {
             pass.set_stencil_reference(stencil.reference);

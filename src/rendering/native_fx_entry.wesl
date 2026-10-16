@@ -116,7 +116,7 @@ struct AdditiveVaryings {
     @location(0) color: vec4<f32>,
     @location(1) uv_depth: vec3<f32>,
 }
-fn additive_vertex(input: AdditiveInput, feather: bool, local_normal: bool) -> AdditiveVaryings {
+fn additive_vertex(input: AdditiveInput, feather: bool, local_normal: bool, eye_offset: bool) -> AdditiveVaryings {
     let local = vec4<f32>(input.position.xyz, 1.0);
     let world = vec4<f32>(dot(local, transform.world_rows[0]),
         dot(local, transform.world_rows[1]), dot(local, transform.world_rows[2]),
@@ -124,12 +124,12 @@ fn additive_vertex(input: AdditiveInput, feather: bool, local_normal: bool) -> A
     let rows = frame.scene.view_projection_rows;
     var clip = vec4<f32>(dot(world, rows[0]), dot(world, rows[1]),
         dot(world, rows[2]), dot(world, rows[3]));
-    let original_depth = clip.w;
     let offset_w = max(clip.w - material.additive_parms[3].x, clip.z);
     let xy_scale = max(offset_w / clip.w, 0.5);
-    if !feather && clip.z < clip.w {
+    if eye_offset && clip.z < clip.w {
         clip = vec4<f32>(clip.xy * xy_scale, clip.z, offset_w);
     }
+    let original_depth = clip.w;
     let packed = vec3<u32>(input.normal, input.normal >> 10u, input.normal >> 20u) & vec3<u32>(1023u);
     let normal_unorm = vec3<f32>(packed) / 1023.0;
     // The source shader decodes UNORM10 as signed, without renormalization.
@@ -159,12 +159,12 @@ fn fragment_additive(input: AdditiveVaryings) -> @location(0) vec4<f32> {
 
 @vertex
 fn vertex_additive(input: AdditiveInput) -> AdditiveVaryings {
-    return additive_vertex(input, false, false);
+    return additive_vertex(input, false, false, true);
 }
 // effect_5e098749: VS6e83538d / PSa0389359. No fog or eye offset.
 @vertex
 fn vertex_additive_feather(input: AdditiveInput) -> AdditiveVaryings {
-    return additive_vertex(input, true, false);
+    return additive_vertex(input, true, false, false);
 }
 @fragment
 fn fragment_additive_feather(input: AdditiveVaryings) -> @location(0) vec4<f32> {
@@ -245,7 +245,54 @@ fn fragment_outdoor_feather(input: OutdoorVaryings) -> @location(0) vec4<f32> {
 // effect_737e1je4: VS618fd291 / PSa0389359, object-local trail normals.
 @vertex
 fn vertex_local_additive_feather(input: AdditiveInput) -> AdditiveVaryings {
-    return additive_vertex(input, true, true);
+    return additive_vertex(input, true, true, false);
+}
+
+// VS1a402546 / PS18ca01f6: lightning streaks retain source local-normal
+// falloff and the source eye offset, without scene-depth feathering.
+@vertex
+fn vertex_eye_local_additive(input: AdditiveInput) -> AdditiveVaryings {
+    return additive_vertex(input, false, true, true);
+}
+
+// VS46c19f0d and VS19e84483 differ only in an unused fog output.
+@vertex
+fn vertex_eye_local_feather(input: AdditiveInput) -> AdditiveVaryings {
+    return additive_vertex(input, true, true, true);
+}
+
+// VS954b5d74 / PS409a0e7d applies local-normal falloff to alpha,
+// interpolates the two source tint colors, and retains ordinary height fog.
+@vertex
+fn vertex_fog_local_feather(input: AdditiveInput) -> Varyings {
+    let source = NativeFxVertexInput(input.position.xyz, input.color, input.uv);
+    var result = native_fx_vertex(source, frame, source_object(), true);
+    let local = vec4<f32>(input.position.xyz, 1.0);
+    let world = vec3<f32>(dot(local, transform.world_rows[0]),
+        dot(local, transform.world_rows[1]), dot(local, transform.world_rows[2]));
+    let packed = vec3<u32>(input.normal, input.normal >> 10u, input.normal >> 20u) & vec3<u32>(1023u);
+    let packed_unit = vec3<f32>(packed) / 1023.0;
+    let normal = select(packed_unit * 2.0, packed_unit * 2.0 - 2.0, packed_unit >= vec3<f32>(0.5));
+    let transformed = vec3<f32>(dot(normal, transform.world_rows[0].xyz),
+        dot(normal, transform.world_rows[1].xyz), dot(normal, transform.world_rows[2].xyz));
+    let facing = dot(normalize(world), transformed);
+    let falloff = clamp(fma(facing * facing, material.additive_parms[0].z,
+        material.additive_parms[0].w), 0.0, 1.0);
+    let tint = fma(vec3<f32>(falloff), material.additive_parms[1].xyz - material.additive_parms[2].xyz,
+        material.additive_parms[2].xyz);
+    result.color = vec4<f32>(tint * input.color.rgb, falloff * result.color.a);
+    return Varyings(result.clip_position, result.color, result.fog_color, result.uv_depth_fog);
+}
+
+// VS996fc277 / PS409a0e7d: fog from the original position, feathering
+// and scene-depth interpolation from the eye-offset clip position.
+@vertex
+fn vertex_eye_fog_feather(input: VertexInput) -> Varyings {
+    let result = native_fx_vertex(NativeFxVertexInput(input.position.xyz, input.color, input.uv),
+        frame, source_object(), false);
+    let offset = simple_vertex(input, true, true);
+    return Varyings(offset.position, offset.color, result.fog_color,
+        vec4<f32>(result.uv_depth_fog.xy, offset.uv_depth.z, result.uv_depth_fog.w));
 }
 
 // effect_1519efqw: VS/PS9e1df5d4. The standard fogged zfeather

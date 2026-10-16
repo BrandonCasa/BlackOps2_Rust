@@ -353,7 +353,6 @@ fn collect(
     mut rewards: ResMut<CaptureRewards>,
     mut focus: ResMut<crate::interactions::InteractionFocus>,
     game: Res<GameDefinition>,
-    session: Res<crate::gameplay::Session>,
     spatial: SpatialQuery,
     players: Query<(
         Entity,
@@ -454,14 +453,6 @@ fn collect(
             .find(|powerup| powerup.id == profile.powerup)
         {
             effects.double_points = powerup.duration;
-            crate::audio::voice(
-                &mut commands,
-                &game,
-                &session,
-                "powerup_doublepoints",
-                owner,
-                drops.collected,
-            );
             crate::audio::emit(
                 &mut commands,
                 "vox_zmba_powerup_doublepoints_0",

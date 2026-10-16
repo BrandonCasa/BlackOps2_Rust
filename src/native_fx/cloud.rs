@@ -102,9 +102,12 @@ pub(super) fn constants(
         Vec3::ZERO
     };
     let cloud_matrix = match state.program {
-        NativeEffectProgram::CloudRain => Vec4::new(state.size.x, state.size.y, 0., 0.),
+        NativeEffectProgram::CloudRain | NativeEffectProgram::CloudVertical => {
+            Vec4::new(state.size.x, state.size.y, 0., 0.)
+        }
         NativeEffectProgram::CloudSnow
         | NativeEffectProgram::CloudSimple
+        | NativeEffectProgram::CloudOutdoorAdditive
         | NativeEffectProgram::CloudAdditive => {
             // Generic branch of 00473600: preserve the signed comparison and
             // minimum width, shared by snow and both plain cloud programs.

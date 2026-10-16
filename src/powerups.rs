@@ -271,7 +271,11 @@ fn drop_powerups(
         drops.earned = true;
     }
     for EnemyDeath(receipt) in deaths.read() {
-        if enemies.get(receipt.impact.target).is_ok_and(|(_,kind)|kind.is_some_and(|kind|*kind==crate::rounds::PopulationKind::GeneratorDefender)) {continue;}
+        if enemies.get(receipt.impact.target).is_ok_and(|(_, kind)| {
+            kind.is_some_and(|kind| *kind == crate::rounds::PopulationKind::GeneratorDefender)
+        }) {
+            continue;
+        }
         if panzers.contains(receipt.impact.target)
             || pilots.contains(receipt.impact.target)
             || drops.count >= 4
@@ -289,7 +293,7 @@ fn drop_powerups(
         if session.random() % 100 > 2 && !drops.earned {
             continue;
         }
-        let Ok((transform,_)) = enemies.get(receipt.impact.target) else {
+        let Ok((transform, _)) = enemies.get(receipt.impact.target) else {
             continue;
         };
         let origin = transform.translation + Vec3::Y * 0.127;
@@ -506,7 +510,7 @@ pub(crate) fn collect(
             let voice = match d.id.0.as_str() {
                 "powerup.insta_kill" => "powerup_insta",
                 "powerup.full_ammo" => "powerup_ammo",
-                "powerup.double_points" => "powerup_doublepoints",
+                "powerup.double_points" => "",
                 "powerup.zombie_blood" => "powerup_zombie_blood",
                 "powerup.fire_sale" => "powerup_firesale",
                 "powerup.bonus_points_player"
@@ -515,14 +519,7 @@ pub(crate) fn collect(
                 _ => "powerup_nuke",
             };
             if !voice.is_empty() {
-                crate::audio::voice(
-                    &mut commands,
-                    &definition,
-                    &session,
-                    voice,
-                    owner,
-                    drops.collected,
-                );
+                crate::audio::voice(&mut commands, voice, owner);
             }
             let announcer = match d.id.0.as_str() {
                 "powerup.insta_kill" => "instakill",

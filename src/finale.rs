@@ -15,6 +15,7 @@ pub struct Finale {
     pub successful: bool,
     drone_ascending: bool,
     drone_pause: f32,
+    drone_voice: Option<Entity>,
     portal_delay: f32,
     entry_delay: f32,
 }
@@ -54,7 +55,7 @@ impl Finale {
                 _ => None,
             };
             if let Some(line) = line {
-                crate::audio::emit(
+                crate::audio::samantha(
                     commands,
                     format!("vox_sam_generic_encourage_{line}"),
                     crate::audio::SoundSource::World(Vec3::new(262.636, -8.5344, 200.8124)),
@@ -425,7 +426,21 @@ fn portal(
     mut drones: Query<(Entity, &mut crate::buildables::Drone, &Transform)>,
     mut buildables: ResMut<crate::buildables::BuildableState>,
     mut portals: Query<(Entity, &Transform, &mut Visibility, &mut FinalPortal)>,
+    mut playback: MessageReader<crate::audio::PlaybackEvent>,
 ) {
+    for event in playback.read() {
+        if finale.drone_voice == Some(event.entity)
+            && matches!(
+                event.status,
+                crate::audio::PlaybackStatus::Completed
+                    | crate::audio::PlaybackStatus::Rejected
+                    | crate::audio::PlaybackStatus::Cancelled
+            )
+        {
+            finale.drone_voice = None;
+            finale.drone_pause = 1.;
+        }
+    }
     if !quest.enabled {
         return;
     }
@@ -521,6 +536,9 @@ fn portal(
                 continue;
             }
             drone.returning = false;
+            if finale.drone_voice.is_some() {
+                continue;
+            }
             if finale.drone_pause > 0. {
                 finale.drone_pause = (finale.drone_pause - time.delta_secs()).max(0.);
                 if finale.drone_pause > 0. {
@@ -550,13 +568,12 @@ fn portal(
                     finale.drone_entered = true;
                     finale.entry_delay = 1.;
                 } else {
-                    crate::audio::emit(
+                    finale.drone_voice = Some(crate::audio::emit(
                         &mut commands,
                         "vox_maxi_drone_upgraded_1",
                         crate::audio::SoundSource::attached(entity),
-                    );
+                    ));
                     finale.drone_ascending = true;
-                    finale.drone_pause = 1.;
                 }
             }
         }
@@ -564,7 +581,7 @@ fn portal(
     if finale.entry_delay > 0. {
         finale.entry_delay = (finale.entry_delay - time.delta_secs()).max(0.);
         if finale.entry_delay == 0. {
-            crate::audio::emit(
+            crate::audio::samantha(
                 &mut commands,
                 "vox_sam_all_staff_freedom_0",
                 crate::audio::SoundSource::World(Vec3::new(262.636, -8.5344, 200.8124)),

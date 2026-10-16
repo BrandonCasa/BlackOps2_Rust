@@ -4,6 +4,7 @@ pub(crate) mod decal;
 mod geometry;
 mod impact;
 pub(crate) mod lighting;
+mod map;
 mod material;
 #[cfg(test)]
 mod tests;
@@ -115,6 +116,7 @@ struct Element {
     flags: i32,
     spawn: Spawn,
     delay_ms: Range,
+    spawn_range: Range,
     fade_in_range: Range,
     fade_out_range: Range,
     life_ms: Range,
@@ -158,6 +160,7 @@ pub(crate) struct Catalog {
     effects: BTreeMap<String, SourceEffect>,
     materials: BTreeMap<String, SourceMaterial>,
     random_table: Vec<f32>,
+    map_effects: Vec<map::MapEffect>,
     #[serde(flatten)]
     impacts: impact::ImpactEffects,
 }
@@ -169,6 +172,7 @@ struct Emitter {
     counts: Vec<u32>,
     limits: Vec<u32>,
     seed: u64,
+    start_ms: Option<u32>,
     previous: Option<Transform>,
     lighting: Vec3,
     trail_points: Vec<Option<Vec3>>,
@@ -198,6 +202,7 @@ struct Particle {
     emitted_at: Vec3,
     emit_step: f32,
     cloud: Option<cloud::State>,
+    visible: bool,
 }
 pub(crate) struct NativeFxPlugin;
 impl Plugin for NativeFxPlugin {
@@ -207,8 +212,18 @@ impl Plugin for NativeFxPlugin {
             load_catalog.after(crate::assets::begin_load),
         );
         app.add_systems(
+            OnEnter(GameState::StartingSession),
+            map::spawn.in_set(crate::session::SessionSetup::World),
+        );
+        app.add_systems(
             Update,
-            (follow_source_attachments, spawn, animate, decal::fade)
+            (
+                map::activate,
+                follow_source_attachments,
+                spawn,
+                animate,
+                decal::fade,
+            )
                 .chain()
                 .run_if(in_state(GameState::Playing)),
         );
@@ -288,7 +303,8 @@ pub(crate) fn emit(
         next: vec![],
         counts: vec![],
         limits: vec![],
-        seed: entity.to_bits().wrapping_add(1),
+        seed: 0,
+        start_ms: None,
         previous: None,
         lighting: Vec3::ZERO,
         trail_points: vec![],
@@ -341,7 +357,6 @@ fn spawn(
     time: Res<Time>,
     catalog: Option<Res<Catalog>>,
     server: Res<AssetServer>,
-    game: Res<GameDefinition>,
     materials: Res<material::Materials>,
     native_materials: Res<Assets<NativeEffectMaterial>>,
     cloud_geometry: Res<cloud::Geometry>,
@@ -350,6 +365,7 @@ fn spawn(
         Res<crate::rendering::model_lighting::ModelLightingSource>,
         Res<lighting::Source>,
         Res<crate::environment::weather::Weather>,
+        Query<&GlobalTransform, With<crate::rendering::GameCamera>>,
     ),
     mut geometries: ResMut<Assets<NativeEffectGeometry>>,
     mut decals: (
@@ -407,7 +423,9 @@ fn spawn(
                     .1
                     .sample(&lighting.0, &lighting.2, parent.translation);
             }
-            let start_ms = (time.elapsed_secs() * 1000.) as u32;
+            let start_ms = *emitter
+                .start_ms
+                .get_or_insert_with(|| (time.elapsed_secs() * 1000.) as u32);
             emitter.seed = u64::from(
                 (((start_ms.wrapping_mul(0x343fd).wrapping_add(0x269ec3)) >> 17) * 479) >> 15,
             );
@@ -427,14 +445,51 @@ fn spawn(
             }
         }
         emitter.elapsed += time.delta_secs();
+        let camera_distance = lighting.3.iter().next().map(|camera| {
+            camera.translation().distance_squared(parent.translation) / (0.0254 * 0.0254)
+        });
         for (i, e) in effect.elements.iter().enumerate() {
-            let prior_count = emitter.counts[i];
-            let births = schedule_element(&mut emitter, effect, e, i, parent, time.delta_secs());
+            let births = schedule_element(
+                &mut emitter,
+                effect,
+                e,
+                i,
+                parent,
+                time.delta_secs(),
+                &catalog,
+            );
+            let prior_count = emitter.counts[i] - births.len() as u32;
+            let visible =
+                camera_distance.is_none_or(|distance| in_spawn_range(e.spawn_range, distance));
             for (birth_index, born) in births.into_iter().enumerate() {
+                // 005c3bf0 retains out-of-range state only when its children
+                // still need simulation. Ordinary invisible sprites need no
+                // particle entity, geometry allocation or per-frame update.
+                if !visible
+                    && e.effect_attached.is_none()
+                    && e.effect_emitted.is_none()
+                    && e.effect_on_death.is_none()
+                    && e.effect_on_impact.is_none()
+                    && e.kind != 12
+                {
+                    continue;
+                }
                 let particle_seed = ((emitter.seed & 0xffff)
                     + (u64::from(prior_count + birth_index as u32) & 255) * 0x128
                     + (born * 1000.) as u64)
                     % 479;
+                let life = integer_range(e.life_ms, &catalog, particle_seed, 11) * 0.001;
+                // 005c6f40/005c3240 reject expired sprite/model/light births
+                // before allocating unless their impact/death/emitted effects
+                // still need simulation. Runners, sounds and marks act at birth.
+                if e.kind <= 9
+                    && emitter.elapsed - born >= life
+                    && e.effect_on_impact.is_none()
+                    && e.effect_on_death.is_none()
+                    && e.effect_emitted.is_none()
+                {
+                    continue;
+                }
                 let r = channel(&catalog, particle_seed, 17);
                 let mut pose = parent;
                 if e.kind == 5 {
@@ -478,11 +533,13 @@ fn spawn(
                 });
                 pose.rotation *= Quat::from_euler(EulerRot::YXZ, -angles[1], angles[0], -angles[2]);
                 if let Some(alias) = &e.spawn_sound {
-                    if let Err(error) =
-                        visuals::sound(&mut commands, &game, alias, pose.translation)
-                    {
-                        panic!("{}", error);
-                    }
+                    // Native FX queues the source name (005b2410); the audio
+                    // owner resolves it against this map's loaded sound banks.
+                    crate::audio::emit(
+                        &mut commands,
+                        alias.trim_start_matches(','),
+                        crate::audio::SoundSource::World(pose.translation),
+                    );
                 }
                 let visual = e
                     .visuals
@@ -494,7 +551,19 @@ fn spawn(
                     .and_then(Option::as_ref);
                 if e.kind == 12 {
                     if let Some(name) = visual.and_then(|v| v.effect.as_ref()) {
-                        emit_child(&mut commands, name, pose, entity);
+                        let child = emit_child(&mut commands, name, pose, entity);
+                        let age = emitter.elapsed - born - time.delta_secs();
+                        let start_ms = emitter
+                            .start_ms
+                            .unwrap()
+                            .wrapping_add((born * 1000.) as u32);
+                        commands
+                            .entity(child)
+                            .entry::<Emitter>()
+                            .and_modify(move |mut emitter| {
+                                emitter.elapsed = age;
+                                emitter.start_ms = Some(start_ms);
+                            });
                     } else {
                         panic!(
                             "{}",
@@ -505,15 +574,14 @@ fn spawn(
                 }
                 if e.kind == 10 {
                     if let Some(alias) = visual.and_then(|v| v.sound.as_ref()) {
-                        if let Err(error) =
-                            visuals::sound(&mut commands, &game, alias, pose.translation)
-                        {
-                            panic!("{}", error);
-                        }
+                        crate::audio::emit(
+                            &mut commands,
+                            alias.trim_start_matches(','),
+                            crate::audio::SoundSource::World(pose.translation),
+                        );
                     }
                     continue;
                 }
-                let life = integer_range(e.life_ms, &catalog, particle_seed, 11) * 0.001;
                 let particle_entity = commands
                     .spawn((SessionEntity, Owned(entity), pose, Visibility::default()))
                     .id();
@@ -540,6 +608,7 @@ fn spawn(
                             .sample(channel(&catalog, particle_seed, 14)))
                         * 0.0254,
                     cloud: None,
+                    visible,
                 };
                 if !matches!(e.kind, 6..=9) {
                     let entries = e.atlas.entry_count_and_range & 0x1ff;
@@ -627,6 +696,11 @@ fn spawn(
                         let native_material = native_materials
                             .get(&handle)
                             .expect("FX material was inserted during loading");
+                        if native_material.program.superflare() {
+                            commands
+                                .entity(particle_entity)
+                                .insert(bevy::camera::visibility::NoFrustumCulling);
+                        }
                         particle.image = Some(native_material.color_map.clone());
                         if e.kind == 6 {
                             assert!(
@@ -653,7 +727,6 @@ fn spawn(
                                 NativeEffectDraw {
                                     geometry: cloud_geometry.0.clone(),
                                     material: handle,
-                                    source_world_vertices: false,
                                     vertex_byte_offset: 0,
                                     first_index,
                                     index_count,
@@ -670,6 +743,9 @@ fn spawn(
                             assert!(
                                 matches!(
                                     native_material.program,
+                                    NativeEffectProgram::Source { .. }
+                                ) || matches!(
+                                    native_material.program,
                                     NativeEffectProgram::Zfeather
                                         | NativeEffectProgram::ZfeatherDissolve
                                         | NativeEffectProgram::SimpleFog
@@ -683,6 +759,10 @@ fn spawn(
                                         | NativeEffectProgram::EyeFeather
                                         | NativeEffectProgram::EyeAdditive
                                         | NativeEffectProgram::SimpleAdditive
+                                        | NativeEffectProgram::EyeLocalAdditive
+                                        | NativeEffectProgram::EyeLocalFeather
+                                        | NativeEffectProgram::FogLocalFeather
+                                        | NativeEffectProgram::EyeFogFeather
                                 ),
                                 "Original sprite element requires its selected packed particle program"
                             );
@@ -707,6 +787,7 @@ fn spawn(
                                 particle.trail_start = Some(start);
                             }
                             let (geometry, bounds, index_count) = geometry::quad(
+                                pose,
                                 pose.rotation * Vec3::Z,
                                 [127, 127, 127, 255],
                                 Affine2::IDENTITY,
@@ -719,7 +800,6 @@ fn spawn(
                                 NativeEffectDraw {
                                     geometry: geometries.add(geometry),
                                     material: handle,
-                                    source_world_vertices: matches!(e.kind, 3 | 5),
                                     vertex_byte_offset: 0,
                                     first_index: 0,
                                     index_count,
@@ -762,6 +842,7 @@ fn schedule_element(
     index: usize,
     current: Transform,
     delta: f32,
+    catalog: &Catalog,
 ) -> Vec<f32> {
     let mut births = Vec::new();
     if element.kind == 5 {
@@ -793,6 +874,21 @@ fn schedule_element(
         emitter.trail_distance[index] = to;
         return births;
     }
+    // 005c7ef0 discards births too old to affect the current frame once the
+    // catch-up exceeds 128 ms. 005c7dc0 includes dependent effect lifetimes.
+    let gap = emitter.elapsed - emitter.next[index];
+    if gap > 0.128
+        && let Spawn::Loop { interval_ms, .. } = element.spawn
+        && interval_ms > 0
+    {
+        let life = max_element_life(element, false, catalog, gap * 1000., &mut Vec::new()) * 0.001;
+        let cutoff = emitter.elapsed - life - 0.001;
+        let step = interval_ms as f32 * 0.001;
+        let skip = ((cutoff - emitter.next[index]) / step).ceil().max(0.) as u32;
+        let skip = skip.min(emitter.limits[index] - emitter.counts[index]);
+        emitter.counts[index] += skip;
+        emitter.next[index] += skip as f32 * step;
+    }
     while emitter.next[index] <= emitter.elapsed && emitter.counts[index] < emitter.limits[index] {
         if index < effect.looping_count
             && effect.looping_life_ms > 0.
@@ -811,6 +907,67 @@ fn schedule_element(
         }
     }
     births
+}
+
+fn in_spawn_range(range: Range, distance_squared: f32) -> bool {
+    range.amplitude == 0.
+        || (range.base * range.base <= distance_squared
+            && distance_squared <= (range.base + range.amplitude).powi(2))
+}
+
+fn max_element_life(
+    element: &Element,
+    include_loops: bool,
+    catalog: &Catalog,
+    cap: f32,
+    stack: &mut Vec<String>,
+) -> f32 {
+    if element.kind == 5 {
+        return cap;
+    }
+    let mut life = element.delay_ms.base
+        + element.delay_ms.amplitude
+        + element.life_ms.base
+        + element.life_ms.amplitude;
+    if include_loops && let Spawn::Loop { count, interval_ms } = element.spawn {
+        life += count.saturating_sub(1) as f32 * interval_ms as f32;
+    }
+    if life >= cap {
+        return cap;
+    }
+    let own_life = life;
+    let children = element
+        .visuals
+        .iter()
+        .flatten()
+        .filter_map(|v| v.effect.as_ref())
+        .map(|name| (name, 0.))
+        .chain(
+            [
+                &element.effect_on_impact,
+                &element.effect_on_death,
+                &element.effect_emitted,
+                &element.effect_attached,
+            ]
+            .into_iter()
+            .flatten()
+            .map(|name| (name, own_life)),
+        );
+    for (name, offset) in children {
+        if stack.contains(name) {
+            return cap;
+        }
+        stack.push(name.clone());
+        for child in &catalog.effects[name.trim_start_matches(',')].elements {
+            life = life.max(offset + max_element_life(child, true, catalog, cap, stack));
+            if life >= cap {
+                stack.pop();
+                return cap;
+            }
+        }
+        stack.pop();
+    }
+    life
 }
 fn indices(length: usize, age: f32) -> (usize, usize, f32) {
     let f = age.clamp(0., 1.) * length.saturating_sub(1) as f32;
@@ -906,6 +1063,7 @@ fn animate(
     time: Res<Time>,
     server: Res<AssetServer>,
     catalog: Res<Catalog>,
+    materials: Res<Assets<NativeEffectMaterial>>,
     mut geometries: ResMut<Assets<NativeEffectGeometry>>,
     collision: avian3d::prelude::SpatialQuery,
     emitters: Query<&Emitter>,
@@ -1044,7 +1202,11 @@ fn animate(
             });
             color[3] *= fade;
             *light = crate::rendering::native_light::FxOmniLight::evaluate(
-                if fade > 0.015686275 { size.x } else { 0. },
+                if p.visible && fade > 0.015686275 {
+                    size.x
+                } else {
+                    0.
+                },
                 color,
                 e.flags & 0x800 != 0,
             );
@@ -1121,11 +1283,12 @@ fn animate(
             draw.first_index = first_index;
             let alpha = state.color[3].clamp(0., 255.) as u8;
             let threshold = if e.flags & 0x40000 != 0 { 0 } else { 6 };
-            draw.index_count = if scale == 0. || fade <= 0.015686275 || alpha <= threshold {
-                0
-            } else {
-                index_count
-            };
+            draw.index_count =
+                if !p.visible || scale == 0. || fade <= 0.015686275 || alpha <= threshold {
+                    0
+                } else {
+                    index_count
+                };
             draw.sort_center = pose.translation;
             if let Some(mut bounds) = bounds {
                 let extent = if scale == 0. {
@@ -1151,7 +1314,15 @@ fn animate(
                 uv.translation.x -= p.age * 1000. / trail.scroll_ms;
             }
         }
-        let color = lighting::pack(color, e.lighting_fraction as u8, emitter.lighting, exposure);
+        color[3] *= camera.map_or(1., |camera| {
+            distance_fade(e, camera.translation.distance(pose.translation) / 0.0254)
+        });
+        let mut color =
+            lighting::pack(color, e.lighting_fraction as u8, emitter.lighting, exposure);
+        let program = materials
+            .get(&draw.material)
+            .expect("Particle owns its native material")
+            .program;
         let geometry = if e.kind == 5 {
             geometry::trail(
                 e.trail.as_ref().expect("trail source validated at birth"),
@@ -1188,7 +1359,24 @@ fn animate(
                 },
             )
         } else {
+            // 005b52a0's GPU sprite branch stores the center four times.
+            // Its draw-state selector starts at zero (005b9700), green is
+            // the effect seed's low byte, and blue is the original 255 tag.
+            let geometry_pose = if program.superflare() {
+                assert!(
+                    e.flags & 0x10000 != 0,
+                    "Original superflare requires GPU sprite data"
+                );
+                color[..3].copy_from_slice(&[0, emitter.seed as u8, 255]);
+                Transform {
+                    scale: Vec3::ZERO,
+                    ..*pose
+                }
+            } else {
+                *pose
+            };
             Ok(geometry::quad(
+                geometry_pose,
                 pose.rotation * Vec3::Z,
                 color,
                 uv,
@@ -1197,16 +1385,22 @@ fn animate(
                     .widths(),
             ))
         };
-        let (updated, updated_bounds, index_count) = geometry.unwrap_or_else(|error| {
+        let (mut updated, updated_bounds, index_count) = geometry.unwrap_or_else(|error| {
             panic!(
                 "Original FX {} element {}: {error}",
                 emitter.name, p.element
             )
         });
+        if program.superflare() {
+            let started = emitter.start_ms.expect("Source effect start time") as i32 as f32 * 0.001;
+            for vertex in updated.vertices.chunks_exact_mut(32) {
+                vertex[12..16].copy_from_slice(&started.to_le_bytes());
+            }
+        }
         *geometries
             .get_mut(&draw.geometry)
             .expect("particle owns its native geometry") = updated;
-        draw.index_count = index_count;
+        draw.index_count = if p.visible { index_count } else { 0 };
         draw.sort_center = pose.translation;
         if let Some(mut bounds) = bounds {
             *bounds = updated_bounds;
@@ -1263,14 +1457,10 @@ fn object_constants(
         {
             continue;
         }
-        // Source directional/trail vertices already carry their orientation
+        // Packed source vertices already carry their orientation
         // and size. Apply only the particle-origin translation here.
-        let input_world = if draw.source_world_vertices {
-            Mat4::from_translation(transform.translation())
-                * crate::rendering::world::source_frame()
-        } else {
-            transform.to_matrix()
-        };
+        let input_world = Mat4::from_translation(transform.translation())
+            * crate::rendering::world::source_frame();
         let matrix = to_eye * input_world;
         let outdoor_matrix = if needs_outdoor {
             let map = outdoor

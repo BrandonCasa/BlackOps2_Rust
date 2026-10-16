@@ -2,7 +2,7 @@ use crate::{
     GameState,
     assets::GameDefinition,
     gameplay::{Session, SessionEntity},
-    origins::{ContentId},
+    origins::ContentId,
     presentation::cues::CueParameters,
 };
 use bevy::prelude::*;
@@ -24,7 +24,6 @@ struct FlickerProfile {
     hold_seconds: [f32; 2],
 }
 
-
 #[derive(Clone, Deserialize)]
 struct CrystalDefinition {
     generator: ContentId,
@@ -34,7 +33,6 @@ struct CrystalDefinition {
     position: [f32; 3],
     yaw: f32,
 }
-
 
 #[derive(Component)]
 struct CrystalGlow {
@@ -167,7 +165,10 @@ fn assemble(
             })
             .collect::<Vec<_>>();
         if candidates.len() > 1 {
-            panic!("Source crystal {} resolves multiple existing scene owners", crystal.target);
+            panic!(
+                "Source crystal {} resolves multiple existing scene owners",
+                crystal.target
+            );
         }
         let entity = if let Some(&entity) = candidates.first() {
             entity
@@ -179,7 +180,10 @@ fn assemble(
                 .find(|presentation| presentation.id == crystal.presentation)
                 .and_then(|presentation| presentation.scene.as_ref())
             else {
-                panic!("Source crystal {} presentation is unavailable", crystal.target);
+                panic!(
+                    "Source crystal {} presentation is unavailable",
+                    crystal.target
+                );
             };
             commands
                 .spawn((

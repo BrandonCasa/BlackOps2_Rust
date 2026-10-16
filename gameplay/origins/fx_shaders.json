@@ -1,0 +1,563 @@
+[
+  {
+    "family": "distortion_81587199",
+    "textures": [
+      "colorMap"
+    ],
+    "constants": [
+      {
+        "offset": 36,
+        "width": 4,
+        "name": "distortionScale"
+      }
+    ],
+    "shaders": {
+      "vs": {
+        "source": "evidence/rendering-20261012/source/all/common_zm/shader_bin/vs_pimp_shader_distortion_8a309e22.hlsl.cso",
+        "sha256": "e49e0c42438a333079f62a1e11a09e57b1790ef8eca1d072ed8296562c2efd90"
+      },
+      "ps": {
+        "source": "evidence/rendering-20261012/source/all/common_zm/shader_bin/ps_pimp_shader_distortion_bc84c0df.hlsl.cso",
+        "sha256": "931575af16e95d78eb3786a1e74a2a711705e23bc102d50885d96783362617be"
+      }
+    },
+    "distortion": true,
+    "superflare": false
+  },
+  {
+    "family": "effect_23712j0e",
+    "textures": [
+      "colorMap"
+    ],
+    "constants": [],
+    "shaders": {
+      "vs": {
+        "source": "evidence/rendering-20261012/source/all/zm_tomb_patch/shader_bin/vs_pimp_shader_debugperformance_58ec9b48.hlsl.cso",
+        "sha256": "75473c29b877ca4abee156d58e8b42861915cfafbf48ddfd54e035ceeb7ea526"
+      },
+      "ps": {
+        "source": "evidence/rendering-20261012/source/all/zm_tomb/shader_bin/ps_pimp_shader_vertcolorsimple_fa4ae256.hlsl.cso",
+        "sha256": "6b37c3a35f42101a2a869385a6e28f9320d2b073ebc689fb162698a8239f1945"
+      }
+    },
+    "distortion": false,
+    "superflare": false
+  },
+  {
+    "family": "effect_276zq33q",
+    "textures": [
+      "colorMap"
+    ],
+    "constants": [
+      {
+        "offset": 0,
+        "width": 4,
+        "name": "featherParms"
+      },
+      {
+        "offset": 20,
+        "width": 4,
+        "name": "alphaDissolveParms"
+      }
+    ],
+    "shaders": {
+      "vs": {
+        "source": "evidence/rendering-20261012/source/all/zm_tomb/shader_bin/vs_pimp_shader_zfeather_5656248b.hlsl.cso",
+        "sha256": "d43886277a2b8950a4b53722eaba1e50d82758b91f7a371ad03b720290aa5237"
+      },
+      "ps": {
+        "source": "evidence/rendering-20261012/source/all/zm_tomb/shader_bin/ps_pimp_shader_zfeather_a78c2121.hlsl.cso",
+        "sha256": "0ca354f469f8fc5d0d56b04eed8ec5809f86ea1bfb38d9ce61288d491d8100f7"
+      }
+    },
+    "distortion": false,
+    "superflare": false
+  },
+  {
+    "family": "effect_361qjf64",
+    "textures": [
+      "colorMap"
+    ],
+    "constants": [
+      {
+        "offset": 0,
+        "width": 4,
+        "name": "featherParms"
+      },
+      {
+        "offset": 20,
+        "width": 4,
+        "name": "alphaDissolveParms"
+      }
+    ],
+    "shaders": {
+      "vs": {
+        "source": "evidence/rendering-20261012/source/all/zm_tomb/shader_bin/vs_pimp_shader_zfeather_abd2dc2a.hlsl.cso",
+        "sha256": "cea339653e1c035ccef602a52c7371e1fefcd91eb5286ca1ac4532338806d1aa"
+      },
+      "ps": {
+        "source": "evidence/rendering-20261012/source/all/zm_tomb/shader_bin/ps_pimp_shader_zfeather_a78c2121.hlsl.cso",
+        "sha256": "0ca354f469f8fc5d0d56b04eed8ec5809f86ea1bfb38d9ce61288d491d8100f7"
+      }
+    },
+    "distortion": false,
+    "superflare": false
+  },
+  {
+    "family": "effect_50q42feu",
+    "textures": [
+      "colorMap"
+    ],
+    "constants": [
+      {
+        "offset": 8,
+        "width": 4,
+        "name": "falloffBeginColor"
+      },
+      {
+        "offset": 12,
+        "width": 4,
+        "name": "falloffEndColor"
+      },
+      {
+        "offset": 4,
+        "width": 4,
+        "name": "falloffParms"
+      }
+    ],
+    "shaders": {
+      "vs": {
+        "source": "evidence/rendering-20261012/source/all/zm_tomb/shader_bin/vs_pimp_shader_effectsimple_f02aca4b.hlsl.cso",
+        "sha256": "5f8a1c842a77c03f507abe2a14c093e4c75a2d86569fb973d5f9ea53313e4654"
+      },
+      "ps": {
+        "source": "evidence/rendering-20261012/source/all/zm_tomb/shader_bin/ps_pimp_shader_effectsimple_8788956c.hlsl.cso",
+        "sha256": "043a0b83b6f60d10d8e7258e55fe41dfb69e8dc5078873773ce0ada2bf07fd6b"
+      }
+    },
+    "distortion": false,
+    "superflare": false
+  },
+  {
+    "family": "effect_5f6f0490",
+    "textures": [
+      "colorMap"
+    ],
+    "constants": [
+      {
+        "offset": 0,
+        "width": 4,
+        "name": "featherParms"
+      },
+      {
+        "offset": 20,
+        "width": 4,
+        "name": "alphaDissolveParms"
+      }
+    ],
+    "shaders": {
+      "vs": {
+        "source": "evidence/rendering-20261012/source/all/patch_zm/shader_bin/vs_pimp_shader_zfeather_a0389359.hlsl.cso",
+        "sha256": "cea339653e1c035ccef602a52c7371e1fefcd91eb5286ca1ac4532338806d1aa"
+      },
+      "ps": {
+        "source": "evidence/rendering-20261012/source/all/common_zm/shader_bin/ps_pimp_shader_zfeather_5a08d980.hlsl.cso",
+        "sha256": "47f24d6139b8a59976f1e3bbf8b6f3e82ae71fe02c229e249c77fc94852524ab"
+      }
+    },
+    "distortion": false,
+    "superflare": false
+  },
+  {
+    "family": "effect_659jf1wu",
+    "textures": [
+      "colorMap"
+    ],
+    "constants": [
+      {
+        "offset": 16,
+        "width": 4,
+        "name": "eyeOffsetParms"
+      },
+      {
+        "offset": 0,
+        "width": 4,
+        "name": "featherParms"
+      }
+    ],
+    "shaders": {
+      "vs": {
+        "source": "evidence/rendering-20261012/source/all/zm_tomb/shader_bin/vs_pimp_shader_zfeather_7c3a8ec2.hlsl.cso",
+        "sha256": "74425f81f0edaf44ed788eb36d52646206dbe96e31219edeee0b3eedae56d78c"
+      },
+      "ps": {
+        "source": "evidence/rendering-20261012/source/all/zm_tomb/shader_bin/ps_pimp_shader_zfeather_abd2dc2a.hlsl.cso",
+        "sha256": "35d9bb81c96a691020e7940f5bcc5fde4464316ab73a0cadee6f3492ad9695c2"
+      }
+    },
+    "distortion": false,
+    "superflare": false
+  },
+  {
+    "family": "effect_7104842q",
+    "textures": [
+      "colorMap"
+    ],
+    "constants": [
+      {
+        "offset": 8,
+        "width": 4,
+        "name": "falloffBeginColor"
+      },
+      {
+        "offset": 0,
+        "width": 4,
+        "name": "featherParms"
+      },
+      {
+        "offset": 12,
+        "width": 4,
+        "name": "falloffEndColor"
+      },
+      {
+        "offset": 4,
+        "width": 4,
+        "name": "falloffParms"
+      },
+      {
+        "offset": 20,
+        "width": 4,
+        "name": "alphaDissolveParms"
+      }
+    ],
+    "shaders": {
+      "vs": {
+        "source": "evidence/rendering-20261012/source/all/common_zm/shader_bin/vs_pimp_shader_zfeather_954b5d74.hlsl.cso",
+        "sha256": "cbef0f7ec8e2828e41ff90fcae58d6a885bd5ea13fbdd4a1dd3a9002261674a3"
+      },
+      "ps": {
+        "source": "evidence/rendering-20261012/source/all/common_zm/shader_bin/ps_pimp_shader_zfeather_b1400bd7.hlsl.cso",
+        "sha256": "2629a6ff8e0a6a97dad23955437db669cec981e58b696718e51e6b110536a6ee"
+      }
+    },
+    "distortion": false,
+    "superflare": false
+  },
+  {
+    "family": "effect_86w8qf66",
+    "textures": [
+      "colorMap"
+    ],
+    "constants": [
+      {
+        "offset": 20,
+        "width": 4,
+        "name": "alphaDissolveParms"
+      }
+    ],
+    "shaders": {
+      "vs": {
+        "source": "evidence/rendering-20261012/source/all/zm_tomb/shader_bin/vs_pimp_shader_effectsimple_18ca01f6.hlsl.cso",
+        "sha256": "31cb8ef4afce3a831f8d9789816d114a92aa4a8d2d9dc10a3d0d7e6fcbf977ad"
+      },
+      "ps": {
+        "source": "evidence/rendering-20261012/source/all/common_zm/shader_bin/ps_pimp_shader_effectsimple_8dbad563.hlsl.cso",
+        "sha256": "81dc9e553bae61e83f2cdbc78d25b59f068271245e6f960631805aaac05bd441"
+      }
+    },
+    "distortion": false,
+    "superflare": false
+  },
+  {
+    "family": "effect_ej431eje",
+    "textures": [
+      "colorMap"
+    ],
+    "constants": [],
+    "shaders": {
+      "vs": {
+        "source": "evidence/rendering-20261012/source/all/patch_zm/shader_bin/vs_pimp_shader_vertcolorsimple_fa4ae256.hlsl.cso",
+        "sha256": "75473c29b877ca4abee156d58e8b42861915cfafbf48ddfd54e035ceeb7ea526"
+      },
+      "ps": {
+        "source": "evidence/rendering-20261012/source/all/zm_tomb/shader_bin/ps_pimp_shader_effectsimple_8788956c.hlsl.cso",
+        "sha256": "043a0b83b6f60d10d8e7258e55fe41dfb69e8dc5078873773ce0ada2bf07fd6b"
+      }
+    },
+    "distortion": false,
+    "superflare": false
+  },
+  {
+    "family": "effect_q01e8072",
+    "textures": [
+      "colorMap"
+    ],
+    "constants": [
+      {
+        "offset": 0,
+        "width": 4,
+        "name": "featherParms"
+      }
+    ],
+    "shaders": {
+      "vs": {
+        "source": "evidence/rendering-20261012/source/all/patch_zm/shader_bin/vs_pimp_shader_zfeather_a0389359.hlsl.cso",
+        "sha256": "cea339653e1c035ccef602a52c7371e1fefcd91eb5286ca1ac4532338806d1aa"
+      },
+      "ps": {
+        "source": "evidence/rendering-20261012/source/all/zm_tomb/shader_bin/ps_pimp_shader_zfeather_abd2dc2a.hlsl.cso",
+        "sha256": "35d9bb81c96a691020e7940f5bcc5fde4464316ab73a0cadee6f3492ad9695c2"
+      }
+    },
+    "distortion": false,
+    "superflare": false
+  },
+  {
+    "family": "sw4_3d_superflare_zmb_alcatraz_tinhat_43q4z4q8",
+    "textures": [
+      "GrimeMap",
+      "SpriteMap"
+    ],
+    "constants": [
+      {
+        "offset": 52,
+        "width": 1,
+        "name": "FlareIntensity"
+      },
+      {
+        "offset": 53,
+        "width": 1,
+        "name": "FlareScale"
+      }
+    ],
+    "shaders": {
+      "vs": {
+        "source": "evidence/rendering-20261012/source/all/zm_tomb/shader_bin/vs_pimp_shader_sw4_3d_superflare_zmb_alcatraz_tinhat_62abad97.hlsl.cso",
+        "sha256": "3f77b010bbe528fa610ac8cf444601d166df1db1f3ccaaea755408aa1bdd84dd"
+      },
+      "ps": {
+        "source": "evidence/rendering-20261012/source/all/zm_tomb/shader_bin/ps_pimp_shader_sw4_3d_superflare_zmb_tomb_light1_8a62ca3a.hlsl.cso",
+        "sha256": "503cd8c07a3ef63dd0bab0d51795c17c4cedbcc492e7374e8015ed2156063df0"
+      }
+    },
+    "distortion": false,
+    "superflare": true
+  },
+  {
+    "family": "sw4_3d_superflare_zmb_tomb_air_bolt_15zwwq37",
+    "textures": [
+      "GrimeMap",
+      "SpriteMap"
+    ],
+    "constants": [
+      {
+        "offset": 52,
+        "width": 1,
+        "name": "FlareIntensity"
+      },
+      {
+        "offset": 53,
+        "width": 1,
+        "name": "FlareScale"
+      }
+    ],
+    "shaders": {
+      "vs": {
+        "source": "evidence/rendering-20261012/source/all/zm_tomb/shader_bin/vs_pimp_shader_sw4_3d_superflare_zmb_tomb_air_bolt_e2a3914.hlsl.cso",
+        "sha256": "504d9fd04685b0c970161396fb74384f6df6595dd9d93e6d22d7f801b398186c"
+      },
+      "ps": {
+        "source": "evidence/rendering-20261012/source/all/zm_tomb/shader_bin/ps_pimp_shader_sw4_3d_superflare_zmb_tomb_light1_8a62ca3a.hlsl.cso",
+        "sha256": "503cd8c07a3ef63dd0bab0d51795c17c4cedbcc492e7374e8015ed2156063df0"
+      }
+    },
+    "distortion": false,
+    "superflare": true
+  },
+  {
+    "family": "sw4_3d_superflare_zmb_tomb_elec_3ewwq245",
+    "textures": [
+      "GrimeMap",
+      "SpriteMap"
+    ],
+    "constants": [
+      {
+        "offset": 52,
+        "width": 1,
+        "name": "FlareIntensity"
+      },
+      {
+        "offset": 53,
+        "width": 1,
+        "name": "FlareScale"
+      }
+    ],
+    "shaders": {
+      "vs": {
+        "source": "evidence/rendering-20261012/source/all/zm_tomb/shader_bin/vs_pimp_shader_sw4_3d_superflare_zmb_tomb_elec_aa3565eb.hlsl.cso",
+        "sha256": "0e05aa98433b838d060c7fea7ff9eb6ce1a2dac0f4fd4dcd0c849338ebd5fdd4"
+      },
+      "ps": {
+        "source": "evidence/rendering-20261012/source/all/zm_tomb/shader_bin/ps_pimp_shader_sw4_3d_superflare_zmb_tomb_light1_8a62ca3a.hlsl.cso",
+        "sha256": "503cd8c07a3ef63dd0bab0d51795c17c4cedbcc492e7374e8015ed2156063df0"
+      }
+    },
+    "distortion": false,
+    "superflare": true
+  },
+  {
+    "family": "sw4_3d_superflare_zmb_tomb_elec_bolt_88f30ef4",
+    "textures": [
+      "GrimeMap",
+      "SpriteMap"
+    ],
+    "constants": [
+      {
+        "offset": 52,
+        "width": 1,
+        "name": "FlareIntensity"
+      },
+      {
+        "offset": 53,
+        "width": 1,
+        "name": "FlareScale"
+      }
+    ],
+    "shaders": {
+      "vs": {
+        "source": "evidence/rendering-20261012/source/all/zm_tomb/shader_bin/vs_pimp_shader_sw4_3d_superflare_zmb_tomb_elec_bolt_89aa3f9b.hlsl.cso",
+        "sha256": "7ec6d67dc2fdc750777bb7dc11d6047fad55378a4ef13dd3fac3e6b6b18cbeab"
+      },
+      "ps": {
+        "source": "evidence/rendering-20261012/source/all/zm_tomb/shader_bin/ps_pimp_shader_sw4_3d_superflare_zmb_tomb_light1_8a62ca3a.hlsl.cso",
+        "sha256": "503cd8c07a3ef63dd0bab0d51795c17c4cedbcc492e7374e8015ed2156063df0"
+      }
+    },
+    "distortion": false,
+    "superflare": true
+  },
+  {
+    "family": "sw4_3d_superflare_zmb_tomb_elec_bolt_lg_e317308u",
+    "textures": [
+      "GrimeMap",
+      "SpriteMap"
+    ],
+    "constants": [
+      {
+        "offset": 52,
+        "width": 1,
+        "name": "FlareIntensity"
+      },
+      {
+        "offset": 53,
+        "width": 1,
+        "name": "FlareScale"
+      }
+    ],
+    "shaders": {
+      "vs": {
+        "source": "evidence/rendering-20261012/source/all/zm_tomb/shader_bin/vs_pimp_shader_sw4_3d_superflare_zmb_tomb_elec_bolt_lg_ff55a322.hlsl.cso",
+        "sha256": "906c246c200bfa72349427bd33b79d6ee9410b0f8f0a1e70f0708cb21dec5be1"
+      },
+      "ps": {
+        "source": "evidence/rendering-20261012/source/all/zm_tomb/shader_bin/ps_pimp_shader_sw4_3d_superflare_zmb_tomb_light1_8a62ca3a.hlsl.cso",
+        "sha256": "503cd8c07a3ef63dd0bab0d51795c17c4cedbcc492e7374e8015ed2156063df0"
+      }
+    },
+    "distortion": false,
+    "superflare": true
+  },
+  {
+    "family": "sw4_3d_superflare_zmb_tomb_fire_bolt_e2e50f17",
+    "textures": [
+      "GrimeMap",
+      "SpriteMap"
+    ],
+    "constants": [
+      {
+        "offset": 52,
+        "width": 1,
+        "name": "FlareIntensity"
+      },
+      {
+        "offset": 53,
+        "width": 1,
+        "name": "FlareScale"
+      }
+    ],
+    "shaders": {
+      "vs": {
+        "source": "evidence/rendering-20261012/source/all/zm_tomb/shader_bin/vs_pimp_shader_sw4_3d_superflare_zmb_tomb_fire_bolt_78d16763.hlsl.cso",
+        "sha256": "7100523bfd342a402bd051611725b0c876533e90f9a88560365f97c2ccbd76b0"
+      },
+      "ps": {
+        "source": "evidence/rendering-20261012/source/all/zm_tomb/shader_bin/ps_pimp_shader_sw4_3d_superflare_zmb_tomb_light1_8a62ca3a.hlsl.cso",
+        "sha256": "503cd8c07a3ef63dd0bab0d51795c17c4cedbcc492e7374e8015ed2156063df0"
+      }
+    },
+    "distortion": false,
+    "superflare": true
+  },
+  {
+    "family": "sw4_3d_superflare_zmb_tomb_ice_bolt_q253049q",
+    "textures": [
+      "GrimeMap",
+      "SpriteMap"
+    ],
+    "constants": [
+      {
+        "offset": 52,
+        "width": 1,
+        "name": "FlareIntensity"
+      },
+      {
+        "offset": 53,
+        "width": 1,
+        "name": "FlareScale"
+      }
+    ],
+    "shaders": {
+      "vs": {
+        "source": "evidence/rendering-20261012/source/all/zm_tomb/shader_bin/vs_pimp_shader_sw4_3d_superflare_zmb_tomb_ice_bolt_39d3d350.hlsl.cso",
+        "sha256": "bcf1869974e2583b49fe27a94836d3e9df0b91441e378f0cab617c4675e8c023"
+      },
+      "ps": {
+        "source": "evidence/rendering-20261012/source/all/zm_tomb/shader_bin/ps_pimp_shader_sw4_3d_superflare_zmb_tomb_light1_8a62ca3a.hlsl.cso",
+        "sha256": "503cd8c07a3ef63dd0bab0d51795c17c4cedbcc492e7374e8015ed2156063df0"
+      }
+    },
+    "distortion": false,
+    "superflare": true
+  },
+  {
+    "family": "sw4_3d_superflare_zmb_tomb_light1_e56zww5e",
+    "textures": [
+      "GrimeMap",
+      "SpriteMap"
+    ],
+    "constants": [
+      {
+        "offset": 52,
+        "width": 1,
+        "name": "FlareIntensity"
+      },
+      {
+        "offset": 53,
+        "width": 1,
+        "name": "FlareScale"
+      }
+    ],
+    "shaders": {
+      "vs": {
+        "source": "evidence/rendering-20261012/source/all/zm_tomb/shader_bin/vs_pimp_shader_sw4_3d_superflare_zmb_tomb_light1_a6aae9c.hlsl.cso",
+        "sha256": "ce3e2afe83503d818961a77544e72e74e77d83abfe707ff49c63ac04ce43a366"
+      },
+      "ps": {
+        "source": "evidence/rendering-20261012/source/all/zm_tomb/shader_bin/ps_pimp_shader_sw4_3d_superflare_zmb_tomb_light1_8a62ca3a.hlsl.cso",
+        "sha256": "503cd8c07a3ef63dd0bab0d51795c17c4cedbcc492e7374e8015ed2156063df0"
+      }
+    },
+    "distortion": false,
+    "superflare": true
+  }
+]

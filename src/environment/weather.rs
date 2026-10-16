@@ -382,13 +382,21 @@ pub(crate) fn tick(
             if weather.flashes_left == 0 {
                 let forward =
                     Quat::from_euler(EulerRot::YXZ, player.yaw, player.pitch, 0.) * Vec3::NEG_Z;
-                weather.strike_position = pose.translation
+                weather.strike_position = pose.translation - Vec3::Y * (player.height * 0.5)
                     + Vec3::new(forward.x, 0., forward.z) * 635.
                     + Vec3::new(
                         (weather.random() % 10000) as f32 * 0.0254 - 127.,
                         (weather.random() % 3000) as f32 * 0.0254,
                         (weather.random() % 10000) as f32 * 0.0254 - 127.,
                     );
+                // zm_tomb.csc::_lightning_thread plays the distant source FX
+                // once, before the clap and the subsequent sunlight flashes.
+                crate::native_fx::emit(
+                    &mut commands,
+                    "maps/zombie_alcatraz/fx_alcatraz_lightning_lg",
+                    Transform::from_translation(weather.strike_position)
+                        .with_rotation(Quat::from_rotation_z(std::f32::consts::FRAC_PI_2)),
+                );
                 sound(
                     &mut commands,
                     &game,

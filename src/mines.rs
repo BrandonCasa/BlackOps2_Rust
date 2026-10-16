@@ -184,7 +184,7 @@ fn place(
             inventory.placing = false;
             let forward = Quat::from_rotation_y(player.yaw) * Vec3::NEG_Z;
             let origin = pose.translation + forward * 0.7;
-            let filter = crate::environment::solids([owner]);
+            let filter = crate::environment::player_solids([owner]);
             let Some(hit) = query.cast_ray(origin, Dir3::NEG_Y, player.height + 1., true, &filter)
             else {
                 evidence.blocked += 1;

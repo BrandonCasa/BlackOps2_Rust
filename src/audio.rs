@@ -12,13 +12,14 @@ use std::{
         atomic::{AtomicBool, AtomicU32, Ordering},
     },
 };
+mod dialogue;
 mod gameplay;
 mod master;
 mod narrative;
 mod obstruction;
 mod reverb;
-pub(crate) use gameplay::voice;
-pub(crate) use narrative::{NarrativeProgress, RobotPurgeReady};
+pub(crate) use dialogue::voice;
+pub(crate) use narrative::{NarrativeEvent, NarrativeProgress, RobotPurgeReady, samantha};
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -877,6 +878,7 @@ impl Plugin for GameAudioPlugin {
         app.add_systems(OnEnter(GameState::MainMenu), stop);
         app.add_systems(OnEnter(GameState::Ending), stop);
         gameplay::install(app);
+        dialogue::install(app);
         narrative::install(app);
     }
 }

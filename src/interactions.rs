@@ -131,23 +131,6 @@ fn assemble(
                     entity.insert(crate::perks::PerkMachine::new(perk.clone()));
                     entity.with_children(|parent| {
                         for volume in &profile.collision {
-                            let layers = (if volume.contents & 1 != 0 { 1 } else { 0 })
-                                | (if volume.contents & 0x10000 != 0 {
-                                    crate::environment::PLAYER_INGRESS_LAYER
-                                } else {
-                                    0
-                                })
-                                | (if volume.contents & 0x20000 != 0 {
-                                    crate::environment::MONSTER_CLIP_LAYER
-                                } else {
-                                    0
-                                });
-                            let memberships =
-                                crate::assets::world_collision_layers(volume.contents).memberships
-                                    & LayerMask::from(
-                                        crate::assets::RAGDOLL_WORLD_LAYER
-                                            | crate::assets::DYNENT_WORLD_LAYER,
-                                    );
                             if let Some(shape) = Collider::convex_hull(
                                 &volume
                                     .vertices
@@ -160,10 +143,7 @@ fn assemble(
                                     crate::perks::PerkMachineClip,
                                     RigidBody::Static,
                                     shape,
-                                    CollisionLayers::new(
-                                        LayerMask::from(layers) | memberships,
-                                        LayerMask::ALL,
-                                    ),
+                                    crate::assets::world_collision_layers(volume.contents),
                                     Transform::from_translation(Vec3::from_array(volume.position)),
                                 ));
                             }
@@ -737,14 +717,7 @@ pub(crate) fn interact(
                 "zmb_cha_ching",
                 crate::audio::SoundSource::attached(player_entity),
             );
-            crate::audio::voice(
-                &mut commands,
-                &definition,
-                &session,
-                "generic_wall_buy",
-                player_entity,
-                session.kills,
-            );
+            crate::audio::voice(&mut commands, "wall_buy", player_entity);
             None
         }
         Err(error) => Some(error),
