@@ -58,9 +58,9 @@ def stage_near(client, target, label, *, focus=False, radii=(1.4,), view=None,
     probes = []
     for start in range(0, len(points), 64):
         probes.extend(client.rpc("origins/validator/jump_probes", [
-            {"feet": p, "velocity": [0, 0, 0], "aim": p, "view": view}
+            {"feet": p, "velocity": [0, 0, 0], "aim": p, "view": view, "include_tank": True}
             for p in points[start:start+64]])["results"])
-    floors = [p["feet"] for p in probes if p["landed"] is not None and p["clear"] and p["playable"]
+    floors = [p["staging_feet"] for p in probes if p["landed"] is not None and p["clear"] and p["playable"]
               and elevation[0] <= y - p["feet"][1] <= elevation[1] and (view is None or p["view_clear"])]
     if not floors:
         raise ValidationFailure(f"No clear supporting floor beside {label}: {target['position']}")
@@ -245,7 +245,8 @@ def fire_and_ice_parts(client):
         for name in names:
             if state["parts"]["pieces"].get(name, {}).get("state") == "available":
                 collect_part(client, name)
-        if all(client.state()["parts"]["pieces"].get(name, {}).get("state") == "owned" for name in names):
+        state = client.state()
+        if all(state["parts"]["pieces"].get(name, {}).get("state") == "owned" for name in names):
             return result
         if state["round"]["number"] > 15:
             raise ValidationFailure("Fire and snow opportunities did not yield their normal parts by round 15")
