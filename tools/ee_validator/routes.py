@@ -161,12 +161,13 @@ def target_of(state, kind, value=None):
     return matches[0]
 
 
-def use_target(client, target, label):
-    client.input(120, aim=target["position"], label=label)
+def use_target(client, target, label, *, aim=None):
+    aim = target["position"] if aim is None else aim
+    client.input(120, aim=aim, label=label)
     before = client.state()
     if before["interaction"]["target"] != target["entity"]:
         raise ValidationFailure(f"{label}: target is not focused; {before['interaction']}")
-    client.input(12, ("interact",), aim=target["position"], label=label)
+    client.input(12, ("interact",), aim=aim, label=label)
     client.input(1)
     after = client.state()
     if after["interaction"]["accepted"] <= before["interaction"]["accepted"]:
@@ -193,7 +194,9 @@ def generators_tank(client):
                 label="Stage on the floor beside generator one")
     client.input(12)
     target = target_of(client.state(), "generator", generator)
-    state = use_target(client, target, "Generator one: purchase activation")
+    # generators::use_point selects the pump at half of the native use-box height.
+    x, y, z = target["position"]
+    state = use_target(client, target, "Generator one: purchase activation", aim=[x, y + 1.6256, z])
     if state["generators"]["sites"][generator]["state"] != "Capturing":
         raise ValidationFailure("Generator interaction did not begin capture")
     sequence = state["evidence"]["sequence"]
