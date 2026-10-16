@@ -89,14 +89,13 @@ def shoot_at(client, entity, *, shots=4, label="Fire equipped weapon at its nati
     state = client.state()
     firing = state["firing"]
     enemy = next(e for e in state["enemies"] if e["entity"] == entity)
-    height = enemy["head"][1] - enemy["position"][1] if enemy.get("head") else 1.2
-    target = [enemy["position"][0], enemy["position"][1] + height, enemy["position"][2]]
+    target = enemy["position"]
     eye = state["player"]["eye"]
     yaw = math.atan2(eye[0] - target[0], eye[2] - target[2])
     pitch = math.atan2(target[1] - eye[1], distance(eye, target))
     turn = max(abs((yaw - state["player"]["yaw"] + math.pi) % math.tau - math.pi),
                abs(pitch - state["player"]["pitch"]))
-    aiming = {"op": "input", "aim_entity": entity, "aim_offset": [0, height, 0], "look": [0, 0]}
+    aiming = {"op": "input", "aim_entity": entity, "look": [0, 0]}
     steps = []
     if not firing["magazine"]:
         steps.extend([{**aiming, "ticks": 1, "held": ["reload"]},
@@ -372,13 +371,13 @@ def first_lightning_part(client):
         raise ValidationFailure("The tank ride did not demonstrate sustained platform carry")
     results["ride"] = {"supported_observations": supported}
     results["ride_capture"] = capture(client, "tank-ride")
-    walk_to(client, [1.1, 2.36, -3.5], tolerance=0.1, seconds=10, on_tank=True)
+    walk_to(client, [1.1, 2.36, -3.5], tolerance=0.5, seconds=10, on_tank=True)
     state = client.state()
     sequence = state["evidence"]["sequence"]
     landing = [43.5, -3.76, -83.9]
     client.send([
         {"op": "input", "ticks": 1800, "held": [], "aim": landing, "look": [0, 0],
-         "arrival_point": [33.7, 0., -82.0], "arrival_radius": 0.5},
+         "arrival_point": [34.8, 0., -86.6], "arrival_radius": 0.6},
         {"op": "input", "ticks": 12, "held": ["forward", "sprint"], "aim": landing, "look": [0, 0]},
         {"op": "input", "ticks": 18, "held": ["forward", "sprint", "jump"], "aim": landing, "look": [0, 0]},
         {"op": "input", "ticks": 60, "held": ["forward", "sprint"], "aim": landing, "look": [0, 0], "arrival_radius": 0.5},

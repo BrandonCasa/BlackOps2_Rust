@@ -258,7 +258,7 @@ impl SceneClips {
 }
 
 #[derive(Component)]
-struct RestPose(Transform);
+pub(crate) struct RestPose(pub(crate) Transform);
 
 #[derive(SystemParam)]
 pub(crate) struct SceneJoints<'w, 's> {

@@ -7,7 +7,9 @@ use super::animated_models::{AnimatedModel, DynamicLightingOrigin};
 use super::native_effect::{
     ExtractedEffectView, NativeFxFrame, PreparedEffectView, effect_scene_layout,
 };
-use super::native_weapon_view::{NativeModelDrawMatrices, NativeWeaponOwners, draw_constants};
+use super::native_weapon_view::{
+    NativeModelDrawMatrices, NativeWeaponOwners, draw_constants, viewmodel_projection,
+};
 use super::skinning::{PreparedAnimatedModel, PreparedSkin};
 use super::{
     lighting::lighting_lookup_scale,
@@ -20,7 +22,7 @@ use super::{
 use bevy::render::uniform::DynamicUniformIndex;
 use bevy::{
     asset::{RenderAssetUsages, embedded_asset, load_embedded_asset},
-    camera::visibility::{self, VisibilityClass},
+    camera::visibility::{self, RenderLayers, VisibilityClass},
     core_pipeline::core_3d::{Opaque3d, Opaque3dBatchSetKey, Opaque3dBinKey},
     diagnostic::FrameCount,
     ecs::{
@@ -1632,6 +1634,7 @@ pub(crate) struct ExtractedNativeModelSurface {
     placement: MainEntity,
     colors_index: usize,
     visibility: u8,
+    viewmodel: bool,
 }
 
 impl SyncComponent<RenderApp> for NativeModelSurface {
@@ -1642,8 +1645,12 @@ fn extract_model_surfaces(
     mut commands: Commands,
     surfaces: Extract<
         Query<
-            (RenderEntity, &NativeModelSurface),
-            Or<(Changed<NativeModelSurface>, Changed<RenderEntity>)>,
+            (RenderEntity, &NativeModelSurface, Option<&RenderLayers>),
+            Or<(
+                Changed<NativeModelSurface>,
+                Changed<RenderEntity>,
+                Changed<RenderLayers>,
+            )>,
         >,
     >,
     entities: Extract<Query<RenderEntity>>,
@@ -1653,7 +1660,7 @@ fn extract_model_surfaces(
         return;
     }
     let mut extracted = Vec::with_capacity(*previous_len);
-    for (entity, surface) in &surfaces {
+    for (entity, surface, layers) in &surfaces {
         let geometry = match &surface.geometry {
             ModelGeometry::Static(handle) => ExtractedModelGeometry::Static(handle.id()),
             ModelGeometry::Animated {
@@ -1694,6 +1701,7 @@ fn extract_model_surfaces(
                 placement: surface.placement.into(),
                 colors_index: surface.colors_index,
                 visibility: surface.visibility,
+                viewmodel: layers.is_some_and(|layers| layers.intersects(&RenderLayers::layer(1))),
             },
         ));
     }
@@ -3898,7 +3906,7 @@ struct ModelUniforms {
     scripts: DynamicUniformBuffer<NativeModelScriptInputs>,
     draw_matrices: DynamicUniformBuffer<NativeModelDrawMatrices>,
     draw_matrix_offsets: HashMap<(RetainedViewEntity, MainEntity), u32>,
-    scene_offsets: HashMap<RetainedViewEntity, u32>,
+    scene_offsets: HashMap<RetainedViewEntity, [u32; 2]>,
     scripted_scene_offsets: HashMap<RetainedViewEntity, u32>,
     object_offsets: HashMap<(MainEntity, bool), u32>,
     script_offsets: HashMap<MainEntity, u32>,
@@ -4268,18 +4276,28 @@ fn queue_models(
         let Some(visible) = visible.get::<NativeModelSurface>() else {
             continue;
         };
-        let scene_offset = uniforms.scenes.push(&NativeModelScene {
-            world: *scene,
-            lighting_lookup_scale: lighting_lookup_scale(),
+        let scenes = [
+            *scene,
+            NativeWorldScene {
+                view_projection_rows: viewmodel_projection(scene.view_projection_rows),
+                ..*scene
+            },
+        ];
+        let scene_offsets = scenes.map(|world| {
+            uniforms.scenes.push(&NativeModelScene {
+                world,
+                lighting_lookup_scale: lighting_lookup_scale(),
+            })
         });
         uniforms
             .scene_offsets
-            .insert(view.retained_view_entity, scene_offset);
+            .insert(view.retained_view_entity, scene_offsets);
         let queued = queued.entry(view.retained_view_entity).or_default();
         for (&entity, &main_entity) in visible.iter_visible() {
             let Ok((surface, source_object)) = surfaces.get(entity) else {
                 continue;
             };
+            let scene = &scenes[usize::from(surface.viewmodel)];
             if surface.index_count == 0 {
                 continue;
             }
@@ -4427,6 +4445,7 @@ fn queue_models(
                 surface.index_count,
                 32,
                 surface.geometry.instance(),
+                surface.viewmodel,
                 surface.state,
                 surface.pass == NativeWorldPass::EmissiveOpaque
                     || matches!(
@@ -4611,7 +4630,7 @@ fn draw_model<'w>(
         Some((_, scene)),
         Some((_, object)),
         Some((vertices, indices, vertex_offset, true)),
-        Some(&scene_offset),
+        Some(scene_offsets),
         Some(&object_offset),
     ) = (
         &groups.scene,
@@ -4627,6 +4646,7 @@ fn draw_model<'w>(
     else {
         return RenderCommandResult::Skip;
     };
+    let scene_offset = scene_offsets[usize::from(surface.viewmodel)];
     if material.family == NativeModelFamily::ProjectedDecal {
         let Some((depth, frame)) = depth else {
             return RenderCommandResult::Skip;

@@ -1727,6 +1727,7 @@ fn corpses(
             &mut Visibility,
             Option<&ClientRagdollRequested>,
             Option<&ActorCorpse>,
+            Has<ragdoll::PhysicalRagdoll>,
         ),
         (Without<crate::panzer::Panzer>, Without<Player>),
     >,
@@ -1734,7 +1735,7 @@ fn corpses(
 ) {
     let limit = definition.rounds.corpse_limit;
     let mut occupied = vec![None; limit as usize];
-    for (entity, zombie, _, wounds, pose, _, _, corpse) in enemies.iter() {
+    for (entity, zombie, _, wounds, pose, _, _, corpse, _) in enemies.iter() {
         if let Some(corpse) = corpse
             && let Some(enemy) = definition
                 .content
@@ -1759,8 +1760,17 @@ fn corpses(
                     Quat::from_euler(EulerRot::YXZ, player.yaw, player.pitch, 0.) * Vec3::NEG_Z,
                 )
             });
-    for (entity, mut zombie, vitality, wounds, mut pose, mut visibility, ragdoll, corpse) in
-        &mut enemies
+    for (
+        entity,
+        mut zombie,
+        vitality,
+        wounds,
+        mut pose,
+        mut visibility,
+        ragdoll,
+        corpse,
+        physical,
+    ) in &mut enemies
     {
         if corpse.is_some() {
             zombie.elapsed += time.delta_secs();
@@ -1838,7 +1848,9 @@ fn corpses(
                     .map(|note| note.seconds)
             })
             .unwrap_or(duration * 0.35);
-        if let Some(motion) = animation.and_then(|animation| animation.root_motion.as_ref()) {
+        if !physical
+            && let Some(motion) = animation.and_then(|animation| animation.root_motion.as_ref())
+        {
             let start = motion.translation_at(previous.min(death_seconds));
             let end = motion.translation_at(zombie.elapsed.min(death_seconds));
             pose.translation += zombie.combat_rotation

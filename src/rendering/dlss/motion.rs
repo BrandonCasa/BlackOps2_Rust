@@ -131,6 +131,7 @@ impl NativeMotion {
         count: u32,
         stride: u64,
         skin: Option<Entity>,
+        viewmodel: bool,
         state: NativeWorldState,
         reactive: bool,
     ) {
@@ -139,7 +140,18 @@ impl NativeMotion {
         }
         let local = matrix(object.world_rows);
         let absolute = Mat4::from_translation(self.eye) * local;
-        let current = self.unjittered * local;
+        // Match the color/depth draw's first-person projection so recoil inside
+        // the world near plane retains motion and passes the depth coverage test.
+        let projection = |clip: Mat4| {
+            if viewmodel {
+                matrix(crate::rendering::native_weapon_view::viewmodel_projection(
+                    std::array::from_fn(|i| clip.row(i)),
+                ))
+            } else {
+                clip
+            }
+        };
+        let current = projection(self.unjittered) * local;
         let previous = self.histories.insert(
             entity,
             ObjectHistory {
@@ -224,7 +236,7 @@ impl NativeMotion {
             })
         });
         let uniform = self.objects.push(&MotionObject {
-            clip: self.clip * local,
+            clip: projection(self.clip) * local,
             current,
             previous: previous.map_or(current, |previous| previous.clip),
             reactive: Vec4::new(if reactive || fresh { 1. } else { 0. }, 0., 0., 0.),

@@ -1,12 +1,13 @@
 use super::{ActorRig, ClientRagdollRequested, Zombie};
 use crate::{GameState, assets::GameDefinition, origins::content::RagdollJointKind};
 use avian3d::prelude::*;
-use bevy::{ecs::system::SystemParam, prelude::*};
+use bevy::{animation::AnimatedBy, ecs::system::SystemParam, prelude::*};
 use std::collections::HashMap;
 use std::time::Duration;
 
 const CLIENT_PHYSICS_LAYER: u32 = 128;
 const CLIENT_PHYSICS_INTERVAL: Duration = Duration::from_nanos(33_333_333); // 30 Hz
+const RAGDOLL_ACTIVE_SECONDS: f32 = 3.;
 pub(super) fn client_physics_filter() -> SpatialQueryFilter {
     SpatialQueryFilter::from_mask(CLIENT_PHYSICS_LAYER)
 }
@@ -219,6 +220,15 @@ pub(super) struct PhysicalRagdoll {
     // the death animation continues without contact-driven pose changes.
     bodies: Vec<Option<Entity>>,
     seconds: f32,
+    active_seconds: f32,
+}
+
+#[derive(Component)]
+struct EndJointLerp {
+    owner: Entity,
+    start: Transform,
+    base: Transform,
+    seconds: f32,
 }
 
 pub(super) fn plugin(app: &mut App) {
@@ -242,7 +252,8 @@ pub(super) fn plugin(app: &mut App) {
         )
         .add_systems(
             PostUpdate,
-            apply_pose
+            (apply_pose, blend_end_joints)
+                .chain()
                 .in_set(crate::animation::AnimationPoseModifiers)
                 .after(bevy::app::AnimationSystems)
                 .after(PhysicsSystems::Writeback)
@@ -270,7 +281,7 @@ pub(super) fn plugin(app: &mut App) {
         )
         .add_systems(
             PostUpdate,
-            tick.after(apply_pose)
+            tick.after(blend_end_joints)
                 .before(bevy::transform::TransformSystems::Propagate)
                 .run_if(client_scene),
         )
@@ -282,9 +293,9 @@ fn bullets(
     mut events: MessageReader<RagdollBullet>,
     game: Res<GameDefinition>,
     effects: Res<crate::native_fx::Catalog>,
-    actors: Query<(
+    mut actors: Query<(
         &Zombie,
-        &PhysicalRagdoll,
+        &mut PhysicalRagdoll,
         &Transform,
         &crate::hit_regions::Hitboxes,
     )>,
@@ -296,8 +307,8 @@ fn bullets(
             continue;
         };
         let range = delta.length();
-        let Some((zombie, ragdoll, part, hit)) = actors
-            .iter()
+        let Some((zombie, mut ragdoll, part, hit)) = actors
+            .iter_mut()
             .filter_map(|(zombie, ragdoll, pose, boxes)| {
                 boxes
                     .cast_part(pose, event.origin, direction, range)
@@ -344,6 +355,7 @@ fn bullets(
         };
         if let Ok(mut body) = bodies.get_mut(entity) {
             body.apply_force_at_point(direction.as_vec3() * (0.8 * 3. * 0.0254), hit.point);
+            ragdoll.active_seconds = 0.;
         }
     }
 }
@@ -351,7 +363,7 @@ fn bullets(
 fn explosions(
     mut commands: Commands,
     mut events: MessageReader<RagdollExplosion>,
-    actors: Query<(Entity, &PhysicalRagdoll)>,
+    mut actors: Query<(Entity, &mut PhysicalRagdoll)>,
     dying: Query<
         (
             Entity,
@@ -385,8 +397,9 @@ fn explosions(
                     .push(*event);
             }
         }
-        for (_, ragdoll) in &actors {
+        for (_, mut ragdoll) in &mut actors {
             let count = ragdoll.bodies.iter().flatten().count();
+            let mut pushed = false;
             for entity in ragdoll.bodies.iter().flatten() {
                 let Ok((mut body, center)) = bodies.get_mut(*entity) else {
                     continue;
@@ -399,6 +412,10 @@ fn explosions(
                 let jitter =
                     Vec3::new(random.random(), random.random(), random.random()) * 2. - Vec3::ONE;
                 body.apply_linear_impulse_at_point(impulse, center + jitter * 0.0254);
+                pushed = true;
+            }
+            if pushed {
+                ragdoll.active_seconds = 0.;
             }
         }
     }
@@ -409,8 +426,9 @@ fn explosions(
     }
 }
 
-fn capsule(radius: f32, half_length: f32, root: bool, scale: f32) -> (Collider, Vec3) {
-    let center = if root { Vec3::Y } else { Vec3::X } * half_length;
+fn capsule(radius: f32, half_length: f32, scale: f32) -> (Collider, Vec3) {
+    // Every source bone, including the pelvis, extends along its local X axis.
+    let center = Vec3::X * half_length;
     (
         Collider::compound(vec![(
             center,
@@ -487,8 +505,9 @@ fn begin(
         ),
         Without<PhysicalRagdoll>,
     >,
-    rigs: Query<(&ActorRig, &Visibility)>,
+    rigs: Query<(Entity, &ActorRig, &Visibility)>,
     poses: Query<(&Transform, Option<&ChildOf>)>,
+    rest: Query<&crate::animation::RestPose>,
 ) {
     for (owner, zombie, previous, blasts, requested) in &actors {
         if zombie.action != super::EnemyAnimation::Death {
@@ -503,7 +522,7 @@ fn begin(
         else {
             continue;
         };
-        if !rigs.iter().any(|(rig, visibility)| {
+        if !rigs.iter().any(|(_, rig, visibility)| {
             rig.owner == owner && rig.primary && rig.ready && *visibility != Visibility::Hidden
         }) {
             continue;
@@ -514,10 +533,10 @@ fn begin(
             .map(|bone| {
                 let joint = rigs
                     .iter()
-                    .filter(|(rig, visibility)| {
+                    .filter(|(_, rig, visibility)| {
                         rig.owner == owner && rig.ready && **visibility != Visibility::Hidden
                     })
-                    .find_map(|(rig, _)| rig.sockets.get(&bone.joint))?;
+                    .find_map(|(_, rig, _)| rig.sockets.get(&bone.joint))?;
                 let world = animated_world(*joint, &poses)?;
                 if world.determinant() == 0. {
                     return None;
@@ -560,8 +579,7 @@ fn begin(
                 .unwrap_or(sample);
             let (mut velocity, angular_velocity) = sample_velocity(old, sample, elapsed);
             if let Some(blasts) = blasts {
-                let center = pose.translation
-                    + rotation * if index == 0 { Vec3::Y } else { Vec3::X } * half_length;
+                let center = pose.translation + rotation * Vec3::X * half_length;
                 for blast in &blasts.0 {
                     velocity += blast.impulse(center, 18. / count as f32) / bone.mass;
                 }
@@ -575,7 +593,7 @@ fn begin(
                     mask
                 }
             });
-            let (shape, center) = capsule(bone.radius, half_length, index == 0, 1.);
+            let (shape, center) = capsule(bone.radius, half_length, 1.);
             let size = Vec3::new(
                 (half_length + bone.radius) * 2.,
                 bone.radius * 2.,
@@ -628,7 +646,7 @@ fn begin(
                     ActiveCollisionHooks::FILTER_PAIRS,
                 ))
                 .id();
-            let (self_shape, _) = capsule(bone.radius, half_length, index == 0, 1.2);
+            let (self_shape, _) = capsule(bone.radius, half_length, 1.2);
             commands.spawn((
                 ChildOf(entity),
                 self_shape,
@@ -687,30 +705,57 @@ fn begin(
                     ));
                 }
                 RagdollJointKind::Swivel => {
-                    commands.spawn((
-                        RagdollEntity(owner),
-                        crate::gameplay::SessionEntity,
-                        SphericalJoint::new(parent_body, child)
-                            .with_local_anchor1(anchor)
-                            .with_local_anchor2(Vec3::ZERO)
-                            .with_twist_axis(axis)
-                            .with_local_basis1(parent_basis)
-                            .with_twist_limits(first.minimum.max(-1.2), first.maximum.min(1.2)),
-                    ));
-                    for limit in joint.limits.iter().skip(1) {
+                    // These are independent source axes, not several circular
+                    // swing cones around the first axis fighting each other.
+                    for limit in &joint.limits {
                         commands.spawn((
                             RagdollEntity(owner),
                             crate::gameplay::SessionEntity,
                             SphericalJoint::new(parent_body, child)
                                 .with_local_anchor1(anchor)
                                 .with_local_anchor2(Vec3::ZERO)
-                                .with_twist_axis(axis)
+                                .with_twist_axis(Vec3::from_array(limit.axis))
                                 .with_local_basis1(parent_basis)
-                                .with_swing_limits(0., (limit.maximum - limit.minimum) * 0.5),
+                                .with_twist_limits(limit.minimum, limit.maximum),
                         ));
                     }
                 }
             }
+        }
+        for (entity, rig, _) in &rigs {
+            if rig.owner != owner || !rig.ready {
+                continue;
+            }
+            if rig.socket.is_none() {
+                for bone in &profile.baselerp {
+                    let Some(&joint) = rig.sockets.get(&bone.joint) else {
+                        continue;
+                    };
+                    let (Ok((pose, _)), Ok(base)) = (poses.get(joint), rest.get(joint)) else {
+                        continue;
+                    };
+                    // Blend in the real skeleton parent's frame. The exported
+                    // root-relative end pose must not pull a hand off its arm.
+                    commands.entity(joint).insert(EndJointLerp {
+                        owner,
+                        start: *pose,
+                        base: base.0,
+                        seconds: bone.seconds,
+                    });
+                }
+            }
+            // Physics takes ownership of the sampled skeleton. Retire both
+            // animation playback and the per-frame bind-pose restoration.
+            for &joint in rig.sockets.values() {
+                commands
+                    .entity(joint)
+                    .remove::<(AnimatedBy, crate::animation::RestPose)>();
+            }
+            commands.entity(entity).remove::<(
+                AnimationPlayer,
+                AnimationGraphHandle,
+                crate::animation::SceneClips,
+            )>();
         }
         commands
             .entity(owner)
@@ -718,6 +763,7 @@ fn begin(
             .insert(PhysicalRagdoll {
                 bodies,
                 seconds: 0.,
+                active_seconds: 0.,
             });
     }
 }
@@ -726,7 +772,7 @@ fn apply_pose(
     game: Res<GameDefinition>,
     actors: Query<(&Zombie, &PhysicalRagdoll)>,
     rigs: Query<&ActorRig>,
-    body_poses: Query<(&Position, &Rotation)>,
+    body_poses: Query<(&Position, &Rotation, Has<Sleeping>)>,
     mut joints: ParamSet<(Query<(&Transform, Option<&ChildOf>)>, Query<&mut Transform>)>,
 ) {
     // Imported joints use CoD inches; physical bone poses use Y-up metres.
@@ -743,6 +789,14 @@ fn apply_pose(
         let Ok((zombie, ragdoll)) = actors.get(rig.owner) else {
             continue;
         };
+        if ragdoll
+            .bodies
+            .iter()
+            .flatten()
+            .all(|&body| body_poses.get(body).is_ok_and(|(_, _, sleeping)| sleeping))
+        {
+            continue;
+        }
         let Some(profile) = game
             .content
             .enemies
@@ -752,13 +806,13 @@ fn apply_pose(
         else {
             continue;
         };
-        let mut world_poses = profile
+        let world_poses = profile
             .bones
             .iter()
             .zip(&ragdoll.bodies)
             .filter_map(|(bone, body)| {
                 let entity = *rig.sockets.get(&bone.joint)?;
-                let (position, rotation) = body_poses.get((*body)?).ok()?;
+                let (position, rotation, _) = body_poses.get((*body)?).ok()?;
                 let mirror = if bone.mirror {
                     Quat::from_rotation_y(std::f32::consts::PI)
                 } else {
@@ -771,48 +825,6 @@ fn apply_pose(
             })
             .collect::<HashMap<_, _>>();
         let poses = joints.p0();
-        for bone in &profile.baselerp {
-            let Some(&entity) = rig.sockets.get(&bone.joint) else {
-                continue;
-            };
-            let Some(&parent) = rig.sockets.get(&profile.bones[bone.bone].joint) else {
-                continue;
-            };
-            let (Some(parent_world), Some(animated_parent), Some(animated_bone)) = (
-                world_poses.get(&parent),
-                animated_world(parent, &poses),
-                animated_world(entity, &poses),
-            ) else {
-                continue;
-            };
-            // Keep severed end joints collapsed instead of decomposing their
-            // singular world transform and writing NaNs into the skeleton.
-            if animated_bone.determinant() == 0. {
-                continue;
-            }
-            let current = Transform::from_matrix(
-                source_frame * animated_parent.inverse() * animated_bone * source_frame.inverse(),
-            );
-            let base = Transform::from_matrix(Mat4::from_cols_array(&bone.base));
-            let factor = if current.translation.length() <= 400. * 0.0254 {
-                (ragdoll.seconds / bone.seconds).clamp(0., 1.)
-            } else {
-                1.
-            };
-            let quaternion = Vec4::from_array(current.rotation.to_array())
-                .lerp(Vec4::from_array(base.rotation.to_array()), factor)
-                .normalize_or_zero();
-            let rotation = if quaternion == Vec4::ZERO {
-                Quat::IDENTITY
-            } else {
-                Quat::from_array(quaternion.to_array())
-            };
-            let relative = Mat4::from_rotation_translation(
-                rotation,
-                current.translation.lerp(base.translation, factor),
-            );
-            world_poses.insert(entity, *parent_world * relative);
-        }
         for (&entity, &world) in &world_poses {
             let Ok((pose, Some(parent))) = poses.get(entity) else {
                 continue;
@@ -839,15 +851,50 @@ fn apply_pose(
             if ancestor.determinant() == 0. {
                 continue;
             }
+            let local = Transform::from_matrix(ancestor.inverse() * world * source_frame);
+            // Only the pelvis translates. Positional constraint error in the
+            // solver must never change the skeleton's limb lengths or scales.
             writes.push((
                 entity,
-                Transform::from_matrix(ancestor.inverse() * world * source_frame),
+                Transform {
+                    translation: if rig.sockets.get(&profile.bones[0].joint) == Some(&entity) {
+                        local.translation
+                    } else {
+                        pose.translation
+                    },
+                    rotation: local.rotation,
+                    scale: pose.scale,
+                },
             ));
         }
     }
     for (entity, pose) in writes {
         if let Ok(mut joint) = joints.p1().get_mut(entity) {
             *joint = pose;
+        }
+    }
+}
+
+fn blend_end_joints(
+    mut commands: Commands,
+    actors: Query<&PhysicalRagdoll>,
+    mut joints: Query<(Entity, &EndJointLerp, &mut Transform)>,
+) {
+    for (entity, blend, mut pose) in &mut joints {
+        let Ok(ragdoll) = actors.get(blend.owner) else {
+            continue;
+        };
+        let factor = if blend.seconds > 0. {
+            (ragdoll.seconds / blend.seconds).clamp(0., 1.)
+        } else {
+            1.
+        };
+        if !pose.scale.cmpeq(Vec3::ZERO).any() {
+            pose.translation = blend.start.translation.lerp(blend.base.translation, factor);
+            pose.rotation = blend.start.rotation.slerp(blend.base.rotation, factor);
+        }
+        if factor == 1. {
+            commands.entity(entity).remove::<EndJointLerp>();
         }
     }
 }
@@ -923,9 +970,30 @@ fn joint_friction(
     }
 }
 
-fn tick(clock: Res<ClientPhysicsClock>, mut actors: Query<&mut PhysicalRagdoll>) {
+fn tick(
+    mut commands: Commands,
+    clock: Res<ClientPhysicsClock>,
+    mut actors: Query<&mut PhysicalRagdoll>,
+    bodies: Query<(), (With<RigidBody>, Without<Sleeping>)>,
+) {
     for mut ragdoll in &mut actors {
         ragdoll.seconds += clock.delta.as_secs_f32();
+        if ragdoll
+            .bodies
+            .iter()
+            .flatten()
+            .any(|&body| bodies.contains(body))
+        {
+            ragdoll.active_seconds += clock.delta.as_secs_f32();
+            if ragdoll.active_seconds >= RAGDOLL_ACTIVE_SECONDS {
+                for &body in ragdoll.bodies.iter().flatten() {
+                    commands.queue(SleepBody(body));
+                }
+                ragdoll.active_seconds = 0.;
+            }
+        } else {
+            ragdoll.active_seconds = 0.;
+        }
     }
 }
 fn cleanup(
@@ -984,6 +1052,7 @@ mod tests {
             Duration::from_secs_f32(1. / 60.),
         ))
         .init_resource::<super::super::gibs::GibCounter>()
+        .init_resource::<ClientPhysicsClock>()
         .add_message::<RagdollExplosion>();
         app.finish();
         app.cleanup();
@@ -1003,6 +1072,7 @@ mod tests {
             app.world_mut().spawn(PhysicalRagdoll {
                 bodies: vec![Some(part)],
                 seconds: 10.,
+                active_seconds: RAGDOLL_ACTIVE_SECONDS,
             });
             parts.push(part);
         }
@@ -1018,6 +1088,7 @@ mod tests {
         app.world_mut().spawn(PhysicalRagdoll {
             bodies: vec![Some(blocked)],
             seconds: 10.,
+            active_seconds: RAGDOLL_ACTIVE_SECONDS,
         });
         app.world_mut().spawn((
             RigidBody::Static,
@@ -1067,14 +1138,107 @@ mod tests {
             let velocity = app.world().get::<LinearVelocity>(part).unwrap();
             assert!(velocity.x > 0. && velocity.y > 0.);
         }
+        let mut ragdolls = app.world_mut().query::<&PhysicalRagdoll>();
+        for ragdoll in ragdolls.iter(app.world()) {
+            assert_eq!(
+                ragdoll.active_seconds,
+                if ragdoll.bodies[0] == Some(blocked) {
+                    RAGDOLL_ACTIVE_SECONDS
+                } else {
+                    0.
+                }
+            );
+        }
         app.update();
-        for part in parts {
+        for &part in &parts {
             assert!(!app.world().entity(part).contains::<Sleeping>());
             assert_eq!(
                 *app.world().get::<RigidBody>(part).unwrap(),
                 RigidBody::Dynamic
             );
         }
+        app.world_mut().resource_mut::<ClientPhysicsClock>().delta =
+            Duration::from_secs_f32(RAGDOLL_ACTIVE_SECONDS * 0.5);
+        app.world_mut().run_system_cached(tick).unwrap();
+        for &part in &parts {
+            assert!(!app.world().entity(part).contains::<Sleeping>());
+        }
+        app.world_mut().run_system_cached(tick).unwrap();
+        for &part in &parts {
+            assert!(app.world().entity(part).contains::<Sleeping>());
+        }
+    }
+
+    #[test]
+    fn end_joints_follow_their_limb_and_finish_without_reviving_severed_parts() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, TransformPlugin));
+        let owner = app
+            .world_mut()
+            .spawn(PhysicalRagdoll {
+                bodies: Vec::new(),
+                seconds: 1.,
+                active_seconds: 0.,
+            })
+            .id();
+        let parent = app.world_mut().spawn(Transform::IDENTITY).id();
+        let start =
+            Transform::from_translation(Vec3::X * 0.3).with_rotation(Quat::from_rotation_y(0.8));
+        let base = Transform::from_translation(start.translation);
+        let blend = || EndJointLerp {
+            owner,
+            start,
+            base,
+            seconds: 2.,
+        };
+        let hand = app
+            .world_mut()
+            .spawn((ChildOf(parent), start, blend()))
+            .id();
+        let severed = app
+            .world_mut()
+            .spawn((ChildOf(parent), start.with_scale(Vec3::ZERO), blend()))
+            .id();
+        for translation in [Vec3::ZERO, Vec3::new(20., -30., 40.)] {
+            *app.world_mut().get_mut::<Transform>(parent).unwrap() =
+                Transform::from_translation(translation).with_rotation(Quat::from_rotation_z(1.));
+            app.world_mut().run_system_cached(blend_end_joints).unwrap();
+            app.update();
+            let parent_world = app.world().get::<GlobalTransform>(parent).unwrap();
+            let hand_world = app.world().get::<GlobalTransform>(hand).unwrap();
+            assert!(
+                (hand_world
+                    .translation()
+                    .distance(parent_world.translation())
+                    - 0.3)
+                    .abs()
+                    < 1e-5
+            );
+            let pose = app.world().get::<Transform>(hand).unwrap();
+            assert!(pose.rotation.abs_diff_eq(Quat::from_rotation_y(0.4), 1e-5));
+            assert_eq!(
+                app.world().get::<Transform>(severed).unwrap().scale,
+                Vec3::ZERO
+            );
+        }
+        app.world_mut()
+            .get_mut::<PhysicalRagdoll>(owner)
+            .unwrap()
+            .seconds = 2.;
+        app.world_mut().run_system_cached(blend_end_joints).unwrap();
+        assert!(
+            app.world()
+                .get::<Transform>(hand)
+                .unwrap()
+                .rotation
+                .abs_diff_eq(base.rotation, 1e-5)
+        );
+        assert!(!app.world().entity(hand).contains::<EndJointLerp>());
+        assert!(!app.world().entity(severed).contains::<EndJointLerp>());
+        assert_eq!(
+            app.world().get::<Transform>(severed).unwrap().scale,
+            Vec3::ZERO
+        );
     }
 
     #[test]

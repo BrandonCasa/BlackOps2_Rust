@@ -20,6 +20,15 @@ pub(crate) struct NativeWeaponInputs {
 pub(crate) struct NativeWeaponViewOwner(pub Entity);
 #[derive(Resource, Default)]
 pub(crate) struct NativeWeaponOwners(pub HashMap<MainEntity, NativeWeaponInputs>);
+
+/// Native first-person depth hack: 0046b040 replaces the projection's near
+/// coefficient with 0.1 inches; 0046b7b0 reserves depth [63/64, 1] for it.
+/// Fold the viewport mapping into clip Z so every draw keeps the same viewport.
+pub(crate) fn viewmodel_projection(mut rows: [Vec4; 4]) -> [Vec4; 4] {
+    rows[2] = rows[3] * (63. / 64.) + Vec4::W * (0.1 / 64.);
+    rows
+}
+
 #[derive(Clone, Copy, ShaderType)]
 pub(crate) struct NativeModelDrawMatrices {
     pub world_view: [Vec4; 4],
@@ -151,6 +160,33 @@ pub(crate) fn draw_constants(
 #[cfg(test)]
 mod model_matrix_tests {
     use super::*;
+
+    #[test]
+    fn first_person_projection_preserves_recoil_inside_the_world_near_plane() {
+        // Eye-relative source inches, with a four-inch reverse-Z world near plane.
+        let world = [Vec4::Y, Vec4::Z, Vec4::W * 4., Vec4::X];
+        let weapon = viewmodel_projection(world);
+        assert_eq!(weapon[0], world[0]);
+        assert_eq!(weapon[1], world[1]);
+        assert_eq!(weapon[3], world[3]);
+        let project = |rows: [Vec4; 4], depth| {
+            let point = Vec4::new(depth, 0.25, -0.5, 1.);
+            Vec4::from_array(rows.map(|row| row.dot(point)))
+        };
+        // The MP40 receiver reaches 2.17 inches from the eye during firing.
+        for depth in [0.1, 2.17, 4., 12., 100.] {
+            let clip = project(weapon, depth);
+            assert!(clip.z <= clip.w);
+            assert!(clip.z / clip.w >= 63. / 64.);
+            assert!(clip.truncate().truncate().abs_diff_eq(
+                project(world, depth).truncate().truncate(),
+                1e-6,
+            ));
+        }
+        assert!(project(world, 2.17).z > project(world, 2.17).w);
+        assert!(project(weapon, 0.05).z > project(weapon, 0.05).w);
+        assert!(project(weapon, 2.17).z / 2.17 > project(weapon, 12.).z / 12.);
+    }
 
     #[test]
     fn model_draw_matrices_reconstruct_rotated_scaled_decal_local_position() {

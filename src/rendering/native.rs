@@ -2223,6 +2223,7 @@ pub(crate) fn queue_native_world(
                 surface.index_count,
                 geometry.vertex_stride,
                 None,
+                false,
                 surface.state,
                 surface.pass == NativeWorldPass::EmissiveOpaque
                     || matches!(
