@@ -3,7 +3,7 @@ use crate::{
     access::ZoneAccess,
     damage::{DamageQueue, Impact, ImpactSource},
     life::{LifeState, Vitality},
-    origins::{DamageCategory, ZoneId},
+    origins::DamageCategory,
     player::Player,
     weapons::HitRegion,
 };
@@ -20,7 +20,6 @@ pub struct DamageVolume {
 
 #[derive(Component)]
 pub enum BoundaryVolume {
-    Playable(ZoneId),
     Safe,
     Lethal,
 }
@@ -28,9 +27,11 @@ pub(crate) type BoundarySites<'w, 's> = Query<
     'w,
     's,
     (
-        &'static BoundaryVolume,
+        Option<&'static BoundaryVolume>,
         Option<&'static super::triggers::TriggerState>,
+        Option<&'static crate::access::ZoneSensor>,
     ),
+    Or<(With<BoundaryVolume>, With<crate::access::ZoneSensor>)>,
 >;
 
 pub(crate) fn playable(
@@ -45,14 +46,14 @@ pub(crate) fn playable(
         shape,
         pose.translation,
         pose.rotation,
-        &SpatialQueryFilter::from_mask(TRIGGER_LAYER),
+        &SpatialQueryFilter::from_mask(TRIGGER_LAYER | crate::access::ZONE_SENSOR_LAYER),
     ) {
         match volumes.get(entity) {
-            Ok((_, Some(state))) if !state.enabled => (),
-            Ok((BoundaryVolume::Safe, _)) => safe = true,
-            Ok((BoundaryVolume::Lethal, _)) => lethal = true,
-            Ok((BoundaryVolume::Playable(zone), _)) => playable |= access.reachable.contains(zone),
-            Err(_) => (),
+            Ok((_, Some(state), _)) if !state.enabled => (),
+            Ok((Some(BoundaryVolume::Safe), _, _)) => safe = true,
+            Ok((Some(BoundaryVolume::Lethal), _, _)) => lethal = true,
+            Ok((_, _, Some(sensor))) => playable |= access.reachable.contains(&sensor.zone),
+            _ => (),
         }
     }
     safe || playable && !lethal
@@ -77,11 +78,6 @@ impl Default for BoundaryMonitor {
 
 pub(super) fn boundary(trigger: &super::triggers::TriggerDefinition) -> Option<BoundaryVolume> {
     match trigger.source.get("script_noteworthy").map(String::as_str) {
-        Some("player_volume") => trigger
-            .source
-            .get("targetname")
-            .and_then(|name| name.strip_prefix("zone_"))
-            .map(|name| BoundaryVolume::Playable(ZoneId(format!("zone.{name}")))),
         Some("life_brush") => Some(BoundaryVolume::Safe),
         Some("kill_brush") => Some(BoundaryVolume::Lethal),
         _ => None,
@@ -248,9 +244,14 @@ fn playable_staging_obeys_reachable_zones_and_safe_lethal_priority() {
             Transform::default(),
         )
     };
-    let zone = ZoneId("zone.crypt".into());
-    app.world_mut()
-        .spawn(volume(BoundaryVolume::Playable(zone.clone())));
+    let zone = crate::origins::ZoneId("zone.ug_bottom_zone".into());
+    app.world_mut().spawn((
+        crate::access::ZoneSensor { zone: zone.clone() },
+        Collider::cuboid(10., 10., 10.),
+        Sensor,
+        Transform::default(),
+        CollisionLayers::new(crate::access::ZONE_SENSOR_LAYER, LayerMask::NONE),
+    ));
     app.finish();
     app.cleanup();
     app.update();

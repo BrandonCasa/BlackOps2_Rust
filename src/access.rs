@@ -333,10 +333,10 @@ fn clear_removed_player_contacts(
         contacts.0.clear();
     }
 }
-const ZONE_SENSOR_LAYER: u32 = 8;
+pub(crate) const ZONE_SENSOR_LAYER: u32 = 8;
 #[derive(Component)]
-struct ZoneSensor {
-    zone: ZoneId,
+pub(crate) struct ZoneSensor {
+    pub(crate) zone: ZoneId,
 }
 fn locate(
     query: SpatialQuery,

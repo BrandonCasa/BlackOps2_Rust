@@ -2348,7 +2348,7 @@ fn replace_distant(
     >,
     players: Query<(Entity, &Player, &Transform), Without<Zombie>>,
     query: SpatialQuery,
-    volumes: Query<&crate::environment::hazards::BoundaryVolume>,
+    volumes: Query<&crate::access::ZoneSensor>,
     mut session: ResMut<crate::gameplay::Session>,
     definition: Res<GameDefinition>,
     mut barriers: ResMut<crate::barriers::Barriers>,
@@ -2374,10 +2374,10 @@ fn replace_distant(
     evidence.distance_checks += 1;
     let tunnel = query.shape_intersections(
         &Collider::sphere(0.03), body.translation - Vec3::Y * player.height * 0.5,
-        Quat::IDENTITY, &SpatialQueryFilter::from_mask(crate::environment::triggers::TRIGGER_LAYER),
+        Quat::IDENTITY, &SpatialQueryFilter::from_mask(crate::access::ZONE_SENSOR_LAYER),
     ).into_iter().any(|entity| matches!(volumes.get(entity),
-        Ok(crate::environment::hazards::BoundaryVolume::Playable(zone))
-        if matches!(zone.0.as_str(), "zone.air_stairs" | "zone.bolt_stairs" | "zone.fire_stairs" | "zone.ice_stairs")));
+        Ok(sensor)
+        if matches!(sensor.zone.0.as_str(), "zone.air_stairs" | "zone.bolt_stairs" | "zone.fire_stairs" | "zone.ice_stairs")));
     let fov = crate::rendering::BASE_FOV_DEGREES.to_radians();
     let forward = Quat::from_euler(EulerRot::YXZ, player.yaw, player.pitch, 0.) * Vec3::NEG_Z;
     let origin = body.translation - Vec3::Y * player.height * 0.5;

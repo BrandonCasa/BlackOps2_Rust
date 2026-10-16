@@ -165,10 +165,6 @@ fn volume_center(volume: &VolumeDefinition) -> Vec3 {
             / volume.vertices.len() as f32
 }
 
-
-
-
-
 #[derive(Component)]
 pub struct MapTrigger(pub String);
 
@@ -181,6 +177,14 @@ pub(super) fn spawn(
         return;
     }
     for trigger in &game.environment.triggers {
+        // The access owner already creates the authoritative zone sensors.
+        if trigger
+            .source
+            .get("script_noteworthy")
+            .is_some_and(|n| n == "player_volume")
+        {
+            continue;
+        }
         if game
             .environment
             .crafting_benches

@@ -502,9 +502,9 @@ fn bombard(
     spatial: SpatialQuery,
     volumes: Query<(
         &crate::environment::triggers::MapTrigger,
-        Option<&crate::environment::hazards::BoundaryVolume>,
         &crate::environment::triggers::TriggerState,
     )>,
+    zones: Query<&crate::access::ZoneSensor>,
     mut progress: ResMut<TabletProgress>,
     mut grenades: Query<
         (
@@ -537,18 +537,17 @@ fn bombard(
                 &Collider::sphere(0.1),
                 pose.translation,
                 Quat::IDENTITY,
-                &SpatialQueryFilter::from_mask(crate::environment::triggers::TRIGGER_LAYER),
+                &SpatialQueryFilter::from_mask(
+                    crate::environment::triggers::TRIGGER_LAYER | crate::access::ZONE_SENSOR_LAYER,
+                ),
             );
-            let valid = touching
-                .iter()
-                .filter_map(|e| volumes.get(*e).ok())
-                .filter(|(_, _, state)| state.enabled)
-                .any(|(volume, boundary, _)| match boundary {
-                    Some(crate::environment::hazards::BoundaryVolume::Playable(zone)) => {
-                        access.reachable.contains(zone)
-                    }
-                    _ => {
-                        quest.enabled
+            let valid = touching.iter().any(|entity| {
+                zones
+                    .get(*entity)
+                    .is_ok_and(|zone| access.reachable.contains(&zone.zone))
+                    || volumes.get(*entity).is_ok_and(|(volume, state)| {
+                        state.enabled
+                            && quest.enabled
                             && quest.stage == crate::quests::QuestStage::BreakSeal
                             && game
                                 .environment
@@ -560,8 +559,8 @@ fn bombard(
                                         .get("targetname")
                                         .is_some_and(|n| n == "fire_link_damage")
                                 })
-                    }
-                });
+                    })
+            });
             if !valid {
                 grenade.lure_active = false;
                 grenade.remaining = 100.;

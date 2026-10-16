@@ -329,7 +329,7 @@ fn drop_powerups(
     players: Query<Entity, With<Player>>,
     spatial: SpatialQuery,
     server: Res<AssetServer>,
-    volumes: Query<&crate::environment::hazards::BoundaryVolume>,
+    zones: Query<&crate::access::ZoneSensor>,
 ) {
     if drops.round != session.round {
         drops.round = session.round;
@@ -380,15 +380,10 @@ fn drop_powerups(
         if !spatial
             .point_intersections(
                 position,
-                &SpatialQueryFilter::from_mask(crate::environment::triggers::TRIGGER_LAYER),
+                &SpatialQueryFilter::from_mask(crate::access::ZONE_SENSOR_LAYER),
             )
             .iter()
-            .any(|e| {
-                matches!(
-                    volumes.get(*e),
-                    Ok(crate::environment::hazards::BoundaryVolume::Playable(_))
-                )
-            })
+            .any(|e| zones.contains(*e))
         {
             continue;
         }

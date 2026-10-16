@@ -274,6 +274,11 @@ pub(crate) fn bind(
                 }
             }));
         }
+        // Player volumes belong to access::ZoneSensor; retain map triggers only
+        // for the separate native activation callbacks.
+        if activation.is_none() {
+            continue;
+        }
         if let Some(source) = activation {
             activations.push(TriggerActivationDefinition {
                 trigger: id.clone(),
@@ -317,9 +322,16 @@ pub(crate) fn bind(
         }
     }
     // Preserve the recorded non-spatial owner for native nodes outside player volumes.
-    let unassigned = game.content.zones.iter().find(|zone| zone.id.0 == "zone.unassigned").cloned();
+    let unassigned = game
+        .content
+        .zones
+        .iter()
+        .find(|zone| zone.id.0 == "zone.unassigned")
+        .cloned();
     game.content.zones = authored.zones;
-    if let Some(zone) = unassigned { game.content.zones.push(zone); }
+    if let Some(zone) = unassigned {
+        game.content.zones.push(zone);
+    }
     game.content.zone_connections = authored.zone_connections;
     game.access.flag_links = authored.flag_links;
     game.environment.triggers.extend(triggers);
@@ -331,8 +343,9 @@ pub(crate) fn bind(
         spawners: Vec<crate::access::ActorSpawnerDefinition>,
         entrances: Vec<crate::access::SpawnEntranceDefinition>,
     }
-    let source: SourceSpawns = serde_json::from_str(include_str!("../../gameplay/origins/access_spawns.json"))
-        .map_err(|error| format!("Invalid source-authored spawn bindings: {error}"))?;
+    let source: SourceSpawns =
+        serde_json::from_str(include_str!("../../gameplay/origins/access_spawns.json"))
+            .map_err(|error| format!("Invalid source-authored spawn bindings: {error}"))?;
     game.access.spawners = source.spawners;
     game.access.entrances = source.entrances;
     Ok(())
@@ -357,7 +370,11 @@ mod tests {
         assert!(!tunnel.rising);
         assert!((tunnel.yaw - 300_f32.to_radians()).abs() < 0.0001);
         assert_eq!(
-            game.access.spawns.iter().filter(|spawn| spawn.find_flesh).count(),
+            game.access
+                .spawns
+                .iter()
+                .filter(|spawn| spawn.find_flesh)
+                .count(),
             305
         );
         assert_eq!(game.access.spawns.len(), 338);
