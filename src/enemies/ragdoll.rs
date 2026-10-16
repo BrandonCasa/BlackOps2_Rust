@@ -6,26 +6,38 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 const CLIENT_PHYSICS_LAYER: u32 = 128;
+const CLIENT_PHYSICS_INTERVAL: Duration = Duration::from_nanos(33_333_333); // 30 Hz
 pub(super) fn client_physics_filter() -> SpatialQueryFilter {
     SpatialQueryFilter::from_mask(CLIENT_PHYSICS_LAYER)
 }
 #[derive(Resource, Default)]
 struct ClientPhysicsClock {
-    previous: Option<i32>,
+    previous: Option<Duration>,
+    pending: Duration,
     delta: Duration,
 }
 impl ClientPhysicsClock {
-    fn advance(&mut self, milliseconds: Option<i32>, active: bool, paused: bool) -> Duration {
+    fn advance(&mut self, elapsed: Option<Duration>, active: bool, paused: bool) -> Duration {
         self.delta = Duration::ZERO;
         if !active {
             self.previous = None;
+            self.pending = Duration::ZERO;
         } else if paused {
-            self.previous = milliseconds;
-        } else if let Some(milliseconds) = milliseconds {
-            let elapsed = milliseconds - self.previous.unwrap_or(0);
-            self.previous = Some(milliseconds);
-            if elapsed != 0 {
-                self.delta = Duration::from_millis(elapsed.clamp(1, 100) as u64);
+            self.previous = elapsed;
+            self.pending = Duration::ZERO;
+        } else if let Some(elapsed) = elapsed {
+            let previous = self.previous.unwrap_or_default();
+            self.previous = Some(elapsed);
+            if elapsed < previous {
+                self.pending = Duration::ZERO;
+            } else {
+                self.pending += (elapsed - previous).min(Duration::from_millis(100));
+                // Keep fractional ticks so 60/120 Hz rendering still yields 30 Hz
+                // physics. Combine overdue ticks into one step; never catch up
+                // with multiple simulations in the same rendered frame.
+                let ticks = (self.pending.as_nanos() / CLIENT_PHYSICS_INTERVAL.as_nanos()) as u32;
+                self.delta = CLIENT_PHYSICS_INTERVAL * ticks;
+                self.pending -= self.delta;
             }
         }
         self.delta
@@ -58,7 +70,7 @@ fn client_clock(
             | GameState::Ending
     );
     let delta = clock.advance(
-        Some(source.milliseconds(&time)),
+        Some(source.elapsed(&time)),
         active,
         **state == GameState::Paused,
     );
@@ -182,15 +194,9 @@ pub(super) fn dynamic_piece(owner: Entity) -> impl Bundle {
     )
 }
 #[derive(Component)]
-struct PendingRagdoll {
-    poses: Vec<Option<Transform>>,
-}
-#[derive(Component)]
-struct RejectedRagdoll;
-#[derive(Component)]
 pub(super) struct PhysicalRagdoll {
-    // Avian sleeps resting joint islands and wakes them on impulses or contact.
-    // Keep the bodies dynamic so later impacts can move the whole corpse.
+    // Only the authored cue or a blast creates physics bodies. Until then,
+    // the death animation continues without contact-driven pose changes.
     bodies: Vec<Option<Entity>>,
     seconds: f32,
 }
@@ -207,7 +213,11 @@ pub(super) fn plugin(app: &mut App) {
         .add_systems(
             PostUpdate,
             begin
-                .after(bevy::transform::TransformSystems::Propagate)
+                .after(PhysicsSystems::Writeback)
+                .after(ClientPhysicsEffects)
+                .after(super::wounded_joints)
+                .in_set(crate::animation::AnimationPoseModifiers)
+                .before(apply_pose)
                 .run_if(client_scene),
         )
         .add_systems(
@@ -329,11 +339,7 @@ fn explosions(
             &Transform,
             Option<&DeathBlasts>,
         ),
-        (
-            With<Zombie>,
-            Without<PhysicalRagdoll>,
-            Without<RejectedRagdoll>,
-        ),
+        (With<Zombie>, Without<PhysicalRagdoll>),
     >,
     targets: Query<(), With<crate::life::Vitality>>,
     query: SpatialQuery,
@@ -395,74 +401,6 @@ fn capsule(radius: f32, half_length: f32, root: bool, scale: f32) -> (Collider, 
     )
 }
 
-fn initial_pose(
-    profile: &crate::origins::content::EnemyRagdoll,
-    snapshot: &[Option<Transform>],
-    trace: impl Fn(Vec3, Vec3) -> (bool, f32),
-) -> Option<Vec<Option<Transform>>> {
-    let root = snapshot.first().copied().flatten()?.translation;
-    let mut placed = snapshot.to_vec();
-    for (index, bone) in profile.bones.iter().enumerate() {
-        let Some(pose) = snapshot[index] else {
-            continue;
-        };
-        let rotation = pose.rotation
-            * if bone.mirror {
-                Quat::from_rotation_y(std::f32::consts::PI)
-            } else {
-                Quat::IDENTITY
-            };
-        let length = bone.half_length * 2. - if index == 3 { 4. * 0.0254 } else { 0. };
-        if index == 0 {
-            let end = pose.translation + rotation * Vec3::X * length;
-            let forward = trace(pose.translation, end);
-            if forward.0 {
-                if trace(end, pose.translation).0 {
-                    return None;
-                }
-            } else if forward.1 != 1. && trace(end, pose.translation).1 != 1. {
-                return None;
-            }
-        } else {
-            let end = pose.translation + rotation * Vec3::X * (length * 0.5);
-            let (start_solid, fraction) = trace(root, end);
-            if start_solid {
-                return None;
-            }
-            if fraction < 1. {
-                placed[index].as_mut()?.translation = root + (end - root) * (fraction * 0.8);
-            }
-        }
-    }
-    // An unobstructed skeleton already is the physical starting pose. Pulling
-    // every bone into a 10-inch sphere collapses it before the first solve.
-    // Only the obstruction correction above may move a sampled bone.
-    Some(placed)
-}
-
-pub(crate) fn terrain_fraction(
-    shape: &Collider,
-    pose: Transform,
-    start: Vec3,
-    end: Vec3,
-) -> Option<f32> {
-    let delta = end - start;
-    let length = delta.length();
-    let direction = delta.try_normalize()?;
-    let inverse = pose.rotation.inverse();
-    let ray =
-        avian3d::parry::query::Ray::new(inverse * (start - pose.translation), inverse * direction);
-    shape
-        .shape_scaled()
-        .as_trimesh()?
-        .cast_local_ray_with_culling(
-            &ray,
-            length,
-            avian3d::parry::query::RayCullingMode::IgnoreFrontfaces,
-        )
-        .map(|hit| hit.time_of_impact / length)
-}
-
 fn bone_pose(pose: &GlobalTransform) -> Option<Transform> {
     // Severed limbs and their descendants are hidden with zero scale. They
     // have no physical pose: decomposing that matrix produces a NaN rotation.
@@ -479,110 +417,110 @@ fn bone_pose(pose: &GlobalTransform) -> Option<Transform> {
     ))
 }
 
+fn animated_world(
+    mut entity: Entity,
+    poses: &Query<(&Transform, Option<&ChildOf>)>,
+) -> Option<Mat4> {
+    let mut world = Mat4::IDENTITY;
+    loop {
+        let (pose, parent) = poses.get(entity).ok()?;
+        world = pose.to_matrix() * world;
+        let Some(parent) = parent else {
+            return Some(world);
+        };
+        entity = parent.parent();
+    }
+}
+
+fn sample_velocity(old: Transform, pose: Transform, elapsed: f32) -> (Vec3, Vec3) {
+    if elapsed <= 0.000001 {
+        return (Vec3::ZERO, Vec3::ZERO);
+    }
+    let mut linear =
+        ((pose.translation - old.translation) / elapsed).clamp_length_max(600. * 0.0254);
+    linear.y = linear.y.min(50. * 0.0254);
+    let mut delta = pose.rotation * old.rotation.inverse();
+    if delta.w < 0. {
+        delta = -delta;
+    }
+    (linear, delta.to_scaled_axis() / elapsed)
+}
+
+#[derive(Component)]
+struct RagdollSample {
+    poses: Vec<Option<Transform>>,
+    time: f64,
+}
+
 fn begin(
     mut commands: Commands,
     game: Res<GameDefinition>,
     gravity: Res<Gravity>,
-    clock: Res<ClientPhysicsClock>,
+    time: Res<Time<Virtual>>,
     actors: Query<
         (
             Entity,
             &Zombie,
-            Option<&PendingRagdoll>,
+            Option<&RagdollSample>,
             Option<&DeathBlasts>,
+            Has<ClientRagdollRequested>,
         ),
-        (
-            With<ClientRagdollRequested>,
-            Without<PhysicalRagdoll>,
-            Without<RejectedRagdoll>,
-        ),
+        Without<PhysicalRagdoll>,
     >,
     rigs: Query<(&ActorRig, &Visibility)>,
-    poses: Query<&GlobalTransform>,
-    brushes: Res<crate::assets::WorldBrushes>,
-    world: Query<
-        (&Collider, &GlobalTransform, &crate::assets::WorldContents),
-        (With<crate::assets::WorldTerrain>, Without<ColliderDisabled>),
-    >,
+    poses: Query<(&Transform, Option<&ChildOf>)>,
 ) {
-    for (owner, zombie, pending, blasts) in &actors {
-        let Some(enemy) = game
+    for (owner, zombie, previous, blasts, requested) in &actors {
+        if zombie.action != super::EnemyAnimation::Death {
+            continue;
+        }
+        let Some(profile) = game
             .content
             .enemies
             .iter()
             .find(|enemy| enemy.id == zombie.definition)
+            .and_then(|enemy| enemy.ragdoll.as_ref())
         else {
             continue;
         };
-        let Some(profile) = enemy.ragdoll.as_ref() else {
+        if !rigs.iter().any(|(rig, visibility)| {
+            rig.owner == owner && rig.primary && rig.ready && *visibility != Visibility::Hidden
+        }) {
             continue;
-        };
-        let Some(rig) = rigs
-            .iter()
-            .find(|(rig, visibility)| {
-                rig.owner == owner && rig.primary && rig.ready && **visibility != Visibility::Hidden
-            })
-            .map(|(rig, _)| rig)
-        else {
-            continue;
-        };
-        let fragments = std::iter::once(rig)
-            .chain(
-                rigs.iter()
-                    .filter(|(fragment, visibility)| {
-                        fragment.owner == owner
-                            && !fragment.primary
-                            && fragment.ready
-                            && **visibility != Visibility::Hidden
-                    })
-                    .map(|(fragment, _)| fragment),
-            )
-            .collect::<Vec<_>>();
+        }
         let snapshot = profile
             .bones
             .iter()
             .map(|bone| {
-                fragments
+                let joint = rigs
                     .iter()
-                    .find_map(|fragment| fragment.sockets.get(&bone.end_joint))?;
-                let joint = fragments
-                    .iter()
-                    .find_map(|fragment| fragment.sockets.get(&bone.joint))?;
-                poses.get(*joint).ok().and_then(bone_pose)
+                    .filter(|(rig, visibility)| {
+                        rig.owner == owner && rig.ready && **visibility != Visibility::Hidden
+                    })
+                    .find_map(|(rig, _)| rig.sockets.get(&bone.joint))?;
+                let world = animated_world(*joint, &poses)?;
+                if world.determinant() == 0. {
+                    return None;
+                }
+                bone_pose(&GlobalTransform::from(Transform::from_matrix(world)))
             })
             .collect::<Vec<_>>();
+        let now = time.elapsed_secs_f64();
+        // Animation remains authoritative until the normal cue or a blast.
+        // Sample every rendered frame so the 30 Hz physics clock cannot
+        // distort the velocity inherited by the full-body handoff.
+        if !requested {
+            commands.entity(owner).insert(RagdollSample {
+                poses: snapshot,
+                time: now,
+            });
+            continue;
+        }
         if snapshot.iter().take(3).any(Option::is_none) {
             continue;
         }
-        let Some(pending) = pending else {
-            commands
-                .entity(owner)
-                .insert(PendingRagdoll { poses: snapshot });
-            continue;
-        };
-        let elapsed = clock.delta.as_secs_f32();
-        if elapsed <= 0. {
-            continue;
-        }
-        let trace = |start: Vec3, end: Vec3| {
-            let (start_solid, brushes) = brushes.trace(start, end, 0x0280ec93);
-            let fraction = world
-                .iter()
-                .filter(|(_, _, contents)| contents.0 & 0x0280ec93 != 0)
-                .filter_map(|(shape, pose, _)| {
-                    let pose = pose.compute_transform();
-                    terrain_fraction(shape, pose, start, end)
-                })
-                .fold(brushes, f32::min);
-            (start_solid, fraction)
-        };
-        let Some(placed) = initial_pose(profile, &snapshot, trace) else {
-            commands
-                .entity(owner)
-                .remove::<(PendingRagdoll, DeathBlasts)>()
-                .insert(RejectedRagdoll);
-            continue;
-        };
+        let elapsed = previous.map_or(0., |sample| (now - sample.time) as f32);
+        let placed = &snapshot;
         let mut bodies = vec![None; profile.bones.len()];
         let count = placed.iter().flatten().count();
         for (index, bone) in profile.bones.iter().enumerate() {
@@ -597,10 +535,10 @@ fn begin(
             };
             let rotation = pose.rotation * mirror;
             let sample = snapshot[index].unwrap();
-            let old = pending.poses[index].unwrap_or(sample);
-            let mut velocity = (sample.translation - old.translation) / elapsed;
-            velocity = velocity.clamp_length_max(600. * 0.0254);
-            velocity.y = velocity.y.min(50. * 0.0254);
+            let old = previous
+                .and_then(|previous| previous.poses[index])
+                .unwrap_or(sample);
+            let (mut velocity, angular_velocity) = sample_velocity(old, sample, elapsed);
             if let Some(blasts) = blasts {
                 let center = pose.translation
                     + rotation * if index == 0 { Vec3::Y } else { Vec3::X } * half_length;
@@ -608,11 +546,6 @@ fn begin(
                     velocity += blast.impulse(center, 18. / count as f32) / bone.mass;
                 }
             }
-            let mut delta_rotation = pose.rotation * old.rotation.inverse();
-            if delta_rotation.w < 0. {
-                delta_rotation = -delta_rotation;
-            }
-            let angular_velocity = delta_rotation.to_scaled_axis() / elapsed;
             let pairs = profile.self_pairs.iter().fold(0u16, |mask, pair| {
                 if pair[0] == index {
                     mask | (1 << pair[1])
@@ -641,6 +574,10 @@ fn begin(
                     RigidBody::Dynamic,
                     shape,
                     Transform::from_translation(pose.translation).with_rotation(rotation),
+                    // apply_pose runs this frame, before Avian's next prepare.
+                    // Seed physics poses too so new branches never flash at zero.
+                    Position(pose.translation),
+                    Rotation(rotation),
                     (
                         Mass(bone.mass),
                         AngularInertia::new(inertia),
@@ -757,10 +694,10 @@ fn begin(
         }
         commands
             .entity(owner)
-            .remove::<(PendingRagdoll, DeathBlasts)>()
+            .remove::<(RagdollSample, DeathBlasts)>()
             .insert(PhysicalRagdoll {
                 bodies,
-                seconds: clock.delta.as_secs_f32(),
+                seconds: 0.,
             });
     }
 }
@@ -814,18 +751,6 @@ fn apply_pose(
             })
             .collect::<HashMap<_, _>>();
         let poses = joints.p0();
-        let animated_world = |entity| {
-            let mut world = Mat4::IDENTITY;
-            let mut cursor = entity;
-            loop {
-                let (pose, parent) = poses.get(cursor).ok()?;
-                world = pose.to_matrix() * world;
-                let Some(parent) = parent else {
-                    return Some(world);
-                };
-                cursor = parent.parent();
-            }
-        };
         for bone in &profile.baselerp {
             let Some(&entity) = rig.sockets.get(&bone.joint) else {
                 continue;
@@ -835,8 +760,8 @@ fn apply_pose(
             };
             let (Some(parent_world), Some(animated_parent), Some(animated_bone)) = (
                 world_poses.get(&parent),
-                animated_world(parent),
-                animated_world(entity),
+                animated_world(parent, &poses),
+                animated_world(entity, &poses),
             ) else {
                 continue;
             };
@@ -1040,6 +965,8 @@ mod tests {
         ))
         .init_resource::<super::super::gibs::GibCounter>()
         .add_message::<RagdollExplosion>();
+        app.finish();
+        app.cleanup();
         let mut parts = Vec::new();
         for index in 0..6 {
             let part = app
@@ -1149,150 +1076,40 @@ mod tests {
     }
 
     #[test]
-    fn native_initial_ragdoll_terrain_trace_culls_native_backfaces() {
-        let shape = Collider::trimesh(
-            vec![
-                Vec3::new(-1., 0., -1.),
-                Vec3::new(1., 0., -1.),
-                Vec3::new(0., 0., 1.),
-            ],
-            vec![[0, 1, 2]],
-        );
-        assert_eq!(
-            terrain_fraction(&shape, Transform::IDENTITY, Vec3::Y, Vec3::NEG_Y),
-            Some(0.5)
-        );
-        assert_eq!(
-            terrain_fraction(&shape, Transform::IDENTITY, Vec3::NEG_Y, Vec3::Y),
-            None
-        );
-    }
-
-    fn placement_profile(half_lengths: &[f32]) -> crate::origins::content::EnemyRagdoll {
-        crate::origins::content::EnemyRagdoll {
-            bones: half_lengths
-                .iter()
-                .map(|half_length| crate::origins::content::RagdollBone {
-                    joint: "start".into(),
-                    end_joint: "end".into(),
-                    radius: 0.01,
-                    half_length: *half_length,
-                    base: Mat4::IDENTITY.to_cols_array(),
-                    mass: 1.,
-                    friction: 0.,
-                    parent: None,
-                    mirror: false,
-                })
-                .collect(),
-            joints: Vec::new(),
-            baselerp: Vec::new(),
-            self_pairs: Vec::new(),
-        }
-    }
-    fn wall_trace(walls: &[(Collider, Vec3)], start: Vec3, end: Vec3) -> (bool, f32) {
-        let delta = end - start;
-        let distance = delta.length();
-        let direction = delta / distance;
-        let solid = walls
-            .iter()
-            .any(|(shape, position)| shape.contains_point(*position, Quat::IDENTITY, start));
-        let fraction = walls
-            .iter()
-            .filter_map(|(shape, position)| {
-                shape
-                    .cast_ray(*position, Quat::IDENTITY, start, direction, distance, false)
-                    .map(|hit| hit.0 / distance)
-            })
-            .fold(1., f32::min);
-        (solid, fraction)
-    }
-    #[test]
-    fn native_initial_ragdoll_root_rejects_two_embedded_ends_and_accepts_one_clear_orientation() {
-        let profile = placement_profile(&[1.]);
-        let snapshot = [Some(Transform::IDENTITY)];
-        let mut walls = vec![(Collider::cuboid(0.2, 1., 1.), Vec3::ZERO)];
-        assert!(
-            initial_pose(&profile, &snapshot, |start, end| wall_trace(
-                &walls, start, end
-            ))
-            .is_some()
-        );
-        walls.push((Collider::cuboid(0.2, 1., 1.), Vec3::X * 2.));
-        assert!(
-            initial_pose(&profile, &snapshot, |start, end| wall_trace(
-                &walls, start, end
-            ))
-            .is_none()
-        );
-        walls.clear();
-        walls.push((Collider::cuboid(0.2, 1., 1.), Vec3::X));
-        assert!(
-            initial_pose(&profile, &snapshot, |start, end| wall_trace(
-                &walls, start, end
-            ))
-            .is_none()
-        );
-    }
-    #[test]
-    fn native_initial_ragdoll_obstructed_limb_pulls_back_before_the_world_hit() {
-        let profile = placement_profile(&[0.1, 0.1]);
-        let snapshot = [
-            Some(Transform::IDENTITY),
-            Some(Transform::from_translation(Vec3::X * 2.)),
-        ];
-        let walls = [(Collider::cuboid(0.2, 1., 1.), Vec3::X)];
-        let placed = initial_pose(&profile, &snapshot, |start, end| {
-            wall_trace(&walls, start, end)
-        })
-        .unwrap();
-        assert!((placed[1].unwrap().translation.x - 0.72).abs() < 0.00001);
-        assert_eq!(snapshot[1].unwrap().translation.x, 2.);
-    }
-
-    #[test]
-    fn unobstructed_ragdoll_preserves_every_sampled_bone_pose() {
-        let profile = placement_profile(&[0.3, 0.2, 0.1, 0.1]);
-        let snapshot = [
-            Some(Transform::from_xyz(4., 1.5, -3.).with_rotation(Quat::from_rotation_y(0.7))),
-            Some(Transform::from_xyz(4.6, 1.8, -3.2).with_rotation(Quat::from_rotation_x(-0.8))),
-            None,
-            Some(Transform::from_xyz(3.8, 0.4, -2.9).with_rotation(Quat::from_rotation_z(1.1))),
-        ];
-        let placed = initial_pose(&profile, &snapshot, |_, _| (false, 1.)).unwrap();
-        assert_eq!(placed.as_slice(), snapshot.as_slice());
-    }
-
-    #[test]
     fn native_client_physics_clock_clamps_frames_and_resets_pause_and_scene_boundaries() {
         let mut clock = ClientPhysicsClock::default();
+        let at = |milliseconds| Some(Duration::from_millis(milliseconds));
         assert_eq!(clock.advance(None, true, false), Duration::ZERO);
+        assert_eq!(clock.advance(at(50), true, false), CLIENT_PHYSICS_INTERVAL);
+        assert_eq!(clock.advance(at(50), true, false), Duration::ZERO);
+        assert_eq!(clock.advance(at(51), true, false), Duration::ZERO);
         assert_eq!(
-            clock.advance(Some(50), true, false),
-            Duration::from_millis(50)
+            clock.advance(at(451), true, false),
+            CLIENT_PHYSICS_INTERVAL * 3
         );
-        assert_eq!(clock.advance(Some(50), true, false), Duration::ZERO);
-        assert_eq!(
-            clock.advance(Some(51), true, false),
-            Duration::from_millis(1)
-        );
-        assert_eq!(
-            clock.advance(Some(451), true, false),
-            Duration::from_millis(100)
-        );
-        assert_eq!(
-            clock.advance(Some(449), true, false),
-            Duration::from_millis(1)
-        );
-        assert_eq!(clock.advance(Some(500), true, true), Duration::ZERO);
-        assert_eq!(
-            clock.advance(Some(516), true, false),
-            Duration::from_millis(16)
-        );
+        assert_eq!(clock.advance(at(449), true, false), Duration::ZERO);
+        assert_eq!(clock.advance(at(500), true, true), Duration::ZERO);
+        assert_eq!(clock.advance(at(516), true, false), Duration::ZERO);
+        assert_eq!(clock.advance(at(534), true, false), CLIENT_PHYSICS_INTERVAL);
         assert_eq!(clock.advance(None, false, false), Duration::ZERO);
-        assert_eq!(
-            clock.advance(Some(50), true, false),
-            Duration::from_millis(50)
-        );
+        assert_eq!(clock.advance(at(50), true, false), CLIENT_PHYSICS_INTERVAL);
+    }
+
+    #[test]
+    fn client_physics_runs_at_30_hz_without_render_rate_drift() {
+        for render_hz in [30, 60, 120, 144, 240] {
+            let mut clock = ClientPhysicsClock::default();
+            let mut updates = 0;
+            let mut simulated = Duration::ZERO;
+            for frame in 1..=render_hz * 10 {
+                let elapsed = Duration::from_secs_f64(frame as f64 / render_hz as f64);
+                let delta = clock.advance(Some(elapsed), true, false);
+                updates += usize::from(!delta.is_zero());
+                simulated += delta;
+            }
+            assert_eq!(updates, 300, "render rate: {render_hz}");
+            assert_eq!(simulated, CLIENT_PHYSICS_INTERVAL * 300);
+        }
     }
 
     #[derive(Resource, Default)]

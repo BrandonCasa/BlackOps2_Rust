@@ -2167,8 +2167,7 @@ fn animate(
         let Ok((zombie, wounds, physical)) = enemies.get(rig.owner) else {
             continue;
         };
-        // The physics bodies were seeded after propagation from this exact
-        // sample. Keep it for nonphysical joints and stop advancing its blend.
+        // Keep the final animation sample after the full-body physics handoff.
         if physical {
             continue;
         }

@@ -113,142 +113,6 @@ pub(crate) fn world_collision_layers(contents: u32) -> CollisionLayers {
         };
     CollisionLayers::new(membership, LayerMask::ALL)
 }
-#[derive(Resource)]
-pub(crate) struct WorldBrushes(Vec<(u32, Vec<Vec4>)>);
-impl WorldBrushes {
-    fn load(bytes: &[u8]) -> Result<Self, String> {
-        #[derive(serde::Deserialize)]
-        struct Vector {
-            x: f32,
-            y: f32,
-            z: f32,
-        }
-        impl Vector {
-            fn array(&self) -> [f32; 3] {
-                [self.x, self.y, self.z]
-            }
-        }
-        #[derive(serde::Deserialize)]
-        struct Bounds {
-            #[serde(rename = "midPoint")]
-            mid: Vector,
-            #[serde(rename = "halfSize")]
-            half: Vector,
-        }
-        #[derive(serde::Deserialize)]
-        struct Side {
-            normal: [f32; 3],
-            dist: f32,
-        }
-        #[derive(serde::Deserialize)]
-        struct Brush {
-            contents: u32,
-            bounds: Bounds,
-            sides: Vec<Side>,
-        }
-        #[derive(serde::Deserialize)]
-        struct Model {
-            brushes: Vec<usize>,
-        }
-        #[derive(serde::Deserialize)]
-        struct ClipMap {
-            brushes: Vec<Brush>,
-            cmodels: Vec<Model>,
-        }
-        let clip: ClipMap = serde_json::from_slice(bytes)
-            .map_err(|error| format!("External clipmap gameplay records are invalid: {error}"))?;
-        let movable: std::collections::HashSet<usize> = clip
-            .cmodels
-            .iter()
-            .skip(1)
-            .flat_map(|model| model.brushes.iter().copied())
-            .collect();
-        if movable.iter().any(|index| *index >= clip.brushes.len()) {
-            return Err("External clipmap contains an invalid movable brush reference".into());
-        }
-        // Match the external exporter's documented Y-up metre convention exactly.
-        let plane = |normal: [f32; 3], distance: f32| {
-            Vec4::new(normal[0], normal[2], -normal[1], distance / 39.37)
-        };
-        let brushes = clip
-            .brushes
-            .into_iter()
-            .enumerate()
-            .filter(|(index, _)| !movable.contains(index))
-            .map(|(_, brush)| {
-                let midpoint = brush.bounds.mid.array();
-                let half = brush.bounds.half.array();
-                if midpoint.iter().any(|value| !value.is_finite())
-                    || half.iter().any(|value| !value.is_finite() || *value < 0.)
-                {
-                    return Err("External clipmap contains invalid brush bounds".into());
-                }
-                if brush.sides.iter().any(|side| {
-                    !side.dist.is_finite()
-                        || !Vec3::from_array(side.normal).is_finite()
-                        || (Vec3::from_array(side.normal).length_squared() - 1.).abs() > 0.001
-                }) {
-                    return Err("External clipmap contains an invalid brush side plane".into());
-                }
-                let mut planes = Vec::with_capacity(6 + brush.sides.len());
-                for axis in 0..3 {
-                    let mut normal = [0.; 3];
-                    normal[axis] = 1.;
-                    planes.push(plane(normal, midpoint[axis] + half[axis]));
-                    normal[axis] = -1.;
-                    planes.push(plane(normal, -midpoint[axis] + half[axis]));
-                }
-                planes.extend(
-                    brush
-                        .sides
-                        .into_iter()
-                        .map(|side| plane(side.normal, side.dist)),
-                );
-                Ok((brush.contents, planes))
-            })
-            .collect::<Result<Vec<_>, String>>()?;
-        if brushes.is_empty() {
-            return Err("External clipmap contains no static brush volumes".into());
-        }
-        Ok(Self(brushes))
-    }
-    pub(crate) fn trace(&self, start: Vec3, end: Vec3, mask: u32) -> (bool, f32) {
-        let mut start_solid = false;
-        let mut fraction = 1f32;
-        for (_, planes) in self.0.iter().filter(|(contents, _)| contents & mask != 0) {
-            let mut enter = 0f32;
-            let mut leave = fraction;
-            let mut inside = true;
-            let mut rejected = false;
-            for plane in planes {
-                let first = plane.truncate().dot(start) - plane.w;
-                let last = plane.truncate().dot(end) - plane.w;
-                if first > 0. {
-                    inside = false;
-                    if last >= first.min(0.125 * 0.0254) {
-                        rejected = true;
-                        break;
-                    }
-                    enter = enter.max((first - 0.125 * 0.0254) / (first - last));
-                } else if last > 0. {
-                    leave = leave.min(first / (first - last));
-                }
-                if leave <= enter {
-                    rejected = true;
-                    break;
-                }
-            }
-            if !rejected {
-                if inside {
-                    start_solid = true;
-                } else {
-                    fraction = fraction.min(enter);
-                }
-            }
-        }
-        (start_solid, fraction)
-    }
-}
 // T6 appends riotshield after the T5 player/tallgrass entries. The
 // exporter's unified table inserts riotshield/slush before those two entries.
 fn native_surface_type(surface: usize) -> Result<u32, String> {
@@ -359,134 +223,6 @@ mod collision_tests {
             );
         }
     }
-
-    fn external_brush(contents: u32) -> serde_json::Value {
-        serde_json::json!({
-            "contents": contents,
-            "bounds": {
-                "midPoint": {"x":39.37,"y":78.74,"z":118.11},
-                "halfSize": {"x":39.37,"y":39.37,"z":39.37}
-            },
-            "sides": [{"normal":[1.,0.,0.],"dist":59.055}]
-        })
-    }
-
-    fn load_external(
-        brushes: Vec<serde_json::Value>,
-        cmodels: serde_json::Value,
-    ) -> Result<WorldBrushes, String> {
-        WorldBrushes::load(
-            &serde_json::to_vec(&serde_json::json!({
-                "brushes": brushes, "cmodels": cmodels
-            }))
-            .unwrap(),
-        )
-    }
-
-    #[test]
-    fn external_clipmap_preserves_axes_scale_side_planes_and_projectile_masks() {
-        let brushes = load_external(
-            vec![external_brush(0x10000)],
-            serde_json::json!([{"brushes":[]}]),
-        )
-        .unwrap();
-        let center = Vec3::new(1., 3., -2.);
-        assert!(brushes.trace(center, center + Vec3::Y * 3., 0x0281ee93).0);
-        assert_eq!(
-            brushes.trace(center, center + Vec3::Y * 3., 0x0280ec93),
-            (false, 1.)
-        );
-        // Axial bounds and non-axial side data must agree after the same conversion.
-        assert!(
-            !brushes
-                .trace(Vec3::new(1.75, 3., -2.), Vec3::new(2., 3., -2.), 0x10000)
-                .0
-        );
-        assert!(brushes.trace(Vec3::new(1.4, 3., -2.), center, 0x10000).0);
-        assert!(
-            !brushes
-                .trace(Vec3::new(1., 3., 2.), Vec3::new(1., 3., 3.), 0x10000)
-                .0
-        );
-        assert!(
-            brushes.0[0]
-                .1
-                .iter()
-                .any(|plane| (*plane - Vec4::new(0., 1., 0., 4.)).length() < 0.00001)
-        );
-        assert!(
-            brushes.0[0]
-                .1
-                .iter()
-                .any(|plane| (*plane - Vec4::new(1., 0., 0., 1.5)).length() < 0.00001)
-        );
-    }
-
-    #[test]
-    fn external_clipmap_excludes_inline_model_owned_brushes() {
-        let mut owned = external_brush(1);
-        owned["bounds"]["midPoint"]["x"] = serde_json::json!(393.7);
-        owned["sides"] = serde_json::json!([]);
-        let brushes = load_external(
-            vec![external_brush(1), owned],
-            serde_json::json!([{"brushes":[]},{"brushes":[1]}]),
-        )
-        .unwrap();
-        assert_eq!(brushes.0.len(), 1);
-        assert_eq!(
-            brushes.trace(Vec3::new(10., 3., -2.), Vec3::new(10., 4., -2.), 1),
-            (false, 1.)
-        );
-        assert!(
-            brushes
-                .trace(Vec3::new(1., 3., -2.), Vec3::new(1., 4., -2.), 1)
-                .0
-        );
-    }
-
-    #[test]
-    fn external_clipmap_rejects_bad_references_bounds_and_planes() {
-        assert!(
-            load_external(
-                vec![external_brush(1)],
-                serde_json::json!([{"brushes":[]},{"brushes":[2]}])
-            )
-            .is_err()
-        );
-        let mut brush = external_brush(1);
-        brush["bounds"]["halfSize"]["x"] = serde_json::json!(-1.);
-        assert!(load_external(vec![brush], serde_json::json!([])).is_err());
-        let mut brush = external_brush(1);
-        brush["sides"][0]["normal"] = serde_json::json!([2., 0., 0.]);
-        assert!(load_external(vec![brush], serde_json::json!([])).is_err());
-        // JSON cannot represent infinity; oversized numeric input must fail rather than reach traces.
-        assert!(WorldBrushes::load(br#"{"brushes":[{"contents":1,"bounds":{"midPoint":{"x":1e100,"y":0,"z":0},"halfSize":{"x":1,"y":1,"z":1}},"sides":[]}],"cmodels":[]}"#).is_err());
-    }
-
-    #[test]
-    fn native_world_brush_trace_preserves_contents_and_enter_plane_bias() {
-        let mut brushes = WorldBrushes(vec![(
-            1,
-            vec![
-                Vec4::new(1., 0., 0., 1.),
-                Vec4::new(-1., 0., 0., 1.),
-                Vec4::new(0., 1., 0., 1.),
-                Vec4::new(0., -1., 0., 1.),
-                Vec4::new(0., 0., 1., 1.),
-                Vec4::new(0., 0., -1., 1.),
-            ],
-        )]);
-        let (solid, fraction) = brushes.trace(Vec3::X * -2., Vec3::X * 2., 0x0280ec93);
-        assert!(!solid);
-        assert!((fraction - (1. - 0.125 * 0.0254) / 4.).abs() < 0.000001);
-        assert!(brushes.trace(Vec3::ZERO, Vec3::X * 2., 0x0280ec93).0);
-        brushes.0[0].0 = 0x10000;
-        assert_eq!(
-            brushes.trace(Vec3::ZERO, Vec3::X * 2., 0x0280ec93),
-            (false, 1.)
-        );
-        assert!(brushes.trace(Vec3::ZERO, Vec3::X * 2., 0x0281ee93).0);
-    }
 }
 #[derive(Component)]
 pub(crate) struct StaticPropRoot;
@@ -521,7 +257,6 @@ impl Plugin for GameAssetsPlugin {
 struct DefinitionTask(
     bevy::tasks::Task<(
         GameDefinition,
-        WorldBrushes,
         crate::rendering::models::LoadedModels,
         crate::rendering::fog::WorldFogDefinition,
         crate::rendering::world::LoadedWorld,
@@ -547,7 +282,6 @@ pub(crate) fn begin_load(
     for root in &roots {
         commands.entity(root).despawn();
     }
-    commands.remove_resource::<WorldBrushes>();
     commands.remove_resource::<crate::rendering::reflection::ReflectionWorld>();
     commands.remove_resource::<crate::rendering::fog::WorldFogDefinition>();
     commands.remove_resource::<crate::rendering::model_lighting::ModelLightingSource>();
@@ -558,12 +292,6 @@ pub(crate) fn begin_load(
     let task = bevy::tasks::IoTaskPool::get().spawn(async move {
         info!("Origins asset root: {}", root.display());
         let definition = GameDefinition::load_from_root(&root);
-        let volumes = root.join(&definition.collision_metadata);
-        let bytes = std::fs::read(&volumes).unwrap_or_else(|error| {
-            panic!("Read collision metadata {}: {error}", volumes.display())
-        });
-        let brushes = WorldBrushes::load(&bytes)
-            .unwrap_or_else(|error| panic!("Collision metadata {}: {error}", volumes.display()));
         let metadata: WorldMetadata = crate::origins::read(&root.join(&definition.world_metadata));
         metadata.fog.validate();
         let coefficient_path = root.join(&metadata.light_grid.coefficients_file);
@@ -589,7 +317,6 @@ pub(crate) fn begin_load(
             .load(&root, metadata.draws.reflection_probes());
         (
             definition,
-            brushes,
             models,
             metadata.fog,
             metadata.draws.load(&root),
@@ -616,8 +343,7 @@ fn poll_definition(
         return;
     };
     commands.remove_resource::<DefinitionTask>();
-    let (definition, brushes, models, fog, draws, lighting) = definition;
-    commands.insert_resource(brushes);
+    let (definition, models, fog, draws, lighting) = definition;
     let sun = fog.initial_sun_light();
     commands.insert_resource(fog);
     commands.insert_resource(lighting);

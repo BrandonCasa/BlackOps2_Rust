@@ -81,7 +81,6 @@ impl Controller {
                 id: 0,
                 action,
                 label: String::new(),
-                expect: None,
             });
         }
     }
@@ -92,7 +91,6 @@ impl Controller {
                 id: 0,
                 action: Command::Abort,
                 label: String::new(),
-                expect: None,
             });
         }
     }
@@ -122,6 +120,7 @@ pub(crate) fn install(app: &mut App) {
         RemotePlugin::default()
             .with_method_main("origins/validator/state", remote_state)
             .with_method_main("origins/validator/command", remote_command)
+            .with_method_main("origins/validator/receipt", remote_receipt)
             .with_method_main("origins/validator/heartbeat", remote_heartbeat),
         RemoteHttpPlugin::default()
             .with_address(std::net::Ipv4Addr::LOCALHOST)
@@ -189,9 +188,6 @@ pub(crate) fn initialize(world: &mut World, session: &mut Session) {
     let Some(mut c) = world.get_resource_mut::<Controller>() else {
         return;
     };
-    if c.session.is_none() {
-        return;
-    }
     let previous = c.session;
     let start = c
         .controls
@@ -232,6 +228,7 @@ pub(crate) fn initialize(world: &mut World, session: &mut Session) {
     c.aborted = false;
     c.failure = None;
     c.god = false;
+    c.heartbeat = Instant::now();
     session.seed = c.seed;
     if let Some(key) = start
         && let Some(receipt) = c.receipts.get_mut(&key)
@@ -249,17 +246,22 @@ fn error(message: impl Into<String>) -> BrpError {
     }
 }
 fn remote_state(_: In<Option<Value>>, world: &mut World) -> BrpResult {
-    let mut snapshot = state::snapshot(world);
-    snapshot["receipts"] = serde_json::to_value(
-        world
-            .resource::<Controller>()
-            .receipts
-            .values()
-            .collect::<Vec<_>>(),
-    )
-    .unwrap();
-    Ok(snapshot)
+    Ok(state::snapshot(world))
 }
+fn remote_receipt(In(params): In<Option<Value>>, world: &mut World) -> BrpResult {
+    let params = params.ok_or_else(|| error("Missing command identity"))?;
+    let session = params["session"]
+        .as_u64()
+        .ok_or_else(|| error("Missing session"))?;
+    let id = params["id"].as_u64().ok_or_else(|| error("Missing id"))?;
+    let receipt = world
+        .resource::<Controller>()
+        .receipts
+        .get(&(session, id))
+        .ok_or_else(|| error("Unknown command"))?;
+    Ok(serde_json::to_value(receipt).unwrap())
+}
+
 fn remote_heartbeat(In(params): In<Option<Value>>, world: &mut World) -> BrpResult {
     let session = params
         .as_ref()
@@ -304,15 +306,6 @@ fn submit(world: &mut World, request: Request) -> Result<Value, String> {
     {
         return Err("Start a validator session before submitting gameplay actions".into());
     }
-    if let Some(expect) = &request.expect {
-        expect.validate()?;
-    }
-    let before = state::snapshot(world);
-    if let Some(expect) = &request.expect
-        && before.pointer(&expect.path) != Some(&expect.before)
-    {
-        return Err("Expectation baseline does not match current state".into());
-    }
     let c = world.resource::<Controller>();
     if (c.failure.is_some() || c.aborted)
         && !matches!(
@@ -327,12 +320,9 @@ fn submit(world: &mut World, request: Request) -> Result<Value, String> {
         phase: Phase::Accepted,
         accepted_tick: c.tick,
         executed_tick: None,
-        observed_tick: None,
         resulting_session: None,
         error: None,
-        before: state::receipt_snapshot(&before),
         after: Value::Null,
-        started: c.simulation_seconds,
     };
     let result = serde_json::to_value(&receipt).unwrap();
     let mut c = world.resource_mut::<Controller>();
@@ -391,7 +381,10 @@ fn step_time(world: &mut World) {
 }
 
 fn focus(world: &mut World) {
-    if !owns_input(world) || world.resource::<Controller>().paused {
+    if !owns_input(world)
+        || world.resource::<Controller>().paused
+        || *world.resource::<State<GameState>>().get() != GameState::Playing
+    {
         return;
     }
     let focused = world
@@ -405,14 +398,10 @@ fn focus(world: &mut World) {
 }
 
 fn tick_input(world: &mut World) {
-    if !owns_input(world) {
-        return;
-    }
-    if world.resource::<Controller>().paused && !world.resource::<Controller>().step_frame {
-        return;
-    }
-    let next = {
-        let mut c = world.resource_mut::<Controller>();
+    world.resource_scope(|world, mut c: Mut<Controller>| {
+        if !c.owns_input() || c.paused && !c.step_frame {
+            return;
+        }
         c.tick += 1;
         c.simulation_seconds += 1. / 60.;
         if c.active.as_ref().is_some_and(|(_, n)| *n == 0) {
@@ -426,41 +415,38 @@ fn tick_input(world: &mut World) {
                 };
                 (request, ticks)
             });
+            if let Some((request, _)) = &c.active
+                && !request.label.is_empty()
+            {
+                c.label = request.label.clone();
+            }
         }
-        c.active.clone()
-    };
-    let Some((request, _)) = next else {
-        crate::input::scripted_tick(world, &[], Vec2::ZERO);
-        return;
-    };
-    if !request.label.is_empty() {
-        world.resource_mut::<Controller>().label = request.label.clone();
-    }
-    let Command::Input {
-        held,
-        look,
-        aim,
-        aim_entity,
-        ..
-    } = &request.action
-    else {
-        unreachable!()
-    };
-    let target = aim.map(Vec3::from_array).or_else(|| {
-        aim_entity
-            .and_then(Entity::try_from_bits)
-            .and_then(|e| world.get::<Transform>(e).map(|t| t.translation))
-    });
-    let look = if let Some(target) = target {
-        actions::look_delta(world, target)
-    } else {
-        Vec2::from_array(*look)
-    };
-    crate::input::scripted_tick(world, held, look);
-    let mut c = world.resource_mut::<Controller>();
-    if let Some((_, remaining)) = &mut c.active {
+        let Some((request, remaining)) = &mut c.active else {
+            crate::input::scripted_tick(world, &[], Vec2::ZERO);
+            return;
+        };
+        let Command::Input {
+            held,
+            look,
+            aim,
+            aim_entity,
+            ..
+        } = &request.action
+        else {
+            unreachable!()
+        };
+        let target = aim.map(Vec3::from_array).or_else(|| {
+            aim_entity
+                .and_then(Entity::try_from_bits)
+                .and_then(|e| world.get::<Transform>(e).map(|t| t.translation))
+        });
+        let look = target.map_or_else(
+            || Vec2::from_array(*look),
+            |target| actions::look_delta(world, target),
+        );
+        crate::input::scripted_tick(world, held, look);
         *remaining -= 1;
-    }
+    });
 }
 
 fn finish_frame(world: &mut World) {
@@ -502,34 +488,6 @@ fn finish_frame(world: &mut World) {
     for key in starts {
         executed(world, key);
     }
-    let snapshot = state::snapshot(world);
-    let mut timeout = None;
-    {
-        let mut c = world.resource_mut::<Controller>();
-        let tick = c.tick;
-        let seconds = c.simulation_seconds;
-        for receipt in c
-            .receipts
-            .values_mut()
-            .filter(|r| r.phase == Phase::Executed && r.request.expect.is_some())
-        {
-            let expect = receipt.request.expect.as_ref().unwrap();
-            if expect.satisfied(&snapshot) {
-                receipt.phase = Phase::OutcomeObserved;
-                receipt.observed_tick = Some(tick);
-                receipt.after = state::receipt_snapshot(&snapshot);
-            } else if seconds - receipt.started > expect.seconds {
-                receipt.phase = Phase::Failed;
-                timeout = Some(format!(
-                    "Outcome deadline: command {} {}",
-                    receipt.request.id, expect.path
-                ));
-            }
-        }
-    }
-    if let Some(reason) = timeout {
-        fail(world, reason);
-    }
     if world.resource::<Controller>().step_frame {
         let key = world.resource_mut::<Controller>().step.take();
         world.resource_mut::<Controller>().step_frame = false;
@@ -541,7 +499,6 @@ fn finish_frame(world: &mut World) {
 }
 
 fn executed(world: &mut World, key: (u64, u64)) {
-    let snapshot = state::snapshot(world);
     let mut c = world.resource_mut::<Controller>();
     let tick = c.tick;
     if let Some(receipt) = c.receipts.get_mut(&key) {
@@ -550,9 +507,6 @@ fn executed(world: &mut World, key: (u64, u64)) {
         }
         receipt.phase = Phase::Executed;
         receipt.executed_tick = Some(tick);
-        if receipt.after.is_null() {
-            receipt.after = state::receipt_snapshot(&snapshot);
-        }
     }
 }
 fn reject(world: &mut World, request: &Request, reason: String) {
@@ -603,14 +557,17 @@ fn fail(world: &mut World, reason: String) {
         let mut c = world.resource_mut::<Controller>();
         c.failure = Some(reason.clone());
         c.label = format!("FAILED: {reason}");
+        c.controls.clear();
         c.queue.clear();
         c.active = None;
         c.completed.clear();
         c.step = None;
         c.step_frame = false;
-        for r in c.receipts.values_mut().filter(|r| {
-            r.phase == Phase::Accepted || r.phase == Phase::Executed && r.request.expect.is_some()
-        }) {
+        for r in c
+            .receipts
+            .values_mut()
+            .filter(|r| r.phase == Phase::Accepted)
+        {
             r.phase = Phase::Failed;
             r.error = Some(reason.clone());
         }

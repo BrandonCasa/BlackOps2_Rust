@@ -2,7 +2,10 @@
 import math
 import struct
 import time
-from client import ValidationFailure, changed
+from client import ValidationFailure
+import subprocess
+import sys
+from pathlib import Path
 
 
 def distance(a, b):
@@ -25,10 +28,12 @@ def capture(client, name):
 
 
 def walk_to(client, point, tolerance=0.8, seconds=30):
-    deadline = time.monotonic() + seconds
+    deadline = client.state()["control"]["simulation_seconds"] + seconds
     previous = None
-    while time.monotonic() < deadline:
+    while True:
         state = client.state()
+        if state["control"]["simulation_seconds"] > deadline:
+            break
         feet = state["player"]["feet"]
         remaining = distance(feet, point)
         if remaining <= tolerance:
@@ -64,9 +69,9 @@ def foundation(client):
     if state["interaction"]["target"] != shovel["entity"]:
         raise ValidationFailure("The shovel is not the focused interaction")
     accepted = state["interaction"]["accepted"]
-    client.input(30, ("interact",), aim=aim, expect=changed("/player/shovel", False, True), label="Foundation: collect shovel through interaction")
+    client.input(30, ("interact",), aim=aim, label="Foundation: collect shovel through interaction")
     state = client.state()
-    if state["interaction"]["accepted"] <= accepted:
+    if not state["player"]["shovel"] or state["interaction"]["accepted"] <= accepted:
         raise ValidationFailure("Shovel ownership changed without an accepted interaction")
     client.input(1)
     results["interaction"] = capture(client, "foundation-shovel")
@@ -75,8 +80,9 @@ def foundation(client):
     enemy = target["entity"]
     before_kills = state["evidence"]["kills"]
     before_sequence = state["evidence"]["sequence"]
-    deadline = time.monotonic() + 60
-    while time.monotonic() < deadline:
+    deadline = state["control"]["simulation_seconds"] + 60
+    killed = False
+    while client.state()["control"]["simulation_seconds"] < deadline:
         client.input(30, aim_entity=enemy, label="Foundation: aim at a native zombie")
         client.input(10, ("fire",), aim_entity=enemy, label="Foundation: fire equipped weapon")
         client.input(10, aim_entity=enemy)
@@ -85,9 +91,10 @@ def foundation(client):
         if any(e["kind"] == "kill" and e["data"]["target"] == enemy for e in events):
             if not any(e["kind"] == "hit" and e["data"]["target"] == enemy for e in events):
                 raise ValidationFailure("A kill without a correlated gameplay hit is not proof")
+            killed = True
             break
         client.send({"op": "assist", "god": True, "points": state["round"]["points"], "ammo": True, "doors": False})
-    else:
+    if not killed:
         raise ValidationFailure(f"Could not kill native actor {enemy} through weapon fire")
     if state["evidence"]["kills"] <= before_kills:
         raise ValidationFailure("Combat kill counter did not advance")
@@ -110,13 +117,23 @@ def foundation(client):
     pending = client.send({"op": "input", "ticks": 1200, "held": ["fire"], "look": [0, 0], "aim": None, "aim_entity": None}, wait=False)
     client.send({"op": "cancel", "command": pending["request"]["id"]}, label="Foundation: cancel held fire")
     state = client.state()
-    cancelled = next(r for r in state["receipts"] if r["request"]["id"] == pending["request"]["id"] and r["request"]["session"] == client.session)
+    cancelled = client.receipt(pending["request"]["id"])
     if cancelled["phase"] != "cancelled":
         raise ValidationFailure("Cancellation did not produce a cancelled receipt")
 
-    client.send({"op": "input", "ticks": 1200, "held": ["fire"], "look": [0, 0], "aim": None, "aim_entity": None}, wait=False, label="Foundation: deliberately terminate Python heartbeat")
     client.beat_stop()
-    failed = client.wait(lambda s: s["control"]["failure"] == "Runner heartbeat expired" and s["game_state"] == "Paused", seconds=15, allow_failure=True)
+    probe = subprocess.Popen([sys.executable, str(Path(__file__).with_name("run.py")),
+                              "--watchdog-probe", "--port", str(client.port)],
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    try:
+        client.wait(lambda s: s["control"]["active"] is not None and s["control"]["label"] == "Foundation: terminate this controlling runner", seconds=4, realtime=True)
+        probe.terminate()
+        probe.wait(timeout=5)
+        failed = client.wait(lambda s: s["control"]["failure"] == "Runner heartbeat expired" and s["game_state"] == "Paused", seconds=15, allow_failure=True, realtime=True)
+    finally:
+        if probe.poll() is None:
+            probe.terminate()
+            probe.wait(timeout=5)
     if failed["control"]["active"] is not None or failed["control"]["queued"]:
         raise ValidationFailure("Watchdog left queued controls active")
     if not (client.report / "game-failure.json").is_file():
@@ -129,7 +146,7 @@ def foundation(client):
     client.send({"op": "resume"}, allow_failure=True, label="Foundation: explicit watchdog recovery")
     client.wait(lambda s: s["game_state"] == "Playing")
     client.input(180, label="Foundation passed: inspect scene")
-    results["watchdog"] = "Python heartbeat process terminated; game independently cancelled, recorded, and paused"
+    results["watchdog"] = "Controlling Python runner terminated; game independently cancelled, recorded, and paused"
     results["final_state"] = client.state()
     return results
 

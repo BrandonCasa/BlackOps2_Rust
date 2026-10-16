@@ -1,21 +1,18 @@
-# Origins Easter egg validator
-
-Development-only BRP and a visible Python runner. Ordinary launches do not install
-the bridge. Builds without `dev-tools` exclude it.
-
-Run the foundation increment:
+# Watchable Origins Easter egg run
 
 ```powershell
 python tools/ee_validator/run.py --build --until foundation
 ```
 
-The runner loads an Original solo match, enables assistance, collects a shovel
-through interaction, shoots an ordinary zombie, saves captures, exercises
-pause/resume and one-tick stepping, cancels a held action, and kills its separate
-Python heartbeat process to prove game-side recovery. A failure retains the scene
-and writes `game-failure.json` independently of Python.
+The development-only bridge uses the normal input owner and physics. A normal
+launch does not install it; builds without `dev-tools` exclude it.
 
-Control the visible session from another terminal:
+The foundation collects a shovel through interaction, shoots an ordinary zombie,
+saves screenshots, exercises pause/resume and one-tick stepping, and cancels held
+input. It then terminates an actual controlling Python runner and checks that the
+game independently releases input, records failure, and pauses. Recovery is explicit.
+
+Control the scene from another terminal:
 
 ```powershell
 python tools/ee_validator/control.py pause
@@ -24,14 +21,16 @@ python tools/ee_validator/control.py resume
 python tools/ee_validator/control.py abort
 ```
 
-`step` advances one gameplay tick and the ordinary frame's physics before pausing.
-Escape pauses/resumes a healthy run; F12 aborts. Reconnecting never automatically
-resumes a failed run. Abort cannot be resumed. `quit` closes the owned game.
+`step` advances one gameplay tick and its ordinary frame's physics. Escape pauses
+or resumes a healthy run; F12 aborts permanently. Failure keeps the scene paused
+for inspection and writes `game-failure.json`. Completing a checkpoint releases
+the runner and leaves the game paused.
 
-Reports contain command receipts, gameplay events, source references, captures,
-and observed failures. No file hashes or source-change checks are performed.
-Accepted commands are not passes: objective contracts require observed outcomes.
+Reports contain gameplay observations, command completion, screenshots and the
+failure reason. Command completion alone does not prove an objective: route
+functions check actual gameplay results. There are no source-file gates, hashes,
+code-change checks or provenance manifests.
 
-Route increments beyond the foundation are added only after its visible checks
-pass. Completing an assisted increment does not validate normal spawning, economy,
-survival balance, unscripted timing, or performance.
+Only the foundation is implemented so far; visible validation remains pending.
+Later milestones will extend the same fresh-match prefix. Assisted playthrough
+success does not establish survival balance, economy or performance.

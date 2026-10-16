@@ -9,18 +9,29 @@ pub(super) fn execute(world: &mut World, request: &Request) -> Result<bool, Stri
     let key = (request.session, request.id);
     match &request.action {
         Command::Start => {
-            if !matches!(state, GameState::MainMenu | GameState::GameOver) {
-                return Err("Start requires the main menu or game over".into());
-            }
             {
                 let mut c = world.resource_mut::<Controller>();
                 c.session = Some(request.session);
                 c.heartbeat = Instant::now();
+                if matches!(state, GameState::StartingSession | GameState::Playing) {
+                    c.receipts.get_mut(&key).unwrap().resulting_session = Some(request.session);
+                    return Ok(false);
+                }
+            }
+            if state == GameState::Loading {
+                return Ok(false);
+            }
+            if !matches!(state, GameState::MainMenu | GameState::GameOver) {
+                return Err("Start requires loading, a fresh match, the menu or game over".into());
             }
             world.write_message(crate::frontend::FrontendAction::SelectDifficulty(
                 crate::frontend::Difficulty::Original,
             ));
-            world.write_message(crate::frontend::FrontendAction::StartSolo);
+            world.write_message(if state == GameState::GameOver {
+                crate::frontend::FrontendAction::Restart
+            } else {
+                crate::frontend::FrontendAction::StartSolo
+            });
             Ok(false)
         }
         Command::Pause => {
@@ -104,13 +115,16 @@ pub(super) fn execute(world: &mut World, request: &Request) -> Result<bool, Stri
             pause(world);
             let mut c = world.resource_mut::<Controller>();
             c.aborted = true;
+            c.controls.clear();
             c.queue.clear();
             c.active = None;
             c.completed.clear();
             c.label = "ABORTED: scene retained for inspection".into();
-            for receipt in c.receipts.values_mut().filter(|r| {
-                r.phase == Phase::Accepted && matches!(r.request.action, Command::Input { .. })
-            }) {
+            for receipt in c
+                .receipts
+                .values_mut()
+                .filter(|r| r.phase == Phase::Accepted && r.request.id != request.id)
+            {
                 receipt.phase = Phase::Cancelled;
             }
             Ok(true)

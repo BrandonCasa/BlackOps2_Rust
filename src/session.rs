@@ -23,8 +23,11 @@ pub(crate) enum SessionSetup {
 #[derive(Resource, Default)]
 pub(crate) struct SessionClock(std::time::Duration);
 impl SessionClock {
+    pub(crate) fn elapsed(&self, time: &Time<Virtual>) -> std::time::Duration {
+        time.elapsed().saturating_sub(self.0)
+    }
     pub(crate) fn milliseconds(&self, time: &Time<Virtual>) -> i32 {
-        i32::try_from(time.elapsed().saturating_sub(self.0).as_millis())
+        i32::try_from(self.elapsed(time).as_millis())
             .expect("Session elapsed time exceeds the source clock range")
     }
     pub(crate) fn source_milliseconds(&self, time: &Time<Virtual>) -> i32 {

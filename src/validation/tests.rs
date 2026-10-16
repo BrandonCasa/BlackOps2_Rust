@@ -93,7 +93,6 @@ fn input(app: &mut App, id: u64, ticks: u32, held: Vec<crate::input::Action>) {
                 aim_entity: None,
             },
             label: String::new(),
-            expect: None,
         },
     )
     .unwrap();
@@ -106,7 +105,6 @@ fn command(app: &mut App, id: u64, action: Command) {
             id,
             action,
             label: String::new(),
-            expect: None,
         },
     )
     .unwrap();
@@ -321,7 +319,6 @@ fn scripted_look_runs_once_per_fixed_tick_before_movement_and_never_in_zero_tick
             aim_entity: None,
         },
         label: String::new(),
-        expect: None,
     };
     submit(app.world_mut(), request.clone()).unwrap();
     frame(&mut app, 0);
@@ -356,7 +353,6 @@ fn command_retry_has_one_queue_entry_and_conflicting_retry_fails() {
             aim_entity: None,
         },
         label: String::new(),
-        expect: None,
     };
     // Receipt matching precedes all world reads and cannot execute a retry twice.
     let c = app.world().resource::<Controller>();
@@ -365,12 +361,9 @@ fn command_retry_has_one_queue_entry_and_conflicting_retry_fails() {
         phase: Phase::Accepted,
         accepted_tick: c.tick,
         executed_tick: None,
-        observed_tick: None,
         resulting_session: None,
         error: None,
-        before: Value::Null,
         after: Value::Null,
-        started: 0.,
     };
     app.world_mut()
         .resource_mut::<Controller>()
@@ -397,7 +390,6 @@ fn stale_commands_are_rejected_before_world_access() {
         id: 1,
         action: Command::Pause,
         label: String::new(),
-        expect: None,
     };
     assert!(
         submit(app.world_mut(), request)
@@ -417,4 +409,15 @@ fn completed_checkpoint_releases_lease_without_triggering_a_dead_runner_failure(
         Instant::now() - Duration::from_secs(10);
     frame(&mut app, 2);
     assert!(app.world().resource::<Controller>().failure.is_none());
+}
+
+#[test]
+fn automatic_session_initialization_claims_input_and_seeds_before_world_setup() {
+    let mut app = harness();
+    app.world_mut().resource_mut::<Controller>().session = None;
+    let mut session = Session::default();
+    initialize(app.world_mut(), &mut session);
+    assert_eq!(session.seed, 2818);
+    assert_eq!(app.world().resource::<Controller>().session, Some(1));
+    assert!(app.world().resource::<Controller>().queue.is_empty());
 }

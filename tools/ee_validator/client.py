@@ -2,8 +2,7 @@
 from __future__ import annotations
 
 import json
-import subprocess
-import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -20,8 +19,9 @@ class Client:
         self.port = port
         self.report = report
         self.session = 0
-        self.next_id = 1
-        self.heartbeat_process: subprocess.Popen | None = None
+        self.next_id = time.time_ns()
+        self._heartbeat_stop = threading.Event()
+        self._heartbeat_thread = None
         self.timeline = []
 
     def rpc(self, method: str, params=None, timeout=5):
@@ -36,11 +36,19 @@ class Client:
     def state(self):
         return self.rpc("origins/validator/state")
 
-    def wait(self, predicate, *, seconds=30, allow_failure=False):
-        deadline = time.monotonic() + seconds
+    def receipt(self, command, *, session=None):
+        return self.rpc("origins/validator/receipt", {"session": self.session if session is None else session, "id": command})
+
+    def wait(self, predicate, *, seconds=30, allow_failure=False, realtime=False):
+        remaining = seconds
+        previous = time.monotonic()
         last = None
-        while time.monotonic() < deadline:
+        while remaining > 0:
             last = self.state()
+            now = time.monotonic()
+            if realtime or not last["control"]["paused"]:
+                remaining -= now - previous
+            previous = now
             if not allow_failure and (last["control"]["failure"] or last["control"]["aborted"]):
                 raise ValidationFailure(last["control"]["failure"] or "Run aborted")
             if predicate(last):
@@ -48,8 +56,8 @@ class Client:
             time.sleep(0.1)
         raise ValidationFailure(f"Wait timed out after {seconds}s; last state: {last}")
 
-    def send(self, action, *, label="", expect=None, wait=True, allow_failure=False):
-        request = {"session": self.session, "id": self.next_id, "action": action, "label": label, "expect": expect}
+    def send(self, action, *, label="", wait=True, allow_failure=False):
+        request = {"session": self.session, "id": self.next_id, "action": action, "label": label}
         self.next_id += 1
         for attempt in range(3):
             try:
@@ -60,39 +68,46 @@ class Client:
                     raise
         if not wait:
             return receipt
-        goal = "outcome_observed" if expect else "executed"
+        goal = "executed"
         def complete(state):
             nonlocal receipt
-            receipt = next(r for r in state["receipts"] if r["request"]["session"] == request["session"] and r["request"]["id"] == request["id"])
+            receipt = self.receipt(request["id"], session=request["session"])
             if receipt["phase"] in ("failed", "rejected", "cancelled"):
                 raise ValidationFailure(f"Command {request['id']}: {receipt['phase']}: {receipt.get('error')}")
             return receipt["phase"] == goal
-        self.wait(complete, seconds=600 if action["op"] == "start" else 90, allow_failure=allow_failure)
+        self.wait(complete, seconds=600 if action["op"] == "start" else 90, allow_failure=allow_failure, realtime=action["op"] in ("start", "pause", "resume", "step", "abort", "finish", "capture", "quit"))
         self.timeline.append(receipt)
         self.flush()
         return receipt
 
-    def input(self, ticks=1, held=(), *, aim=None, aim_entity=None, look=(0, 0), expect=None, label=""):
+    def input(self, ticks=1, held=(), *, aim=None, aim_entity=None, look=(0, 0), label=""):
         return self.send({"op": "input", "ticks": ticks, "held": list(held), "aim": aim,
-                          "aim_entity": aim_entity, "look": list(look)}, label=label, expect=expect)
+                          "aim_entity": aim_entity, "look": list(look)}, label=label)
 
     def beat_start(self):
         self.beat_stop()
-        self.heartbeat_process = subprocess.Popen(
-            [sys.executable, str(Path(__file__).with_name("heartbeat.py")), str(self.port), str(self.session)],
-            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        self._heartbeat_stop.clear()
+        def heartbeat():
+            while not self._heartbeat_stop.is_set():
+                try:
+                    self.rpc("origins/validator/heartbeat", {"session": self.session}, timeout=1)
+                except ValidationFailure:
+                    try:
+                        self.session = self.state()["session"]
+                    except (OSError, ValidationFailure):
+                        pass
+                except OSError:
+                    pass
+                self._heartbeat_stop.wait(0.5)
+        self._heartbeat_thread = threading.Thread(target=heartbeat, daemon=True)
+        self._heartbeat_thread.start()
 
     def beat_stop(self):
-        if self.heartbeat_process is not None:
-            self.heartbeat_process.terminate()
-            self.heartbeat_process.wait(timeout=5)
-            self.heartbeat_process = None
+        self._heartbeat_stop.set()
+        if self._heartbeat_thread:
+            self._heartbeat_thread.join(timeout=6)
+            self._heartbeat_thread = None
 
     def flush(self):
         if self.report:
             (self.report / "commands.json").write_text(json.dumps(self.timeline, indent=2), encoding="utf-8")
-
-
-def changed(path, before, equals=None, increase=None, seconds=30):
-    return {"path": path, "before": before, "equals": equals, "increase": increase, "seconds": seconds}

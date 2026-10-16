@@ -132,6 +132,27 @@ struct SourceConstants {
 @group(2) @binding(4) var secondary_sampler: sampler;
 @group(3) @binding(0) var resolved_scene: texture_2d<f32>;
 @group(3) @binding(1) var resolved_sampler: sampler;
+// Soft optical flare sprites, filtered within their own atlas tile.
+fn soft_flare_sprite(uv: vec2<f32>, local_uv: vec2<f32>) -> vec4<f32> {
+    let texel = 1.0 / vec2<f32>(textureDimensions(secondary_map));
+    let extent = max(fwidth(uv) / max(fwidth(local_uv), vec2<f32>(0.000001)), texel);
+    let tile_min = uv - local_uv * extent;
+    let low = tile_min + texel * 0.5;
+    let high = tile_min + extent - texel * 0.5;
+    let radius = max(texel * 1.5, extent * 0.015);
+    let weights = array<f32, 3>(1.0, 2.0, 1.0);
+    var blurred = vec4<f32>(0.0);
+    for (var y = 0; y < 3; y += 1) {
+        for (var x = 0; x < 3; x += 1) {
+            let offset = vec2<f32>(f32(x - 1), f32(y - 1)) * radius;
+            blurred += textureSampleLevel(secondary_map, secondary_sampler,
+                clamp(uv + offset, low, high), 0.0) * weights[x] * weights[y];
+        }
+    }
+    let edge = min(local_uv, vec2<f32>(1.0) - local_uv);
+    let feather = smoothstep(vec2<f32>(0.0), vec2<f32>(0.12), edge);
+    return blurred * (feather.x * feather.y / 16.0);
+}
 struct SourceInput {
     @location(0) position: vec4<f32>, @location(1) color: vec4<f32>,
     @location(2) uv: vec2<f32>, @location(3) normal: u32, @location(4) tangent: u32,
@@ -232,6 +253,8 @@ def export(research, checkout):
         for i in vertex.outputs:
             if i != vertex.output_builtin and re.search(r'\bv' + str(i) + r'\b', pixel.body):
                 varying += f"    @location({i}) v{i}: vec4<f32>,\n"
+        if "superflare" in family:
+            varying += "    @location(4) flare_uv: vec2<f32>,\n"
         varying += "}\n"
         body = vertex.translate()
         values = icb(Path(records["vs"]["path"]))
@@ -241,8 +264,14 @@ def export(research, checkout):
         for i in vertex.outputs:
             if f" v{i}:" in varying:
                 body += f"\n    result.v{i} = o{i};"
+        if "superflare" in family:
+            body += "\n    result.flare_uv = input.uv;"
         body += "\n    return result;"
         pixel_body = pixel.translate()
+        if "superflare" in family:
+            original_sample = "textureSample(secondary_map, secondary_sampler, ((input.v3).xyxx).xy)"
+            assert pixel_body.count(original_sample) == 1, family
+            pixel_body = pixel_body.replace(original_sample, "soft_flare_sprite(input.v3.xy, input.flare_uv)")
         pixel_body += "\n    if material.alpha_test.x == 1.0 && !(o0.a > 0.0) { discard; }\n    if material.alpha_test.x == 2.0 && o0.a < 0.501960813999176 { discard; }\n    return o0;"
         shader += varying + f"@vertex\nfn source_vertex_{index}(input: SourceInput) -> SourceVaryings{index} {{\n{body}\n}}\n"
         shader += f"@fragment\nfn source_fragment_{index}(input: SourceVaryings{index}) -> @location(0) vec4<f32> {{\n{pixel_body}\n}}\n"

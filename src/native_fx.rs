@@ -45,6 +45,18 @@ struct VelocityFrame {
     total_delta: VectorRange,
     velocity: VectorRange,
 }
+impl VelocityFrame {
+    fn motion(&self, next: &Self, t: f32, seed: u64, catalog: &Catalog) -> (Vec3, Vec3) {
+        let velocity = self.velocity.sample(seed, catalog);
+        let change = next.velocity.sample(seed, catalog) - velocity;
+        // 005c8a60 / 005c8590 integrate linearly varying velocity inside
+        // each interval; total_delta is the integral at its starting sample.
+        (
+            self.total_delta.sample(seed, catalog) + velocity * t + change * (0.5 * t * t),
+            velocity + change * t,
+        )
+    }
+}
 #[derive(Clone, Deserialize)]
 struct VelocitySample {
     local: VelocityFrame,
@@ -126,6 +138,7 @@ struct Element {
     angular_velocity: [Range; 3],
     initial_rotation: Range,
     gravity: Range,
+    reflection: Range,
     offset_radius: Range,
     offset_height: Range,
     atlas: Atlas,
@@ -202,6 +215,9 @@ struct Particle {
     atlas_start: u32,
     emitted_at: Vec3,
     emit_step: f32,
+    collision_offset: Vec3,
+    collision_velocity: Vec3,
+    resting: bool,
     cloud: Option<cloud::State>,
     visible: bool,
 }
@@ -617,8 +633,11 @@ fn spawn(
                         * 0.0254,
                     cloud: None,
                     visible,
+                    collision_offset: Vec3::ZERO,
+                    collision_velocity: Vec3::ZERO,
+                    resting: false,
                 };
-                if !matches!(e.kind, 6..=9) {
+                if !e.visuals.is_empty() && !matches!(e.kind, 6..=9) {
                     let entries = e.atlas.entry_count_and_range & 0x1ff;
                     particle.atlas_start = match e.atlas.behavior & 3 {
                         0 => e.atlas.index,
@@ -647,6 +666,11 @@ fn spawn(
                             format!("Source model effect has no model: {}", emitter.name),
                         );
                     };
+                    // 005c3bf0 retains simulation outside spawnRange, but its
+                    // visible bit must also gate scene-backed model draws.
+                    if !visible {
+                        commands.entity(particle_entity).insert(Visibility::Hidden);
+                    }
                     match visuals::model(&mut commands, &server, particle_entity, model) {
                         Ok(scene) => {
                             particle.scene = Some(scene);
@@ -655,7 +679,7 @@ fn spawn(
                             panic!("{}", error);
                         }
                     }
-                } else {
+                } else if !e.visuals.is_empty() {
                     let name = visual.and_then(|v| {
                         if e.kind == 11 {
                             v.decal_materials.as_ref().map(|pair| &pair[1])
@@ -817,6 +841,8 @@ fn spawn(
                         }
                     }
                 }
+                // Source elements with zero visuals still simulate motion and
+                // attached/emitted/impact/death effects (e.g. knife blood drops).
                 commands.entity(particle_entity).insert(particle);
                 if let Some(child) = &e.effect_attached {
                     let attached = emit_child(&mut commands, child, pose, entity);
@@ -1074,6 +1100,7 @@ fn animate(
     materials: Res<Assets<NativeEffectMaterial>>,
     mut geometries: ResMut<Assets<NativeEffectGeometry>>,
     collision: avian3d::prelude::SpatialQuery,
+    world_contents: Query<&crate::assets::WorldContents>,
     emitters: Query<&Emitter>,
     cameras: Query<
         (
@@ -1137,45 +1164,79 @@ fn animate(
             let (a, b, t) = indices(e.velocity_samples.len(), normalized);
             let a = &e.velocity_samples[a];
             let b = &e.velocity_samples[b];
-            let intervals = e.velocity_samples.len().saturating_sub(1).max(1) as f32;
-            let step = p.life * 1000. / intervals;
-            displacement = (p.initial.rotation
-                * a.local
-                    .total_delta
-                    .sample(p.seed, &catalog)
-                    .lerp(b.local.total_delta.sample(p.seed, &catalog), t)
-                + a.world
-                    .total_delta
-                    .sample(p.seed, &catalog)
-                    .lerp(b.world.total_delta.sample(p.seed, &catalog), t))
-                * step;
-            direction = p.initial.rotation
-                * a.local
-                    .velocity
-                    .sample(p.seed, &catalog)
-                    .lerp(b.local.velocity.sample(p.seed, &catalog), t)
-                + a.world
-                    .velocity
-                    .sample(p.seed, &catalog)
-                    .lerp(b.world.velocity.sample(p.seed, &catalog), t);
+            // 005c8c50 passes the full life in milliseconds to its interval
+            // integrator. Source velocity tables already encode interval scale.
+            let step = p.life * 1000.;
+            let (local_delta, local_velocity) = a.local.motion(&b.local, t, p.seed, &catalog);
+            let (world_delta, world_velocity) = a.world.motion(&b.world, t, p.seed, &catalog);
+            displacement = (p.initial.rotation * local_delta + world_delta) * step;
+            direction = p.initial.rotation * local_velocity + world_velocity;
         }
         let previous_position = pose.translation;
         pose.translation = p.initial.translation + displacement;
-        pose.translation.y -=
-            e.gravity.sample(channel(&catalog, p.seed, 9)) * p.age * p.age * 20.32 * 0.5;
-        if let Some(child) = &e.effect_on_impact {
+        let gravity = e.gravity.sample(channel(&catalog, p.seed, 9)) * 20.32;
+        pose.translation.y -= gravity * p.age * p.age * 0.5;
+        let uncollided_position = pose.translation;
+        let collision_velocity = p.collision_velocity;
+        p.collision_offset += collision_velocity * time.delta_secs();
+        pose.translation += p.collision_offset;
+        if p.resting {
+            pose.translation = previous_position;
+        }
+        // 005cb150 enables traces with 0x200, independently of whether an
+        // impact child exists. 005cae70 uses world contents 0x2811/0x2c11;
+        // player bodies, triggers and monster/player clip are not shell floors.
+        if e.flags & 0x200 != 0 && !p.resting {
             let travel = pose.translation - previous_position;
-            if let Ok(direction) = Dir3::new(travel) {
-                let filter = avian3d::prelude::SpatialQueryFilter::default()
-                    .with_excluded_entities([entity]);
-                if let Some(hit) =
-                    collision.cast_ray(previous_position, direction, travel.length(), true, &filter)
-                {
+            if let Ok(ray) = Dir3::new(travel) {
+                let mask = if e.flags & 0x4000 != 0 {
+                    0x2c11
+                } else {
+                    0x2811
+                };
+                let filter = avian3d::prelude::SpatialQueryFilter::default();
+                if let Some(hit) = collision.cast_ray_predicate(
+                    previous_position,
+                    ray,
+                    travel.length(),
+                    true,
+                    &filter,
+                    &|target| {
+                        world_contents
+                            .get(target)
+                            .is_ok_and(|contents| contents.0 & mask != 0)
+                    },
+                ) {
                     let mut impact = *pose;
-                    impact.translation = previous_position + *direction * hit.distance;
-                    emit_child(&mut commands, child, impact, owner.0);
-                    commands.entity(entity).try_despawn();
-                    continue;
+                    impact.translation = previous_position + *ray * hit.distance;
+                    let velocity_scale =
+                        1000. * e.velocity_samples.len().saturating_sub(1).max(1) as f32;
+                    let base_velocity = direction * velocity_scale - Vec3::Y * (gravity * p.age);
+                    let incoming = base_velocity + p.collision_velocity;
+                    // 005ca870 always emits for DIE_ON_TOUCH; bouncing
+                    // particles emit only while moving faster than 1 in/sec.
+                    if (e.flags & 0x400 != 0
+                        || incoming.length_squared() > crate::assets::SOURCE_UNIT_METERS.powi(2))
+                        && let Some(child) = &e.effect_on_impact
+                    {
+                        emit_child(&mut commands, child, impact, owner.0);
+                    }
+                    if e.flags & 0x400 != 0 {
+                        if let Some(child) = &e.effect_on_death {
+                            emit_child(&mut commands, child, impact, owner.0);
+                        }
+                        commands.entity(entity).try_despawn();
+                        continue;
+                    }
+                    let reflected = incoming.reflect(hit.normal)
+                        * e.reflection.sample(channel(&catalog, p.seed, 10));
+                    let remaining = time.delta_secs() * (1. - hit.distance / travel.length());
+                    pose.translation =
+                        impact.translation + hit.normal * 0.001 + reflected * remaining;
+                    p.collision_offset = pose.translation - uncollided_position;
+                    p.collision_velocity = reflected - base_velocity;
+                    p.resting = hit.normal.y > 0.7
+                        && reflected.length_squared() <= crate::assets::SOURCE_UNIT_METERS.powi(2);
                 }
             }
         }

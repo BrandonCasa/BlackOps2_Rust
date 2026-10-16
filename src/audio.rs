@@ -798,6 +798,20 @@ fn pitch_speed(value: f32) -> f32 {
         value.clamp(0.01, 1.9)
     }
 }
+fn spatial_gains(emitter: Vec3, left_ear: Vec3, right_ear: Vec3, scale: f32) -> [f32; 2] {
+    let left = left_ear.distance(emitter);
+    let right = right_ear.distance(emitter);
+    let gap = left_ear.distance(right_ear);
+    let pan = if gap > 0. {
+        ((right - left) / gap).clamp(-1., 1.)
+    } else {
+        0.
+    };
+    // The nearer ear receives more gain. Keep the existing distance rolloff;
+    // native alias curves supply the remaining attenuation.
+    [(left, pan), (right, -pan)]
+        .map(|(distance, pan)| (0.75 + 0.25 * pan) * (1. / (distance * scale).powi(2)).min(1.))
+}
 #[derive(Component)]
 pub(crate) struct RetiringSound;
 struct NativeVoice {
@@ -1590,19 +1604,16 @@ fn maintain(
                 .dry
                 .store(volume.to_linear().to_bits(), Ordering::Relaxed);
             if voice.positioned {
-                let scale = 1. / (sound.distance + 0.2);
-                let left_squared = left_ear.distance_squared(pose.translation) * scale * scale;
-                let right_squared = right_ear.distance_squared(pose.translation) * scale * scale;
-                let maximum_difference = left_ear.distance(right_ear) * scale;
-                for (channel, (near, far)) in
-                    [(left_squared, right_squared), (right_squared, left_squared)]
-                        .into_iter()
-                        .enumerate()
+                for (channel, gain) in spatial_gains(
+                    pose.translation,
+                    left_ear,
+                    right_ear,
+                    1. / (sound.distance + 0.2),
+                )
+                .into_iter()
+                .enumerate()
                 {
-                    let pan =
-                        (((near.sqrt() - far.sqrt()) / maximum_difference + 1.) / 4. + 0.5).min(1.);
-                    voice.spatial[channel]
-                        .store((pan * (1. / near).min(1.)).to_bits(), Ordering::Relaxed);
+                    voice.spatial[channel].store(gain.to_bits(), Ordering::Relaxed);
                 }
             }
             voice
@@ -1777,6 +1788,52 @@ fn lifecycle(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn spatial_audio_follows_listener_rotation_and_source_side() {
+        for yaw in [0., std::f32::consts::FRAC_PI_2, std::f32::consts::PI] {
+            let listener =
+                Transform::from_xyz(17., 2., -9.).with_rotation(Quat::from_rotation_y(yaw));
+            let left_ear = listener.transform_point(Vec3::NEG_X * 0.1);
+            let right_ear = listener.transform_point(Vec3::X * 0.1);
+            for side in [-1., 1.] {
+                let emitter = listener.transform_point(Vec3::X * side * 5.);
+                let gains = spatial_gains(emitter, left_ear, right_ear, 0.01);
+                let near = usize::from(side > 0.);
+                assert!(gains[near] > gains[1 - near]);
+                assert!((gains[near] - 1.).abs() < 0.0001);
+                assert!((gains[1 - near] - 0.5).abs() < 0.0001);
+            }
+            for direction in [Vec3::NEG_Z, Vec3::Z] {
+                let emitter = listener.transform_point(direction * 5.);
+                let gains = spatial_gains(emitter, left_ear, right_ear, 0.01);
+                assert!((gains[0] - gains[1]).abs() < 0.0001);
+            }
+        }
+    }
+
+    #[test]
+    fn spatial_audio_preserves_distance_rolloff_and_handles_source_at_listener() {
+        let left_ear = Vec3::NEG_X * 0.1;
+        let right_ear = Vec3::X * 0.1;
+        let near = spatial_gains(Vec3::NEG_Z, left_ear, right_ear, 0.1);
+        let far = spatial_gains(Vec3::NEG_Z * 20., left_ear, right_ear, 0.1);
+        for channel in 0..2 {
+            assert!((near[channel] - 0.75).abs() < 0.0001);
+            assert!((far[channel] - 0.75 / 4.0001).abs() < 0.0001);
+        }
+        for emitter in [Vec3::ZERO, left_ear, right_ear] {
+            assert!(
+                spatial_gains(emitter, left_ear, right_ear, 0.1)
+                    .into_iter()
+                    .all(|gain| gain.is_finite() && (0.5..=1.).contains(&gain))
+            );
+        }
+        assert_eq!(
+            spatial_gains(Vec3::ZERO, Vec3::ZERO, Vec3::ZERO, 0.1),
+            [0.75; 2]
+        );
+    }
 
     #[test]
     fn native_duck_envelope_respects_delay_distance_partial_stop_and_pause() {

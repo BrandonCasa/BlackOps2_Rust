@@ -10,7 +10,6 @@ import socket
 import csv
 
 from client import Client, ValidationFailure
-from contracts import FOUNDATION, write_contracts
 from routes import ROUTE
 
 REPO = Path(__file__).resolve().parents[2]
@@ -23,17 +22,23 @@ def main():
     parser.add_argument("--port", type=int, default=15702)
     parser.add_argument("--exe", type=Path, default=REPO / "target/debug/origins.exe")
     parser.add_argument("--assets", type=Path, default=REPO / "target/assets")
-    parser.add_argument("--research", type=Path, default=Path(r"C:\Users\brand\Documents\T6ZMResearch\t6zm-master"))
     parser.add_argument("--report", type=Path)
     parser.add_argument("--build", action="store_true")
+    parser.add_argument("--watchdog-probe", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.watchdog_probe:
+        client = Client(args.port)
+        client.session = client.state()["session"]
+        client.beat_start()
+        client.input(1800, ("forward", "fire"), label="Foundation: terminate this controlling runner")
+        return 0
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     report = (args.report or REPO / "reports/ee-validator" / stamp).resolve()
     report.mkdir(parents=True, exist_ok=False)
     exe, assets = args.exe.resolve(), args.assets.resolve()
     client = Client(args.port, report)
     result = {"status": "running", "requested_milestone": args.until, "seed": args.seed,
-              "proves": "Only the assisted mechanics and contracts listed in this report",
+              "proves": "Only the assisted gameplay steps completed in this run",
               "does_not_prove": ["normal spawning", "survival balance", "economy", "unscripted timing", "performance"]}
     process = None
     output = None
@@ -44,7 +49,6 @@ def main():
             rows = csv.reader(subprocess.check_output(["tasklist", "/FI", "IMAGENAME eq origins.exe", "/FO", "CSV", "/NH"], text=True).splitlines())
             if any(row and row[0].lower() == "origins.exe" for row in rows):
                 raise ValidationFailure("An Origins process already owns the game/capture slot")
-        write_contracts(report, args.research.resolve(), FOUNDATION)
         if args.build:
             with (report / "build.log").open("wb") as log:
                 subprocess.run(["cargo", "build", "--features", "dev-tools", "--locked"], cwd=REPO, stdout=log, stderr=subprocess.STDOUT, check=True)
@@ -54,6 +58,7 @@ def main():
         output = (report / "game.log").open("wb")
         process = subprocess.Popen([str(exe), "--asset-root", str(assets)], cwd=REPO, env=env, stdout=output, stderr=subprocess.STDOUT)
         (report / "process.json").write_text(json.dumps({"pid": process.pid, "exe": str(exe), "port": args.port}), encoding="utf-8")
+        client.beat_start()
         deadline = time.monotonic() + 600
         while time.monotonic() < deadline:
             if process.poll() is not None:
@@ -62,18 +67,15 @@ def main():
                 state = client.state()
                 if state.get("process_id") != process.pid:
                     raise ValidationFailure("BRP endpoint belongs to a different game process")
-                if state["game_state"] == "MainMenu":
-                    break
+                break
             except OSError:
                 pass
             time.sleep(0.25)
         else:
-            raise ValidationFailure("Main menu readiness deadline exceeded")
+            raise ValidationFailure("Game connection deadline exceeded")
         client.session = state["session"]
-        client.beat_start()
-        receipt = client.send({"op": "start"}, label="Start an Original solo match")
-        client.session = receipt["resulting_session"]
-        client.wait(lambda s: s["ready"] and s["game_state"] == "Playing", seconds=600)
+        state = client.wait(lambda s: s["ready"] and s["game_state"] == "Playing", seconds=600, realtime=True)
+        client.session = state["session"]
         result["increments"] = {}
         for name, route in ROUTE.items():
             print(f"Running {name}; report: {report}", flush=True)
@@ -90,7 +92,7 @@ def main():
                 raise ValidationFailure("No owned responsive game process to pause")
             client.session = client.state()["session"]
             client.send({"op": "fail", "reason": result["error"]}, wait=False, allow_failure=True)
-            result["failure_state"] = client.wait(lambda s: s["control"]["paused"], seconds=5, allow_failure=True)
+            result["failure_state"] = client.wait(lambda s: s["control"]["paused"], seconds=5, allow_failure=True, realtime=True)
         except Exception as recovery:
             result["recovery_error"] = str(recovery)
     finally:

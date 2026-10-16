@@ -102,10 +102,6 @@ pub(super) fn snapshot(world: &mut World) -> Value {
     }
     result
 }
-pub(super) fn receipt_snapshot(snapshot: &Value) -> Value {
-    json!({"session":snapshot["session"],"tick":snapshot["control"]["tick"],"player":snapshot["player"],"interaction":snapshot["interaction"],"hits":snapshot["evidence"]["hits"],"kills":snapshot["evidence"]["kills"]})
-}
-
 #[derive(Component)]
 pub(super) struct Overlay;
 pub(super) fn overlay(
@@ -116,9 +112,8 @@ pub(super) fn overlay(
     mut previous: Local<String>,
 ) {
     let label = format!(
-        "EASTER EGG VALIDATOR  |  session {:?}  tick {}\n{}{}",
+        "ORIGINS PLAYTHROUGH  |  session {:?}\n{}{}",
         controller.session,
-        controller.tick,
         controller.label,
         if controller.paused {
             "\nPAUSED  |  BRP resume / step / abort"

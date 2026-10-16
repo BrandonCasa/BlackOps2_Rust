@@ -16,6 +16,27 @@ struct SourceConstants {
 @group(2) @binding(4) var secondary_sampler: sampler;
 @group(3) @binding(0) var resolved_scene: texture_2d<f32>;
 @group(3) @binding(1) var resolved_sampler: sampler;
+// Soft optical flare sprites, filtered within their own atlas tile.
+fn soft_flare_sprite(uv: vec2<f32>, local_uv: vec2<f32>) -> vec4<f32> {
+    let texel = 1.0 / vec2<f32>(textureDimensions(secondary_map));
+    let extent = max(fwidth(uv) / max(fwidth(local_uv), vec2<f32>(0.000001)), texel);
+    let tile_min = uv - local_uv * extent;
+    let low = tile_min + texel * 0.5;
+    let high = tile_min + extent - texel * 0.5;
+    let radius = max(texel * 1.5, extent * 0.015);
+    let weights = array<f32, 3>(1.0, 2.0, 1.0);
+    var blurred = vec4<f32>(0.0);
+    for (var y = 0; y < 3; y += 1) {
+        for (var x = 0; x < 3; x += 1) {
+            let offset = vec2<f32>(f32(x - 1), f32(y - 1)) * radius;
+            blurred += textureSampleLevel(secondary_map, secondary_sampler,
+                clamp(uv + offset, low, high), 0.0) * weights[x] * weights[y];
+        }
+    }
+    let edge = min(local_uv, vec2<f32>(1.0) - local_uv);
+    let feather = smoothstep(vec2<f32>(0.0), vec2<f32>(0.12), edge);
+    return blurred * (feather.x * feather.y / 16.0);
+}
 struct SourceInput {
     @location(0) position: vec4<f32>, @location(1) color: vec4<f32>,
     @location(2) uv: vec2<f32>, @location(3) normal: u32, @location(4) tangent: u32,
@@ -1473,6 +1494,7 @@ struct SourceVaryings11 {
     @location(1) v1: vec4<f32>,
     @location(2) v2: vec4<f32>,
     @location(3) v3: vec4<f32>,
+    @location(4) flare_uv: vec2<f32>,
 }
 @vertex
 fn source_vertex_11(input: SourceInput) -> SourceVaryings11 {
@@ -2555,6 +2577,7 @@ fn source_vertex_11(input: SourceInput) -> SourceVaryings11 {
     result.v1 = o1;
     result.v2 = o2;
     result.v3 = o3;
+    result.flare_uv = input.uv;
     return result;
 }
 @fragment
@@ -2566,7 +2589,7 @@ fn source_fragment_11(input: SourceVaryings11) -> @location(0) vec4<f32> {
     let instruction_0 = bitcast<vec4<f32>>(select(vec4<u32>(0u), vec4<u32>(0xffffffffu), (vec4<f32>(0.0, 0.0, 0.0, 0.0)) != ((input.v1).wwww)));
     r0 = vec4<f32>(instruction_0.x, r0.y, r0.z, r0.w);
     // sample r1.xyzw, v3.xyxx, t1.xyzw, s2
-    let instruction_1 = textureSample(secondary_map, secondary_sampler, ((input.v3).xyxx).xy);
+    let instruction_1 = soft_flare_sprite(input.v3.xy, input.flare_uv);
     r1 = instruction_1;
     // dp4 r0.y, v2.xyzw, r1.xyzw
     let instruction_2 = vec4<f32>(dot(((input.v2).xyzw).xyzw, ((r1).xyzw).xyzw));
@@ -2599,6 +2622,7 @@ struct SourceVaryings12 {
     @location(1) v1: vec4<f32>,
     @location(2) v2: vec4<f32>,
     @location(3) v3: vec4<f32>,
+    @location(4) flare_uv: vec2<f32>,
 }
 @vertex
 fn source_vertex_12(input: SourceInput) -> SourceVaryings12 {
@@ -2871,6 +2895,7 @@ fn source_vertex_12(input: SourceInput) -> SourceVaryings12 {
     result.v1 = o1;
     result.v2 = o2;
     result.v3 = o3;
+    result.flare_uv = input.uv;
     return result;
 }
 @fragment
@@ -2882,7 +2907,7 @@ fn source_fragment_12(input: SourceVaryings12) -> @location(0) vec4<f32> {
     let instruction_0 = bitcast<vec4<f32>>(select(vec4<u32>(0u), vec4<u32>(0xffffffffu), (vec4<f32>(0.0, 0.0, 0.0, 0.0)) != ((input.v1).wwww)));
     r0 = vec4<f32>(instruction_0.x, r0.y, r0.z, r0.w);
     // sample r1.xyzw, v3.xyxx, t1.xyzw, s2
-    let instruction_1 = textureSample(secondary_map, secondary_sampler, ((input.v3).xyxx).xy);
+    let instruction_1 = soft_flare_sprite(input.v3.xy, input.flare_uv);
     r1 = instruction_1;
     // dp4 r0.y, v2.xyzw, r1.xyzw
     let instruction_2 = vec4<f32>(dot(((input.v2).xyzw).xyzw, ((r1).xyzw).xyzw));
@@ -2915,6 +2940,7 @@ struct SourceVaryings13 {
     @location(1) v1: vec4<f32>,
     @location(2) v2: vec4<f32>,
     @location(3) v3: vec4<f32>,
+    @location(4) flare_uv: vec2<f32>,
 }
 @vertex
 fn source_vertex_13(input: SourceInput) -> SourceVaryings13 {
@@ -3118,6 +3144,7 @@ fn source_vertex_13(input: SourceInput) -> SourceVaryings13 {
     result.v1 = o1;
     result.v2 = o2;
     result.v3 = o3;
+    result.flare_uv = input.uv;
     return result;
 }
 @fragment
@@ -3129,7 +3156,7 @@ fn source_fragment_13(input: SourceVaryings13) -> @location(0) vec4<f32> {
     let instruction_0 = bitcast<vec4<f32>>(select(vec4<u32>(0u), vec4<u32>(0xffffffffu), (vec4<f32>(0.0, 0.0, 0.0, 0.0)) != ((input.v1).wwww)));
     r0 = vec4<f32>(instruction_0.x, r0.y, r0.z, r0.w);
     // sample r1.xyzw, v3.xyxx, t1.xyzw, s2
-    let instruction_1 = textureSample(secondary_map, secondary_sampler, ((input.v3).xyxx).xy);
+    let instruction_1 = soft_flare_sprite(input.v3.xy, input.flare_uv);
     r1 = instruction_1;
     // dp4 r0.y, v2.xyzw, r1.xyzw
     let instruction_2 = vec4<f32>(dot(((input.v2).xyzw).xyzw, ((r1).xyzw).xyzw));
@@ -3162,6 +3189,7 @@ struct SourceVaryings14 {
     @location(1) v1: vec4<f32>,
     @location(2) v2: vec4<f32>,
     @location(3) v3: vec4<f32>,
+    @location(4) flare_uv: vec2<f32>,
 }
 @vertex
 fn source_vertex_14(input: SourceInput) -> SourceVaryings14 {
@@ -3434,6 +3462,7 @@ fn source_vertex_14(input: SourceInput) -> SourceVaryings14 {
     result.v1 = o1;
     result.v2 = o2;
     result.v3 = o3;
+    result.flare_uv = input.uv;
     return result;
 }
 @fragment
@@ -3445,7 +3474,7 @@ fn source_fragment_14(input: SourceVaryings14) -> @location(0) vec4<f32> {
     let instruction_0 = bitcast<vec4<f32>>(select(vec4<u32>(0u), vec4<u32>(0xffffffffu), (vec4<f32>(0.0, 0.0, 0.0, 0.0)) != ((input.v1).wwww)));
     r0 = vec4<f32>(instruction_0.x, r0.y, r0.z, r0.w);
     // sample r1.xyzw, v3.xyxx, t1.xyzw, s2
-    let instruction_1 = textureSample(secondary_map, secondary_sampler, ((input.v3).xyxx).xy);
+    let instruction_1 = soft_flare_sprite(input.v3.xy, input.flare_uv);
     r1 = instruction_1;
     // dp4 r0.y, v2.xyzw, r1.xyzw
     let instruction_2 = vec4<f32>(dot(((input.v2).xyzw).xyzw, ((r1).xyzw).xyzw));
@@ -3478,6 +3507,7 @@ struct SourceVaryings15 {
     @location(1) v1: vec4<f32>,
     @location(2) v2: vec4<f32>,
     @location(3) v3: vec4<f32>,
+    @location(4) flare_uv: vec2<f32>,
 }
 @vertex
 fn source_vertex_15(input: SourceInput) -> SourceVaryings15 {
@@ -3681,6 +3711,7 @@ fn source_vertex_15(input: SourceInput) -> SourceVaryings15 {
     result.v1 = o1;
     result.v2 = o2;
     result.v3 = o3;
+    result.flare_uv = input.uv;
     return result;
 }
 @fragment
@@ -3692,7 +3723,7 @@ fn source_fragment_15(input: SourceVaryings15) -> @location(0) vec4<f32> {
     let instruction_0 = bitcast<vec4<f32>>(select(vec4<u32>(0u), vec4<u32>(0xffffffffu), (vec4<f32>(0.0, 0.0, 0.0, 0.0)) != ((input.v1).wwww)));
     r0 = vec4<f32>(instruction_0.x, r0.y, r0.z, r0.w);
     // sample r1.xyzw, v3.xyxx, t1.xyzw, s2
-    let instruction_1 = textureSample(secondary_map, secondary_sampler, ((input.v3).xyxx).xy);
+    let instruction_1 = soft_flare_sprite(input.v3.xy, input.flare_uv);
     r1 = instruction_1;
     // dp4 r0.y, v2.xyzw, r1.xyzw
     let instruction_2 = vec4<f32>(dot(((input.v2).xyzw).xyzw, ((r1).xyzw).xyzw));
@@ -3725,6 +3756,7 @@ struct SourceVaryings16 {
     @location(1) v1: vec4<f32>,
     @location(2) v2: vec4<f32>,
     @location(3) v3: vec4<f32>,
+    @location(4) flare_uv: vec2<f32>,
 }
 @vertex
 fn source_vertex_16(input: SourceInput) -> SourceVaryings16 {
@@ -3997,6 +4029,7 @@ fn source_vertex_16(input: SourceInput) -> SourceVaryings16 {
     result.v1 = o1;
     result.v2 = o2;
     result.v3 = o3;
+    result.flare_uv = input.uv;
     return result;
 }
 @fragment
@@ -4008,7 +4041,7 @@ fn source_fragment_16(input: SourceVaryings16) -> @location(0) vec4<f32> {
     let instruction_0 = bitcast<vec4<f32>>(select(vec4<u32>(0u), vec4<u32>(0xffffffffu), (vec4<f32>(0.0, 0.0, 0.0, 0.0)) != ((input.v1).wwww)));
     r0 = vec4<f32>(instruction_0.x, r0.y, r0.z, r0.w);
     // sample r1.xyzw, v3.xyxx, t1.xyzw, s2
-    let instruction_1 = textureSample(secondary_map, secondary_sampler, ((input.v3).xyxx).xy);
+    let instruction_1 = soft_flare_sprite(input.v3.xy, input.flare_uv);
     r1 = instruction_1;
     // dp4 r0.y, v2.xyzw, r1.xyzw
     let instruction_2 = vec4<f32>(dot(((input.v2).xyzw).xyzw, ((r1).xyzw).xyzw));
@@ -4041,6 +4074,7 @@ struct SourceVaryings17 {
     @location(1) v1: vec4<f32>,
     @location(2) v2: vec4<f32>,
     @location(3) v3: vec4<f32>,
+    @location(4) flare_uv: vec2<f32>,
 }
 @vertex
 fn source_vertex_17(input: SourceInput) -> SourceVaryings17 {
@@ -4313,6 +4347,7 @@ fn source_vertex_17(input: SourceInput) -> SourceVaryings17 {
     result.v1 = o1;
     result.v2 = o2;
     result.v3 = o3;
+    result.flare_uv = input.uv;
     return result;
 }
 @fragment
@@ -4324,7 +4359,7 @@ fn source_fragment_17(input: SourceVaryings17) -> @location(0) vec4<f32> {
     let instruction_0 = bitcast<vec4<f32>>(select(vec4<u32>(0u), vec4<u32>(0xffffffffu), (vec4<f32>(0.0, 0.0, 0.0, 0.0)) != ((input.v1).wwww)));
     r0 = vec4<f32>(instruction_0.x, r0.y, r0.z, r0.w);
     // sample r1.xyzw, v3.xyxx, t1.xyzw, s2
-    let instruction_1 = textureSample(secondary_map, secondary_sampler, ((input.v3).xyxx).xy);
+    let instruction_1 = soft_flare_sprite(input.v3.xy, input.flare_uv);
     r1 = instruction_1;
     // dp4 r0.y, v2.xyzw, r1.xyzw
     let instruction_2 = vec4<f32>(dot(((input.v2).xyzw).xyzw, ((r1).xyzw).xyzw));
@@ -4357,6 +4392,7 @@ struct SourceVaryings18 {
     @location(1) v1: vec4<f32>,
     @location(2) v2: vec4<f32>,
     @location(3) v3: vec4<f32>,
+    @location(4) flare_uv: vec2<f32>,
 }
 @vertex
 fn source_vertex_18(input: SourceInput) -> SourceVaryings18 {
@@ -5269,6 +5305,7 @@ fn source_vertex_18(input: SourceInput) -> SourceVaryings18 {
     result.v1 = o1;
     result.v2 = o2;
     result.v3 = o3;
+    result.flare_uv = input.uv;
     return result;
 }
 @fragment
@@ -5280,7 +5317,7 @@ fn source_fragment_18(input: SourceVaryings18) -> @location(0) vec4<f32> {
     let instruction_0 = bitcast<vec4<f32>>(select(vec4<u32>(0u), vec4<u32>(0xffffffffu), (vec4<f32>(0.0, 0.0, 0.0, 0.0)) != ((input.v1).wwww)));
     r0 = vec4<f32>(instruction_0.x, r0.y, r0.z, r0.w);
     // sample r1.xyzw, v3.xyxx, t1.xyzw, s2
-    let instruction_1 = textureSample(secondary_map, secondary_sampler, ((input.v3).xyxx).xy);
+    let instruction_1 = soft_flare_sprite(input.v3.xy, input.flare_uv);
     r1 = instruction_1;
     // dp4 r0.y, v2.xyzw, r1.xyzw
     let instruction_2 = vec4<f32>(dot(((input.v2).xyzw).xyzw, ((r1).xyzw).xyzw));

@@ -563,8 +563,13 @@ impl Definition {
                     })?;
                 for component in 0..binding.width {
                     assert!(value.literal[component].is_finite());
+                    // Keep procedural lens flares visible without washing out the view.
+                    let scale = match binding.name.as_str() {
+                        "FlareIntensity" if program.superflare() => 0.3,
+                        _ => 1.,
+                    };
                     source_constants[(binding.offset + component) / 4]
-                        [(binding.offset + component) % 4] = value.literal[component];
+                        [(binding.offset + component) % 4] = value.literal[component] * scale;
                 }
             }
         }

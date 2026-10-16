@@ -1,48 +1,48 @@
 import json
-import tempfile
 import unittest
-from pathlib import Path
 from unittest.mock import patch
-
-from client import Client, ValidationFailure, changed
-from contracts import Contract
+from client import Client, ValidationFailure
 
 
-class ReceiptTests(unittest.TestCase):
-    def test_lost_acknowledgement_retries_the_exact_command(self):
+class RunnerTests(unittest.TestCase):
+    def test_lost_reply_retries_same_command(self):
         client = Client()
         client.session = 7
+        first_id = client.next_id
         calls = []
         def rpc(method, params):
             calls.append(json.loads(json.dumps(params)))
             if len(calls) == 1:
-                raise OSError("Reply lost after server accepted command")
+                raise OSError("Reply lost after acceptance")
             return {"request": params, "phase": "accepted"}
         with patch.object(client, "rpc", side_effect=rpc):
             client.send({"op": "pause"}, wait=False)
         self.assertEqual(calls[0], calls[1])
-        self.assertEqual(client.next_id, 2)
+        self.assertEqual(client.next_id, first_id + 1)
 
-    def test_accepted_is_not_an_observed_outcome(self):
+    def test_accepted_command_is_not_finished(self):
         client = Client()
-        client.session = 3
-        request = {"session": 3, "id": 1, "action": {"op": "input"}, "label": "", "expect": changed("/kills", 0, increase=1)}
-        receipt = {"request": request, "phase": "executed"}
-        with patch.object(client, "rpc", return_value=receipt), patch.object(client, "state", return_value={"control": {"failure": None, "aborted": False}, "receipts": [receipt]}), patch("client.time.sleep"):
-            with patch.object(client, "wait", side_effect=lambda predicate, **_: self.assertFalse(predicate(client.state()))):
-                client.send(request["action"], expect=request["expect"])
+        state = {"control": {"failure": None, "aborted": False, "paused": False}}
+        with patch.object(client, "rpc", return_value={"phase": "accepted"}), patch.object(client, "wait", side_effect=lambda predicate, **_: self.assertFalse(predicate(state))):
+            client.send({"op": "pause"})
 
+    def test_failed_command_reports_failure(self):
+        client = Client()
+        state = {"control": {"failure": None, "aborted": False, "paused": False}}
+        def rpc(method, params):
+            return {"phase": "failed", "error": "blocked"}
+        with patch.object(client, "rpc", side_effect=rpc), patch.object(client, "wait", side_effect=lambda predicate, **_: predicate(state)):
+            with self.assertRaisesRegex(ValidationFailure, "blocked"):
+                client.send({"op": "input"})
 
-class ContractTests(unittest.TestCase):
-    def test_missing_source_function_cannot_be_recorded_as_a_contract(self):
-        contract = Contract("sample", "source.gsc", "required_function", (), "interact", (), "changed", "30s", ())
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            (root / "source.gsc").write_text("another_function() {}", encoding="utf-8")
-            with self.assertRaises(ValidationFailure):
-                contract.record(root)
-            (root / "source.gsc").write_text("required_function() {}", encoding="utf-8")
-            self.assertEqual(contract.record(root)["source_path"], str(root / "source.gsc"))
+    def test_heartbeat_thread_stops_with_its_client(self):
+        client = Client()
+        with patch.object(client, "rpc", return_value={}):
+            client.beat_start()
+            thread = client._heartbeat_thread
+            self.assertTrue(thread.daemon)
+            client.beat_stop()
+            self.assertFalse(thread.is_alive())
 
 
 if __name__ == "__main__":
