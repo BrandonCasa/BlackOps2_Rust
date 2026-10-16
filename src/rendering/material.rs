@@ -4200,7 +4200,7 @@ pub(crate) fn image(server: &AssetServer, name: &str) -> Handle<Image> {
     // Unchanged SDK image_path spelling. A PathBuf preserves literal '#' and
     // '?' in source image names instead of parsing them as asset labels.
     let path = AssetPath::from(PathBuf::from(format!(
-        "images/{}.dds",
+        "images/{}.ktx2",
         name.replace('*', "_")
     )));
     server
@@ -4244,7 +4244,7 @@ mod tests {
                 .unwrap()
                 .path()
                 .to_string_lossy()
-                .ends_with("noise2.dds")
+                .ends_with("noise2.ktx2")
         );
         assert!(
             textures[1]
@@ -4253,7 +4253,7 @@ mod tests {
                 .unwrap()
                 .path()
                 .to_string_lossy()
-                .ends_with("~sonar_attachment_lookup_puls~4187f661.dds")
+                .ends_with("~sonar_attachment_lookup_puls~4187f661.ktx2")
         );
         assert_eq!(constants.source[0], Vec4::new(0., 0.5, 0.5, 60.));
         assert_eq!(constants.source[2], Vec4::new(1250., 0., 0., 1.25));
@@ -4290,7 +4290,7 @@ mod tests {
                 .unwrap()
                 .path()
                 .to_string_lossy()
-                .ends_with("mtl_t6_attach_optic_reticle_noise.dds")
+                .ends_with("mtl_t6_attach_optic_reticle_noise.ktx2")
         );
         assert_eq!(constants.source[0].w, 15.);
         assert_eq!(constants.source[1], Vec4::new(20., 3., 0.5, 0.));
@@ -4326,7 +4326,7 @@ mod tests {
         };
         assert_eq!(
             base.color_map.path().unwrap().path(),
-            Path::new("images/t6_wpn_zmb_shield_dlc4_col.dds")
+            Path::new("images/t6_wpn_zmb_shield_dlc4_col.ktx2")
         );
         assert_eq!(
             constants.source[0],
@@ -4348,7 +4348,7 @@ mod tests {
         };
         assert_eq!(
             base.color_map.path().unwrap().path(),
-            Path::new("images/~-gfx_decal_character_blood_c.dds")
+            Path::new("images/~-gfx_decal_character_blood_c.ktx2")
         );
         assert_eq!(base.color_sampler.address_mode_u, AddressMode::ClampToEdge);
         assert_eq!(base.color_sampler.address_mode_v, AddressMode::ClampToEdge);
@@ -4387,11 +4387,11 @@ mod tests {
         };
         assert_eq!(
             normal.0.path().unwrap().path(),
-            Path::new("images/c_gen_eye_n.dds")
+            Path::new("images/c_gen_eye_n.ktx2")
         );
         assert_eq!(
             mask.0.path().unwrap().path(),
-            Path::new("images/c_gen_eye_color_a.dds")
+            Path::new("images/c_gen_eye_color_a.ktx2")
         );
         assert_eq!(
             constants.source[0].truncate(),
@@ -4506,7 +4506,7 @@ mod tests {
                 ),
             ] {
                 let expected =
-                    PathBuf::from(format!("images/{}.dds", source.image.replace('*', "_")));
+                    PathBuf::from(format!("images/{}.ktx2", source.image.replace('*', "_")));
                 assert_eq!(image.path().unwrap().path(), expected);
                 assert!(root.join(expected).is_file());
             }
@@ -4717,7 +4717,7 @@ mod tests {
                     })
                     .unwrap();
                 let expected =
-                    PathBuf::from(format!("images/{}.dds", input.image.replace('*', "_")));
+                    PathBuf::from(format!("images/{}.ktx2", input.image.replace('*', "_")));
                 assert_eq!(image.path().unwrap().path(), expected);
                 assert!(root.join(expected).is_file());
             };
@@ -4981,7 +4981,7 @@ mod tests {
                     .find(|t| t.name.as_deref() == Some(name))
                     .unwrap();
                 let expected =
-                    PathBuf::from(format!("images/{}.dds", input.image.replace('*', "_")));
+                    PathBuf::from(format!("images/{}.ktx2", input.image.replace('*', "_")));
                 assert_eq!(handle.path().unwrap().path(), expected);
                 assert!(root.join(expected).is_file());
             };
@@ -5339,7 +5339,7 @@ mod tests {
             assert_eq!(state.polygon_offset, offset);
             assert_eq!(state.color_write, ColorWrites::ALL);
             let source = &definition.textures[0];
-            let expected = PathBuf::from(format!("images/{}.dds", source.image.replace('*', "_")));
+            let expected = PathBuf::from(format!("images/{}.ktx2", source.image.replace('*', "_")));
             assert_eq!(base.color_map.path().unwrap().path(), expected);
             assert!(root.join(expected).is_file());
             assert_eq!(
@@ -5439,7 +5439,7 @@ mod tests {
                     .find(|t| t.semantic == semantic)
                     .unwrap();
                 let expected =
-                    PathBuf::from(format!("images/{}.dds", source.image.replace('*', "_")));
+                    PathBuf::from(format!("images/{}.ktx2", source.image.replace('*', "_")));
                 assert_eq!(handle.path().unwrap().path(), expected);
                 assert!(root.join(expected).is_file());
             }
@@ -5638,7 +5638,7 @@ mod tests {
             );
             for texture in &definition.textures {
                 assert!(
-                    root.join(format!("images/{}.dds", texture.image.replace('*', "_")))
+                    root.join(format!("images/{}.ktx2", texture.image.replace('*', "_")))
                         .is_file(),
                     "{name}: missing {}",
                     texture.image
@@ -5697,7 +5697,7 @@ mod tests {
                     .unwrap()
                     .path()
                     .to_string_lossy()
-                    .contains("_ir.dds")
+                    .contains("_ir.ktx2")
             );
             assert!(
                 material.textures[1]
@@ -5706,7 +5706,7 @@ mod tests {
                     .unwrap()
                     .path()
                     .to_string_lossy()
-                    .ends_with("_n.dds")
+                    .ends_with("_n.ktx2")
             );
             assert!(
                 material.textures[2]

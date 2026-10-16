@@ -147,7 +147,7 @@ fn load_vision(
         .with_settings(|settings: &mut ImageLoaderSettings| {
             settings.is_srgb = false;
         })
-        .load("images/zm_tomb_lut_win.dds");
+        .load("images/zm_tomb_lut_win.ktx2");
     commands.insert_resource(NativeVision::new(&sources, weather.vision, *session, lut));
     commands.insert_resource(sources);
 }

@@ -215,16 +215,25 @@ if (!$SkipOat) {
 & $python (Join-Path $checkout 'tools/strip_native_rig_materials.py') --assets $assets --report (Join-Path $reports 'native-rig-material-removal.json')
 if ($LASTEXITCODE -ne 0) { throw 'Native rig material removal failed.' }
 
-# Normalize reserved URI characters with unchanged pygltflib, preserving DDS bytes.
-$uriSdk = Join-Path $tools 'uri-python'
-if (!(Test-Path -LiteralPath (Join-Path $uriSdk 'pygltflib'))) {
-    & $python -m pip install --cache-dir (Join-Path $tools 'pip-cache') --target $uriSdk 'pygltflib==1.16.5' --disable-pip-version-check *> (Join-Path $reports 'gltf-uri-sdk.log')
-    if ($LASTEXITCODE -ne 0) { throw 'glTF URI SDK installation failed.' }
-}
-& $python (Join-Path $checkout 'tools/normalize_gltf_uris.py') --sdk $uriSdk --assets $assets *> (Join-Path $reports 'gltf-uri-normalization.json')
+# Normalize reserved URI characters without rewriting model binary chunks.
+& $python (Join-Path $checkout 'tools/normalize_gltf_uris.py') --assets $assets *> (Join-Path $reports 'gltf-uri-normalization.json')
 if ($LASTEXITCODE -ne 0) { throw 'glTF source image URI normalization failed; inspect gltf-uri-normalization.json.' }
 
 if ($oatFailed) { throw 'OAT reported extraction errors. This export is incomplete; no complete asset set was produced.' }
+# Recontainer source GPU blocks and raw texels without invoking an encoder.
+$ktxSdk = Join-Path $tools 'ktx/sdk'
+if (!(Test-Path -LiteralPath (Join-Path $ktxSdk 'bin/ktx.dll'))) {
+    $archive = Join-Path $tools 'ktx/installer.exe'
+    New-Item -ItemType Directory -Path (Split-Path $archive -Parent) -Force | Out-Null
+    Invoke-WebRequest 'https://github.com/KhronosGroup/KTX-Software/releases/download/v4.4.2/KTX-Software-4.4.2-Windows-x64.exe' -OutFile $archive
+    if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ne '1F323B0FEC19794F5E6C0425A61D4B1DA396872A10BE862D105F4F4B2D2957FE') { throw 'Pinned KTX SDK archive hash mismatch.' }
+    & 'C:/Program Files/7-Zip/7z.exe' x $archive "-o$ktxSdk" -y
+    if ($LASTEXITCODE -ne 0) { throw 'KTX SDK extraction failed.' }
+}
+& $python (Join-Path $checkout 'tools/repack_ktx2.py') --assets $assets --library (Join-Path $ktxSdk 'bin/ktx.dll') --report (Join-Path $reports 'ktx2-repack.json')
+if ($LASTEXITCODE -ne 0) { throw 'Lossless KTX2 repack failed.' }
+& $python (Join-Path $checkout 'tools/normalize_gltf_uris.py') --assets $assets --ktx2 *> (Join-Path $reports 'gltf-ktx2.json')
+if ($LASTEXITCODE -ne 0) { throw 'glTF KTX2 URI migration failed.' }
 if (!(Test-Path -LiteralPath (Join-Path $assets 'game.json'))) {
     throw 'Existing game-owned target/assets/game.json is required. This script does not generate gameplay data, complete models/materials/animations, or launch the game.'
 }

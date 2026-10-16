@@ -278,7 +278,7 @@ fn update_ui(
                 .with_settings(|settings: &mut ImageLoaderSettings| {
                     settings.is_srgb = false;
                 })
-                .load("images/mtl_t6_attach_rfo_reticle.dds"),
+                .load("images/mtl_t6_attach_rfo_reticle.ktx2"),
         );
     }
     let mut quads = std::mem::take(&mut ui.next_quads);
