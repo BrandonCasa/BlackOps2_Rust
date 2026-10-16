@@ -331,7 +331,7 @@ fn teleport(
         return Err("Teleport has no nearby supporting floor".into());
     }
     if !spatial
-        .shape_intersections(shape, center + Vec3::Y * 0.03, Quat::IDENTITY, &filter)
+        .shape_intersections(shape, center, Quat::IDENTITY, &filter)
         .is_empty()
     {
         return Err("Teleport capsule intersects solid geometry".into());
