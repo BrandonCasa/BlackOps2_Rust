@@ -2,9 +2,17 @@ import json
 import unittest
 from unittest.mock import patch
 from client import Client, ValidationFailure
+from routes import tank_point
 
 
 class RunnerTests(unittest.TestCase):
+    def test_tank_waypoints_follow_the_current_rotated_platform(self):
+        from math import sqrt
+        tank = {"position": [10, 2, 30], "rotation": [0, sqrt(0.5), 0, sqrt(0.5)]}
+        point = tank_point(tank, [2, 1, 0])
+        for actual, expected in zip(point, [10, 3, 28]):
+            self.assertAlmostEqual(actual, expected)
+
     def test_lost_reply_retries_same_command(self):
         client = Client()
         client.session = 7

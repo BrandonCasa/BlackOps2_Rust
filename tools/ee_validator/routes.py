@@ -112,6 +112,8 @@ def foundation(client):
         raise ValidationFailure("Step did not advance exactly one fixed tick")
     if not math.isclose(stepped["physics_seconds"] - paused["physics_seconds"], 1 / 60, abs_tol=1e-7):
         raise ValidationFailure(f"Step did not include exactly one timestep of physics: delta={stepped['physics_seconds'] - paused['physics_seconds']}")
+    results["simulation_step"] = {"ticks": stepped["control"]["tick"] - tick,
+                                  "physics_seconds": stepped["physics_seconds"] - paused["physics_seconds"]}
     client.send({"op": "resume"}, label="Foundation: resume")
     client.wait(lambda s: s["game_state"] == "Playing")
     pending = client.send({"op": "input", "ticks": 1200, "held": ["fire"], "look": [0, 0], "aim": None, "aim_entity": None}, wait=False)
@@ -151,4 +153,139 @@ def foundation(client):
     return results
 
 
-ROUTE = {"foundation": foundation}
+def target_of(state, kind, value=None):
+    matches = [t for t in state["targets"] if t["target"]["kind"] == kind
+               and (value is None or t["target"].get("value") == value)]
+    if len(matches) != 1:
+        raise ValidationFailure(f"Expected one {kind} target {value}; found {len(matches)}")
+    return matches[0]
+
+
+def use_target(client, target, label):
+    client.input(120, aim=target["position"], label=label)
+    before = client.state()
+    if before["interaction"]["target"] != target["entity"]:
+        raise ValidationFailure(f"{label}: target is not focused; {before['interaction']}")
+    client.input(12, ("interact",), aim=target["position"], label=label)
+    client.input(1)
+    after = client.state()
+    if after["interaction"]["accepted"] <= before["interaction"]["accepted"]:
+        raise ValidationFailure(f"{label}: interaction was not accepted; {after['interaction']}")
+    return after
+
+
+def tank_point(tank, local):
+    """Authored route points follow the current tank pose, including turns."""
+    x, y, z, w = tank["rotation"]
+    a, b, c = local
+    tx, ty, tz = 2 * (y*c-z*b), 2 * (z*a-x*c), 2 * (x*b-y*a)
+    rotated = [a+w*tx+y*tz-z*ty, b+w*ty+z*tx-x*tz, c+w*tz+x*ty-y*tx]
+    return [p+d for p, d in zip(tank["position"], rotated)]
+
+
+def generators_tank(client):
+    results = {}
+    client.send({"op": "assist", "god": True, "points": 100000, "ammo": True, "doors": True},
+                label="Generator and tank: open routes and replenish equipment")
+    client.input(120 * int(client.state()["speed"]), label="Activate and defend generator one, then ride the tank")
+    generator = "generator.generator_start_bunker"
+    client.send({"op": "teleport", "feet": [57.25, -7.3914, -122.9]},
+                label="Stage on the floor beside generator one")
+    client.input(12)
+    target = target_of(client.state(), "generator", generator)
+    state = use_target(client, target, "Generator one: purchase activation")
+    if state["generators"]["sites"][generator]["state"] != "Capturing":
+        raise ValidationFailure("Generator interaction did not begin capture")
+    sequence = state["evidence"]["sequence"]
+    defenders = set()
+    deadline = state["control"]["simulation_seconds"] + 30
+    while True:
+        state = client.state()
+        guards = [e for e in state["enemies"] if e["generator"] == generator]
+        defenders.update(e["entity"] for e in guards)
+        if state["generators"]["sites"][generator]["state"] == "Active":
+            break
+        if state["control"]["simulation_seconds"] > deadline:
+            raise ValidationFailure("Generator capture deadline exceeded")
+        live = [e for e in guards if e["emerged"] and e["life"] == "ActorAlive"]
+        if live:
+            enemy = min(live, key=lambda e: distance(e["position"], state["player"]["feet"]))
+            client.input(20, aim_entity=enemy["entity"], label="Defend the generator against its native guards")
+            client.input(8, ("fire",), aim_entity=enemy["entity"])
+            client.input(6, aim_entity=enemy["entity"])
+            client.send({"op": "assist", "god": True, "points": state["round"]["points"], "ammo": True, "doors": False})
+        else:
+            client.input(12, label="Hold the generator capture area")
+    kills = [e for e in state["evidence"]["events"] if e["sequence"] > sequence
+             and e["kind"] == "kill" and e["data"]["target"] in defenders]
+    if not kills:
+        raise ValidationFailure("Generator powered without a player-attributed defender kill")
+    results["generator"] = {"id": generator, "defender_kills": len(kills),
+                             "capture": capture(client, "generator-one-powered")}
+    client.input(180 * int(state["speed"]), label="Generator one powered: inspect the scene")
+
+    tank = client.state()["tank"]
+    if tank["phase"] != "Ready" or tank["station"] != 0:
+        raise ValidationFailure("Tank must begin at its ordinary church station")
+    # Stage beside the rear hull. Boarding and the staff jump use movement only.
+    client.send({"op": "teleport", "feet": tank_point(tank, [4.2, 2.0, 3.0])},
+                label="Stage beside the tank at the church")
+    client.input(12)
+    boarding = tank_point(tank, [2.2, 1.9828, 2.5])
+    client.input(120, aim=[boarding[0], client.state()["player"]["eye"][1], boarding[2]],
+                 label="Inspect the tank boarding route")
+    client.input(24, ("forward", "jump"), label="Board the tank using an ordinary jump")
+    client.input(24)
+    walk_to(client, tank_point(tank, [2.2, 1.9828, -1.0]), tolerance=0.6, seconds=12)
+    state = client.state()
+    if state["player"]["platform"] != tank["entity"]:
+        raise ValidationFailure("Tank boarding did not establish platform support")
+    results["boarding"] = capture(client, "tank-boarded")
+    target = target_of(state, "trig_use_tank")
+    state = use_target(client, target, "Tank: purchase the ordinary trip")
+    if state["tank"]["phase"] != "Moving":
+        raise ValidationFailure("Tank interaction did not start its route")
+    start = state["tank"]["position"]
+    deadline = state["control"]["simulation_seconds"] + 150
+    supported = 0
+    while state["tank"]["position"][2] > -73.2:
+        if state["control"]["simulation_seconds"] > deadline:
+            raise ValidationFailure("Tank did not reach the first lightning jump")
+        if state["player"]["platform"] != tank["entity"]:
+            raise ValidationFailure("Platform support was lost during the tank ride")
+        supported += 1
+        client.input(12, aim=[100.0, state["player"]["eye"][1], state["player"]["feet"][2]],
+                     label="Ride the tank to the first lightning-part platform")
+        state = client.state()
+    if distance(start, state["tank"]["position"]) < 50 or supported < 5:
+        raise ValidationFailure("The tank ride did not demonstrate sustained platform carry")
+    results["ride"] = {"supported_observations": supported, "capture": capture(client, "tank-first-jump")}
+    sequence = client.state()["evidence"]["sequence"]
+    landing = [40.5, -2.85623, -76.949554]
+    client.input(18, ("forward", "sprint", "jump"), aim=landing,
+                 label="Jump from the moving tank toward the lightning platform")
+    airborne = client.state()
+    if airborne["player"]["grounded"] or airborne["player"]["platform"] == tank["entity"]:
+        raise ValidationFailure("Lightning jump did not leave the tank")
+    client.input(30, ("forward", "sprint"), aim=landing)
+    state = client.wait(lambda s: s["player"]["grounded"], seconds=5)
+    landings = [e for e in state["evidence"]["events"] if e["sequence"] > sequence
+                and e["kind"] == "landing" and e["data"]["owner"] == state["player"]["entity"]]
+    if not landings or state["player"]["platform"] == tank["entity"]:
+        raise ValidationFailure("Lightning jump has no landing away from the tank")
+    for point in ([43.0, -2.85623, -76.949554], [50.0, -2.85623, -76.949554],
+                  [57.2, -2.85623, -76.949554]):
+        walk_to(client, point, tolerance=0.65, seconds=15)
+    part = "part.elemental_staff_lightning.upper_staff"
+    target = target_of(client.state(), "part", part)
+    state = use_target(client, target, "Take the lightning staff part through interaction")
+    owned = state["parts"]["pieces"][part]
+    if owned["state"] != "owned" or owned["player"] != state["player"]["entity"]:
+        raise ValidationFailure("Lightning part was not collected by this player")
+    results["lightning_part"] = {"id": part, "jump": airborne["player"]["feet"],
+                                  "landing": landings[-1]["data"], "capture": capture(client, "lightning-first-part")}
+    client.input(180 * int(state["speed"]), label="Generator and tank checkpoint passed: inspect the part")
+    return results
+
+
+ROUTE = {"foundation": foundation, "generators-tank": generators_tank}

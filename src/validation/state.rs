@@ -1,5 +1,6 @@
 use super::Controller;
 use crate::{GameState, life::Vitality, player::Player};
+use avian3d::prelude::SimpleCollider;
 use bevy::prelude::*;
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -65,7 +66,10 @@ pub(super) fn snapshot(world: &mut World) -> Value {
     let player=world.query_filtered::<(Entity,&Player,&Transform,&Vitality,&crate::weapons::WeaponInventory,Option<&crate::environment::digging::Digger>,Option<&crate::movement::platforms::PlatformSupport>),With<Player>>().single(world).ok().map(|(entity,p,t,h,w,d,s)| {
         json!({"entity":entity.to_bits(),"position":t.translation.to_array(),"feet":(t.translation-Vec3::Y*p.height*0.5).to_array(),"eye":(t.translation+Vec3::Y*(p.eye_height-p.height*0.5)).to_array(),"yaw":p.yaw,"pitch":p.pitch,"grounded":p.grounded,"velocity":p.velocity.to_array(),"health":h.current(),"life":format!("{:?}",h.state()),"platform":s.and_then(|s|s.entity).map(Entity::to_bits),"shovel":d.is_some_and(|d|d.shovel),"inventory":w.owned().map(|(slot,weapon)|json!({"slot":slot,"id":weapon.definition.0,"magazine":weapon.magazine})).collect::<Vec<_>>(),"weapon":w.active().map(|w|w.definition.0.clone())})
     });
-    let enemies:Vec<_>=world.query::<(Entity,&crate::enemies::Zombie,&Transform,&Vitality,Option<&crate::rounds::SpawnZone>)>().iter(world).map(|(e,z,t,h,zone)|json!({"entity":e.to_bits(),"position":t.translation.to_array(),"health":h.current(),"life":format!("{:?}",h.state()),"emerged":z.completed_emerging(),"zone":zone.map(|z|z.0.0.clone())})).collect();
+    let enemies:Vec<_>=world.query::<(Entity,&crate::enemies::Zombie,&Transform,&Vitality,Option<&crate::rounds::SpawnZone>,Option<&crate::generators::GeneratorDefender>,Option<&crate::hit_regions::Hitboxes>)>().iter(world).map(|(e,z,t,h,zone,defender,boxes)| {
+        let head=boxes.and_then(|boxes|boxes.volumes.iter().find(|v|v.region.head())).map(|v|t.transform_point((v.start+v.end)*0.5).to_array());
+        json!({"entity":e.to_bits(),"position":t.translation.to_array(),"head":head,"definition":z.definition.0,"generator":defender.map(|d|&d.generator.0),"health":h.current(),"life":format!("{:?}",h.state()),"emerged":z.completed_emerging(),"zone":zone.map(|z|z.0.0.clone())})
+    }).collect();
     let mut targets:Vec<_>=world.query::<(Entity,&crate::environment::digging::DigTarget,&Transform)>().iter(world).map(|(e,target,t)|json!({"entity":e.to_bits(),"target":target,"position":t.translation.to_array()})).collect();
     targets.extend(
         world
@@ -83,6 +87,26 @@ pub(super) fn snapshot(world: &mut World) -> Value {
                 json!({"entity":e.to_bits(),"target":target,"position":t.translation.to_array()})
             }),
     );
+    targets.extend(world.query::<(Entity,&crate::interactions::Usable,&Transform)>().iter(world).filter_map(|(e,u,t)| {
+        let crate::origins::content::InteractionAction::Generator { generator }=&u.source.action else { return None; };
+        Some(json!({"entity":e.to_bits(),"target":{"kind":"generator","value":generator.0},"position":t.translation.to_array()}))
+    }));
+    let tank_uses: std::collections::BTreeMap<_, _> = world
+        .resource::<crate::assets::GameDefinition>()
+        .environment
+        .triggers
+        .iter()
+        .filter_map(|t| {
+            let name = t.source.get("targetname")?;
+            matches!(name.as_str(), "trig_use_tank" | "trig_tank_station_call")
+                .then(|| (t.id.clone(), name.clone()))
+        })
+        .collect();
+    targets.extend(world.query::<(Entity,&crate::environment::triggers::MapTrigger,&Transform,&avian3d::prelude::Collider)>().iter(world).filter_map(|(e,t,pose,shape)| {
+        let name=tank_uses.get(&t.0)?;
+        let bounds=shape.aabb(pose.translation,pose.rotation,0.);
+        Some(json!({"entity":e.to_bits(),"target":{"kind":name,"value":t.0},"position":((bounds.min+bounds.max)*0.5).to_array()}))
+    }));
     let c = world.resource::<Controller>();
     let session = world.resource::<crate::gameplay::Session>();
     let focus = world.resource::<crate::interactions::InteractionFocus>();
@@ -102,7 +126,11 @@ pub(super) fn snapshot(world: &mut World) -> Value {
         result["parts"] = serde_json::to_value(parts).unwrap();
     }
     if let Some(generators) = world.get_resource::<crate::generators::Generators>() {
-        result["generators"] = json!({"activations":generators.activations,"completions":generators.completions,"sites":generators.sites.iter().map(|(id,s)|(&id.0,json!({"state":format!("{:?}",s.state),"progress":s.progress}))).collect::<std::collections::BTreeMap<_,_>>()});
+        result["generators"] = json!({"activations":generators.activations,"completions":generators.completions,"defenders_admitted":generators.defenders_admitted,"sites":generators.sites.iter().map(|(id,s)|(&id.0,json!({"state":format!("{:?}",s.state),"progress":s.progress}))).collect::<std::collections::BTreeMap<_,_>>()});
+    }
+    if let Some(tank) = world.get_resource::<crate::tank::Tank>() {
+        let pose = tank.entity.and_then(|e| world.get::<Transform>(e));
+        result["tank"] = json!({"entity":tank.entity.map(Entity::to_bits),"phase":format!("{:?}",tank.phase),"station":tank.station,"trips":tank.trips,"timer":tank.timer,"position":pose.map(|p|p.translation.to_array()),"rotation":pose.map(|p|p.rotation.to_array())});
     }
     result
 }

@@ -93,6 +93,11 @@ fn start(
     if playback.video.is_some() || playback.done {
         return;
     }
+    #[cfg(feature = "dev-tools")]
+    if **state != GameState::Ending && controller.is_some() {
+        playback.done = true;
+        return;
+    }
     // Winit owns the parent window. Do not start a separate player before it exists.
     let Ok(window) = windows.single() else {
         return;

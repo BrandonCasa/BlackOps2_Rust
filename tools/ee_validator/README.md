@@ -7,6 +7,7 @@ python tools/ee_validator/run.py --build --until foundation
 The runner defaults to 2x gameplay speed. Use `--speed 1` for normal speed.
 Single stepping still advances one 1/60-second tick, including native client
 physics, and the ending movie always plays at 1x.
+Validator launches skip the loading intro movie.
 
 The development-only bridge uses the normal input owner and physics. A normal
 launch does not install it; builds without `dev-tools` exclude it.
@@ -35,6 +36,11 @@ failure reason. Command completion alone does not prove an objective: route
 functions check actual gameplay results. There are no source-file gates, hashes,
 code-change checks or provenance manifests.
 
-Only the foundation is implemented so far; visible validation remains pending.
-Later milestones will extend the same fresh-match prefix. Assisted playthrough
+The foundation passed visibly with seed 2818 at 2x speed in
+`reports/ee-validator/foundation-20261016-f/summary.json`. Later milestones
+extend the same fresh-match prefix. Assisted playthrough
 success does not establish survival balance, economy or performance.
+
+`--until generators-tank` adds generator activation and defense, movement onto
+the tank, an ordinary paid ride, and the first lightning-part jump and pickup.
+Its visible validation is pending.
