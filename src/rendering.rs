@@ -13,10 +13,11 @@ pub mod native;
 pub(crate) mod native_effect;
 pub(crate) mod native_light;
 pub(crate) mod native_model;
+pub(crate) mod native_rangefinder_ui;
 pub(crate) mod native_sky;
+pub(crate) mod native_sonar;
 pub(crate) mod native_water;
 pub(crate) mod native_weapon_view;
-pub(crate) mod native_rangefinder_ui;
 pub(crate) mod reflection;
 pub(crate) mod shadow;
 pub(crate) mod skinning;
@@ -38,6 +39,7 @@ impl Plugin for GameRenderingPlugin {
             native_weapon_view::NativeWeaponViewPlugin,
             native_rangefinder_ui::NativeRangefinderUiPlugin,
             native_sky::NativeSkyPlugin,
+            native_sonar::NativeSonarPlugin,
             skinning::NativeSkinningPlugin,
             animated_models::AnimatedModelPlugin,
             native_water::NativeWaterPlugin,

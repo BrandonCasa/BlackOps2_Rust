@@ -298,6 +298,22 @@ pub(crate) struct NativeReticleConstants {
     pub source: [Vec4; 5],
 }
 
+#[derive(Clone, Copy, ShaderType)]
+pub(crate) struct NativeSonarConstants {
+    pub source: [Vec4; 10],
+}
+#[derive(Clone, Copy, PartialEq, ShaderType)]
+struct NativeSonarCodeView {
+    z_near: Vec4,
+    target_size: Vec4,
+    viewport: Vec4,
+}
+struct ModelSonarGroup {
+    key: [TextureViewId; 3],
+    source: NativeSonarCodeView,
+    frame: UniformBuffer<NativeSonarCodeView>,
+    group: BindGroup,
+}
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub(crate) enum NativeEffectModelProgram {
@@ -543,6 +559,10 @@ pub(crate) enum NativeModelMaterial {
     Ui3dReticle {
         noise: (Handle<Image>, SamplerDescriptor<'static>),
         constants: NativeReticleConstants,
+    },
+    Sonar {
+        textures: [(Handle<Image>, SamplerDescriptor<'static>); 2],
+        constants: NativeSonarConstants,
     },
     Reticle {
         program: NativeReticleProgram,
@@ -947,6 +967,17 @@ impl NativeModelMaterial {
                 None,
                 None,
             ],
+            Self::Sonar { textures, .. } => [
+                Some((0, &textures[0].0, &textures[0].1)),
+                Some((2, &textures[1].0, &textures[1].1)),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            ],
             Self::Reticle { textures, .. } => [
                 Some((0, &textures[0].0, &textures[0].1)),
                 Some((2, &textures[1].0, &textures[1].1)),
@@ -1197,6 +1228,7 @@ impl NativeModelMaterial {
             Self::AlphaSpecular { vertex_lit, .. } => NativeModelFamily::AlphaSpecular(*vertex_lit),
             Self::Crystal3Layer { vertex_lit, .. } => NativeModelFamily::Crystal3Layer(*vertex_lit),
             Self::Ui3dReticle { .. } => NativeModelFamily::Reticle(NativeReticleProgram::Ui3d),
+            Self::Sonar { .. } => NativeModelFamily::Sonar,
             Self::Reticle { program, .. } => NativeModelFamily::Reticle(*program),
             Self::OpticLens { .. } => NativeModelFamily::OpticLens,
             Self::SingleLayer { .. } => NativeModelFamily::SingleLayer,
@@ -1271,6 +1303,7 @@ enum NativeModelFamily {
     NormalSpecular(NormalSpecularProgram),
     AlphaSpecular(bool),
     Reticle(NativeReticleProgram),
+    Sonar,
     OpticLens,
     SingleLayer,
     Staff3Layer,
@@ -1296,7 +1329,7 @@ impl NativeModelFamily {
     fn draw_matrices(self) -> bool {
         matches!(
             self,
-            Self::Reticle(_) | Self::Objective | Self::ProjectedDecal
+            Self::Reticle(_) | Self::Sonar | Self::Objective | Self::ProjectedDecal
         )
     }
 
@@ -1432,6 +1465,7 @@ impl NativeModelFamily {
             self,
             Self::Objective
                 | Self::Reticle(_)
+                | Self::Sonar
                 | Self::ZombieEyes
                 | Self::Unlit(_)
                 | Self::DecalMultiply
@@ -1449,6 +1483,7 @@ impl NativeModelFamily {
             self,
             Self::Objective
                 | Self::Reticle(_)
+                | Self::Sonar
                 | Self::ZombieEyes
                 | Self::Canopy(_)
                 | Self::SmokePillar
@@ -1793,6 +1828,8 @@ impl Plugin for NativeModelPlugin {
         let projected_shader = load_embedded_asset!(app, "native_projected_model_entry.wesl");
         embedded_asset!(app, "native_weapon_model_reticle_entry.wesl");
         let reticle_shader = load_embedded_asset!(app, "native_weapon_model_reticle_entry.wesl");
+        embedded_asset!(app, "native_weapon_model_sonar_entry.wesl");
+        let sonar_shader = load_embedded_asset!(app, "native_weapon_model_sonar_entry.wesl");
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
@@ -1804,6 +1841,7 @@ impl Plugin for NativeModelPlugin {
                 unlit_shader,
                 plinth_shader,
                 reticle_shader,
+                sonar_shader,
                 objective_shader,
                 projected_shader,
                 effect_shaders,
@@ -1825,6 +1863,7 @@ impl Plugin for NativeModelPlugin {
                         .in_set(RenderSystems::Queue),
                     prepare_model_groups
                         .after(super::native_rangefinder_ui::RangefinderUiSystems::Prepare)
+                        .after(super::native_sonar::PrepareSonarViews)
                         .in_set(RenderSystems::PrepareBindGroups),
                 ),
             );
@@ -1839,6 +1878,7 @@ struct ModelPipeline {
     unlit_shader: Handle<Shader>,
     plinth_shader: Handle<Shader>,
     reticle_shader: Handle<Shader>,
+    sonar_shader: Handle<Shader>,
     objective_shader: Handle<Shader>,
     projected_shader: Handle<Shader>,
     effect_shaders: [Handle<Shader>; 15],
@@ -1852,6 +1892,8 @@ struct ModelPipeline {
     reticle_material_layout: BindGroupLayoutDescriptor,
     ui3d_material_layout: BindGroupLayoutDescriptor,
     ui3d_view_layout: BindGroupLayoutDescriptor,
+    sonar_material_layout: BindGroupLayoutDescriptor,
+    sonar_view_layout: BindGroupLayoutDescriptor,
     scripted_object_layout: BindGroupLayoutDescriptor,
     material_layout: BindGroupLayoutDescriptor,
     diffuse_material_layout: BindGroupLayoutDescriptor,
@@ -1893,6 +1935,7 @@ impl ModelPipeline {
         unlit_shader: Handle<Shader>,
         plinth_shader: Handle<Shader>,
         reticle_shader: Handle<Shader>,
+        sonar_shader: Handle<Shader>,
         objective_shader: Handle<Shader>,
         projected_shader: Handle<Shader>,
         effect_shaders: [Handle<Shader>; 15],
@@ -2108,6 +2151,7 @@ impl ModelPipeline {
             unlit_shader,
             plinth_shader,
             reticle_shader,
+            sonar_shader,
             objective_shader,
             projected_shader,
             unlit_scale_layout: BindGroupLayoutDescriptor::new(
@@ -2146,6 +2190,36 @@ impl ModelPipeline {
                     (
                         (0, uniform_buffer::<NativeModelObject>(true)),
                         (2, uniform_buffer::<NativeModelDrawMatrices>(true)),
+                    ),
+                ),
+            ),
+            sonar_material_layout: BindGroupLayoutDescriptor::new(
+                "native MMS authored noise and lookup",
+                &BindGroupLayoutEntries::with_indices(
+                    ShaderStages::FRAGMENT,
+                    (
+                        (0, texture_2d(TextureSampleType::Float { filterable: true })),
+                        (1, sampler(SamplerBindingType::Filtering)),
+                        (2, texture_2d(TextureSampleType::Float { filterable: true })),
+                        (3, sampler(SamplerBindingType::Filtering)),
+                        (26, uniform_buffer::<NativeSonarConstants>(false)),
+                    ),
+                ),
+            ),
+            sonar_view_layout: BindGroupLayoutDescriptor::new(
+                "native MMS scene and generated sonar depth",
+                &BindGroupLayoutEntries::sequential(
+                    ShaderStages::FRAGMENT,
+                    (
+                        texture_2d(TextureSampleType::Float { filterable: false }),
+                        sampler(SamplerBindingType::NonFiltering),
+                        texture_2d(TextureSampleType::Float { filterable: true }),
+                        sampler(SamplerBindingType::Filtering),
+                        bevy::render::render_resource::binding_types::texture_2d(
+                            TextureSampleType::Depth,
+                        ),
+                        sampler(SamplerBindingType::Filtering),
+                        uniform_buffer::<NativeSonarCodeView>(false),
                     ),
                 ),
             ),
@@ -2536,6 +2610,7 @@ impl ModelPipeline {
             NativeModelFamily::Feather3Layer => &self.feather_material_layout,
             NativeModelFamily::Unlit3Layer { .. } => &self.falloff_material_layout,
             NativeModelFamily::Crystal3Layer(_) => &self.crystal_material_layout,
+            NativeModelFamily::Sonar => &self.sonar_material_layout,
             NativeModelFamily::Reticle(NativeReticleProgram::Ui3d) => &self.ui3d_material_layout,
             NativeModelFamily::Reticle(_) => &self.reticle_material_layout,
             NativeModelFamily::OpticLens => &self.optics_material_layout,
@@ -2942,6 +3017,8 @@ impl SpecializedRenderPipeline for ModelPipeline {
             (NativeModelFamily::Reticle(NativeReticleProgram::DynamicTwoColor), true) => {
                 "fragment_reticle_two_color_srgb"
             }
+            (NativeModelFamily::Sonar, false) => "fragment_sonar",
+            (NativeModelFamily::Sonar, true) => "fragment_sonar_srgb",
             (NativeModelFamily::Reticle(NativeReticleProgram::Ui3d), false) => {
                 "fragment_reticle_ui3d"
             }
@@ -3143,6 +3220,8 @@ impl SpecializedRenderPipeline for ModelPipeline {
             &self.objective_shader
         } else if key.family == NativeModelFamily::ProjectedDecal {
             &self.projected_shader
+        } else if key.family == NativeModelFamily::Sonar {
+            &self.sonar_shader
         } else if matches!(key.family, NativeModelFamily::Reticle(_)) {
             &self.reticle_shader
         } else if let NativeModelFamily::Effect(program) = key.family {
@@ -3180,7 +3259,9 @@ impl SpecializedRenderPipeline for ModelPipeline {
             },
             self.material_layout(key.family).clone(),
         ];
-        if key.family == NativeModelFamily::Reticle(NativeReticleProgram::Ui3d) {
+        if key.family == NativeModelFamily::Sonar {
+            layout.push(self.sonar_view_layout.clone());
+        } else if key.family == NativeModelFamily::Reticle(NativeReticleProgram::Ui3d) {
             layout.push(self.ui3d_view_layout.clone());
         } else if key.family.atlas_texture() {
             layout.push(self.lighting_layout.clone());
@@ -3217,6 +3298,8 @@ impl SpecializedRenderPipeline for ModelPipeline {
                         "vertex_source_cornea"
                     } else if matches!(key.family, NativeModelFamily::Effect(_)) {
                         "vertex"
+                    } else if key.family == NativeModelFamily::Sonar {
+                        "vertex_sonar"
                     } else if let NativeModelFamily::Reticle(program) = key.family {
                         if matches!(
                             program,
@@ -3579,6 +3662,13 @@ impl RenderAsset for PreparedModelMaterial {
         if let Some(uniform) = &mut disc_uniform {
             uniform.write_buffer(device, queue);
         }
+        let mut sonar_uniform = match &source {
+            NativeModelMaterial::Sonar { constants, .. } => Some(UniformBuffer::from(*constants)),
+            _ => None,
+        };
+        if let Some(uniform) = &mut sonar_uniform {
+            uniform.write_buffer(device, queue);
+        }
         let mut reticle_uniform = match &source {
             NativeModelMaterial::Reticle { constants, .. }
             | NativeModelMaterial::Ui3dReticle { constants, .. } => {
@@ -3717,6 +3807,12 @@ impl RenderAsset for PreparedModelMaterial {
                 resource: uniform.binding().expect("original crypt disc constants"),
             });
         }
+        if let Some(uniform) = &sonar_uniform {
+            entries.push(BindGroupEntry {
+                binding: 26,
+                resource: uniform.binding().expect("original MMS lens constants"),
+            });
+        }
         if let Some(uniform) = &reticle_uniform {
             entries.push(BindGroupEntry {
                 binding: 26,
@@ -3847,6 +3943,7 @@ struct ModelBindGroups {
     scripted_object: Option<((BufferId, BufferId), BindGroup)>,
     lighting: Option<(TextureViewId, BindGroup)>,
     ui3d: Option<(TextureViewId, BindGroup)>,
+    sonar: HashMap<RetainedViewEntity, ModelSonarGroup>,
 }
 
 fn prepare_model_groups(
@@ -3858,7 +3955,80 @@ fn prepare_model_groups(
     atlas: Option<Res<ModelLightingAtlas>>,
     mut groups: ResMut<ModelBindGroups>,
     ui3d: Option<Res<super::native_rangefinder_ui::PreparedRangefinderUi>>,
+    images: Res<RenderAssets<GpuImage>>,
+    sonar_views: Query<(
+        &ExtractedView,
+        &ViewTarget,
+        &NativeFxFrame,
+        &ExtractedEffectView,
+        Option<&super::native_sonar::PreparedSonarView>,
+    )>,
 ) {
+    groups.sonar.retain(|view, _| {
+        sonar_views
+            .iter()
+            .any(|(source, _, _, _, sonar)| source.retained_view_entity == *view && sonar.is_some())
+    });
+    for (view, target, frame, depth, sonar) in &sonar_views {
+        let (Some(sonar), Some(float_z)) = (sonar, images.get(depth.float_z)) else {
+            continue;
+        };
+        assert!(
+            !depth.filtering,
+            "native MMS floatZ requires source point sampler0x61"
+        );
+        let size = target.main_texture().size();
+        let source = NativeSonarCodeView {
+            z_near: frame.z_near,
+            target_size: Vec4::new(
+                size.width as f32,
+                size.height as f32,
+                1. / size.width as f32,
+                1. / size.height as f32,
+            ),
+            viewport: sonar.viewport,
+        };
+        let key = [
+            float_z.texture_view.id(),
+            sonar.color.id(),
+            sonar.depth.id(),
+        ];
+        if let Some(prepared) = groups.sonar.get_mut(&view.retained_view_entity) {
+            if prepared.key == key {
+                if prepared.source != source {
+                    prepared.source = source;
+                    prepared.frame.set(source);
+                    prepared.frame.write_buffer(&device, &queue);
+                }
+                continue;
+            }
+        }
+        let mut frame = UniformBuffer::from(source);
+        frame.write_buffer(&device, &queue);
+        let float_sampler = device.create_sampler(&depth.sampler);
+        let group = device.create_bind_group(
+            "native MMS lens generated code inputs",
+            &cache.get_bind_group_layout(&pipeline.sonar_view_layout),
+            &BindGroupEntries::sequential((
+                &float_z.texture_view,
+                &float_sampler,
+                &sonar.color,
+                &sonar.sampler,
+                &sonar.depth,
+                &sonar.sampler,
+                frame.binding().expect("MMS view upload"),
+            )),
+        );
+        groups.sonar.insert(
+            view.retained_view_entity,
+            ModelSonarGroup {
+                key,
+                source,
+                frame,
+                group,
+            },
+        );
+    }
     if let Some(ui3d) = ui3d {
         if groups
             .ui3d
@@ -4465,7 +4635,12 @@ fn draw_model<'w>(
         pass.set_bind_group(1, object, &[object_offset]);
     }
     pass.set_bind_group(2, &material.bind_group, &[]);
-    if material.family == NativeModelFamily::Reticle(NativeReticleProgram::Ui3d) {
+    if material.family == NativeModelFamily::Sonar {
+        let Some(sonar) = groups.sonar.get(&view.retained_view_entity) else {
+            return RenderCommandResult::Skip;
+        };
+        pass.set_bind_group(3, &sonar.group, &[]);
+    } else if material.family == NativeModelFamily::Reticle(NativeReticleProgram::Ui3d) {
         let Some((_, ui3d)) = &groups.ui3d else {
             return RenderCommandResult::Skip;
         };
@@ -4552,6 +4727,7 @@ mod tests {
     #[test]
     fn objective_and_projected_model_pipelines_keep_source_resource_contracts() {
         let pipeline = ModelPipeline::new(
+            default(),
             default(),
             default(),
             default(),

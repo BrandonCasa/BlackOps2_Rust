@@ -152,12 +152,18 @@ impl Plugin for NativeRangefinderUiPlugin {
 fn attach_bones(
     mut commands: Commands,
     mut bones: ResMut<RangefinderBones>,
+    mut targets: ResMut<RangefinderTargets>,
+    mut removed: RemovedComponents<crate::enemies::Zombie>,
     names: Query<(Entity, &Name), Added<Name>>,
     parents: Query<&ChildOf>,
     owners: Query<&NativeWeaponViewOwner>,
     rigs: Query<&crate::presentation::Rig>,
     actors: Query<(), With<crate::enemies::Zombie>>,
 ) {
+    for entity in removed.read() {
+        bones.heads.remove(&entity);
+        targets.visible.remove(&entity);
+    }
     for (entity, name) in &names {
         if name.as_str() == "tag_hud" {
             if let Some(owner) = parents.iter_ancestors(entity).find_map(|e| {
@@ -220,6 +226,8 @@ fn update_ui(
     ui.owner = active.map(|(owner, _)| owner);
     ui.alternate = false;
     let Some((owner, inventory)) = active else {
+        targets.latched_at = None;
+        targets.visible.clear();
         return;
     };
     let Some((camera, frustum)) = cameras.iter().next() else {
@@ -300,7 +308,9 @@ fn update_ui(
                     continue;
                 }
                 let visibility = targets.visible.entry(entity).or_default();
-                if now > visibility.next_check {
+                // 004b4680 checks visible actors every frame; only hidden
+                // actors wait for the stored retry timestamp.
+                if visibility.visible || now > visibility.next_check {
                     let point = bones
                         .heads
                         .get(&entity)

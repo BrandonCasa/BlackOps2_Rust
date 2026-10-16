@@ -134,7 +134,7 @@ impl Sequence {
                 "--osc=no",
                 "--input-default-bindings=no",
                 "--input-terminal=no",
-                "--input-vo-keyboard=no",
+                "--input-vo-keyboard=yes",
                 "--audio-channels=stereo",
                 "--cache=yes",
                 "--cache-pause=yes",
@@ -194,15 +194,29 @@ fn advance(
             video.connection = Some(pipe);
         }
     }
-    if skippable && !video.skip_enabled {
+    if skippable != video.skip_enabled {
         if let Some(pipe) = video.connection.as_mut() {
+            let binding = if skippable { "quit" } else { "ignore" };
+            for key in ["ESC", "SPACE"] {
+                writeln!(
+                    pipe,
+                    "{}",
+                    serde_json::json!({"command":["keybind", key, binding]})
+                )
+                .expect("cinematic skip binding");
+            }
+            let prompt = if skippable {
+                "ESC / SPACE   Skip"
+            } else {
+                "Loading world..."
+            };
             writeln!(
                 pipe,
                 "{}",
-                serde_json::json!({"command":["show-text", "ESC / SPACE   Skip", 600000]})
+                serde_json::json!({"command":["show-text", prompt, 600000]})
             )
             .expect("cinematic skip prompt");
-            video.skip_enabled = true;
+            video.skip_enabled = skippable;
         }
     }
     if skippable

@@ -48,14 +48,14 @@ pub struct NativeEffectView {
 #[derive(Component, Clone, Copy, ShaderType)]
 pub struct NativeFxFrame {
     pub(crate) scene: NativeWorldScene,
-    z_near: Vec4,
+    pub(crate) z_near: Vec4,
     render_target_size: Vec4,
 }
 
 #[derive(Component)]
 pub struct ExtractedEffectView {
-    float_z: AssetId<Image>,
-    sampler: SamplerDescriptor<'static>,
+    pub(crate) float_z: AssetId<Image>,
+    pub(crate) sampler: SamplerDescriptor<'static>,
     pub(crate) filtering: bool,
 }
 

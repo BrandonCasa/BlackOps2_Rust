@@ -221,17 +221,15 @@ pub(crate) fn collect(
     mut motion: MessageReader<MouseMotion>,
     mut wheel: MessageReader<MouseWheel>,
     mouse: Res<ButtonInput<MouseButton>>,
-    windows: Query<(&Window, &CursorOptions)>,
+    windows: Query<&Window, With<PrimaryWindow>>,
     inventories: Query<&crate::weapons::WeaponInventory, With<crate::player::Player>>,
     state: Res<State<GameState>>,
     settings: Res<ControlSettings>,
     mut actions: ResMut<Actions>,
     mut input: ResMut<GameInput>,
 ) {
-    let active = **state == GameState::Playing
-        && windows
-            .iter()
-            .any(|(window, cursor)| window.focused && cursor.grab_mode != CursorGrabMode::None);
+    let active =
+        **state == GameState::Playing && windows.single().is_ok_and(|window| window.focused);
     let mappings_changed = settings.bindings != actions.settings.bindings
         || settings.aim_mode != actions.settings.aim_mode
         || settings.crouch_mode != actions.settings.crouch_mode
@@ -409,6 +407,70 @@ mod tests {
     use super::*;
 
     #[test]
+    fn focused_gameplay_accepts_movement_and_look_before_cursor_capture() {
+        let mut app = App::new();
+        app.add_plugins(bevy::input::InputPlugin)
+            .init_resource::<Actions>()
+            .init_resource::<GameInput>()
+            .init_resource::<ControlSettings>()
+            .insert_resource(State::new(GameState::Playing))
+            .add_systems(PreUpdate, collect.after(InputSystems));
+        let window = app
+            .world_mut()
+            .spawn((Window::default(), PrimaryWindow))
+            .id();
+        app.world_mut().write_message(KeyboardInput {
+            key_code: KeyCode::KeyW,
+            logical_key: bevy::input::keyboard::Key::Character("w".into()),
+            state: bevy::input::ButtonState::Pressed,
+            text: None,
+            repeat: false,
+            window,
+        });
+        app.world_mut()
+            .write_message(MouseMotion { delta: Vec2::ONE });
+        app.update();
+        let input = app.world().resource::<GameInput>();
+        assert_eq!(input.movement, Vec2::Y);
+        assert_eq!(input.look, Vec2::ONE);
+
+        app.world_mut().get_mut::<Window>(window).unwrap().focused = false;
+        app.world_mut()
+            .write_message(MouseMotion { delta: Vec2::ONE });
+        app.update();
+        let input = app.world().resource::<GameInput>();
+        assert_eq!(input.movement, Vec2::ZERO);
+        assert_eq!(input.look, Vec2::ZERO);
+
+        app.world_mut().get_mut::<Window>(window).unwrap().focused = true;
+        app.update();
+        assert_eq!(app.world().resource::<GameInput>().movement, Vec2::ZERO);
+        for state in [
+            bevy::input::ButtonState::Released,
+            bevy::input::ButtonState::Pressed,
+        ] {
+            app.world_mut().write_message(KeyboardInput {
+                key_code: KeyCode::KeyW,
+                logical_key: bevy::input::keyboard::Key::Character("w".into()),
+                state,
+                text: None,
+                repeat: false,
+                window,
+            });
+            app.update();
+        }
+        assert_eq!(app.world().resource::<GameInput>().movement, Vec2::Y);
+
+        app.insert_resource(State::new(GameState::Paused));
+        app.world_mut()
+            .write_message(MouseMotion { delta: Vec2::ONE });
+        app.update();
+        let input = app.world().resource::<GameInput>();
+        assert_eq!(input.movement, Vec2::ZERO);
+        assert_eq!(input.look, Vec2::ZERO);
+    }
+
+    #[test]
     fn akimbo_trigger_does_not_latch_toggle_aim_for_the_next_weapon() {
         use crate::{origins::content::WeaponDefinition, weapons::WeaponInventory};
         let mut weapon: WeaponDefinition = serde_json::from_value(serde_json::json!({
@@ -447,6 +509,7 @@ mod tests {
                     grab_mode: CursorGrabMode::Locked,
                     ..default()
                 },
+                PrimaryWindow,
             ))
             .id();
         let player = app

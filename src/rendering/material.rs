@@ -29,6 +29,7 @@ pub(crate) struct MaterialDefinition {
     #[serde(rename = "_version")]
     version: u32,
     technique_set: String,
+    thermal_material: Option<String>,
     camera_region: String,
     game_flags: Vec<String>,
     pub(crate) surface_type_bits: u32,
@@ -108,6 +109,49 @@ impl MaterialDefinition {
         }
         material.path = path.to_owned();
         Ok(material)
+    }
+
+    pub(crate) fn thermal_material(&self) -> Option<&str> {
+        self.thermal_material
+            .as_deref()
+            .filter(|name| !name.is_empty())
+    }
+
+    /// Actual +0x6c override selected by004127d0 for MMS actors. Absence alone
+    /// selects the engine's infrared_white material; unsupported inputs fail.
+    pub(crate) fn sonar_material(
+        &self,
+        server: &AssetServer,
+        inputs: &std::collections::BTreeMap<String, MaterialDefinition>,
+    ) -> Result<Option<super::native_sonar::SonarMaterial>, String> {
+        use super::native_sonar::{SonarMaterial, SonarProgram};
+        let Some(name) = self.thermal_material() else {
+            return Ok(None);
+        };
+        let source = inputs
+            .get(name)
+            .ok_or_else(|| format!("Load required original thermalMaterial {name}"))?;
+        let program = match source.technique_set.as_str() {
+            "mc_sw4_3d_thermal_w9wzw265" => SonarProgram::Thermal,
+            "mc_sw4_3d_thermal_char_17f49w63" => SonarProgram::ThermalChar,
+            other => {
+                return Err(format!(
+                    "Port original MMS thermal shader {other} before binding {name}"
+                ));
+            }
+        };
+        let emissive = source.constant_hash("Emissive_Amount", 2875883048)?;
+        let detail = source.constant_hash("Detail_Amount", 871442466)?;
+        Ok(Some(SonarMaterial {
+            program,
+            constant: Vec4::new(emissive.x, detail.x, 0., 0.),
+            textures: vec![
+                source.texture_key(server, "Thermal_Map", "colorMap", Some(70768136))?,
+                source.texture_key(server, "Normal_Map", "normalMap", Some(2485960688))?,
+                source.texture_key(server, "Thermal_Gradient", "colorMap", Some(414530162))?,
+            ],
+            state: source.state_bits_for(3, "disabled")?,
+        }))
     }
 
     pub(crate) fn technique_set(&self) -> &str {
@@ -235,6 +279,86 @@ impl MaterialDefinition {
                         scale_rgb: self.constant_hash("Emissive_Amount", 2875883048)?,
                     },
                     self.state_bits_for(3, alpha)?,
+                ));
+            }
+            if family == "mc_sw4_3d_sonar_attachment_lens2_78904485" {
+                use super::native_model::NativeSonarConstants;
+                let scatter = self.constant("ScatterSize")?;
+                let enemies = self.constant("EnemiesColor")?;
+                let background = self.constant("BackgroundColor")?;
+                let edge = self.constant("EdgeColor")?;
+                return Ok((
+                    NativeModelMaterial::Sonar {
+                        textures: [
+                            self.texture_key(
+                                server,
+                                "StaticNoiseMap",
+                                "colorMap",
+                                Some(1231620122),
+                            )?,
+                            self.texture(server, "Lookup", "colorMap")?,
+                        ],
+                        constants: NativeSonarConstants {
+                            source: [
+                                Vec4::new(
+                                    self.constant("ScatterAmount")?.x,
+                                    scatter.x,
+                                    scatter.y,
+                                    self.constant("MinDepth")?.x,
+                                ),
+                                Vec4::new(
+                                    self.constant("MaxDepth")?.x,
+                                    enemies.x,
+                                    enemies.y,
+                                    enemies.z,
+                                ),
+                                Vec4::new(
+                                    self.constant("MaxPulseDepth")?.x,
+                                    self.constant("SceneNoise")?.x,
+                                    self.constant("LineNoise")?.x,
+                                    self.constant("hdrAmount")?.x,
+                                ),
+                                Vec4::new(
+                                    background.x,
+                                    background.y,
+                                    background.z,
+                                    self.constant("BackgroundNoise")?.x,
+                                ),
+                                Vec4::new(
+                                    self.constant("PulseInterval")?.x,
+                                    self.constant("PulseTime")?.x,
+                                    self.constant("EdgeSize")?.x,
+                                    self.constant("EdgeIntensity")?.x,
+                                ),
+                                Vec4::new(
+                                    self.constant("EdgeMinDist")?.x,
+                                    self.constant("EdgeMaxDist")?.x,
+                                    self.constant_hash("Player_Color_Multiplier", 2216979909)?.x,
+                                    self.constant_hash("Pulse_Lookup_Scale", 1915875877)?.x,
+                                ),
+                                Vec4::new(
+                                    self.constant_hash("Player_Lookup_Scale", 476534793)?.x,
+                                    self.constant_hash("Outline_Lookup_Scale", 1235725306)?.x,
+                                    self.constant_hash("Min_Player_Intensity", 857136406)?.x,
+                                    0.,
+                                ),
+                                self.constant("PulseColor")?,
+                                Vec4::new(
+                                    edge.x,
+                                    edge.y,
+                                    edge.z,
+                                    self.constant_hash("Edge_Color_Multiplier", 693037141)?.x,
+                                ),
+                                Vec4::new(
+                                    self.constant_hash("Pulse_Color_Multiplier", 1531143913)?.x,
+                                    0.,
+                                    0.,
+                                    0.,
+                                ),
+                            ],
+                        },
+                    },
+                    self.state_bits_for(3, "disabled")?,
                 ));
             }
             if family == "mc_sw4_3d_reticle_ui3d_q49ew30e" {
@@ -4094,6 +4218,56 @@ mod tests {
 
     #[test]
     #[ignore = "requires staged original Origins material inputs"]
+    fn exported_mms_lens_binds_original_lookup_and_pulse_constants() {
+        use super::super::native_model::NativeModelMaterial;
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::asset::AssetPlugin::default()))
+            .init_asset::<Image>();
+        let definition = MaterialDefinition::read(Path::new(
+            "target/assets/materials/mc/mtl_t6_attach_optic_mms_display.json",
+        ))
+        .unwrap();
+        let (material, state) = definition
+            .model(app.world().resource::<AssetServer>(), Handle::default())
+            .unwrap();
+        let NativeModelMaterial::Sonar {
+            textures,
+            constants,
+        } = material
+        else {
+            panic!("MMS must require its source color/depth producer")
+        };
+        assert!(
+            textures[0]
+                .0
+                .path()
+                .unwrap()
+                .path()
+                .to_string_lossy()
+                .ends_with("noise2.dds")
+        );
+        assert!(
+            textures[1]
+                .0
+                .path()
+                .unwrap()
+                .path()
+                .to_string_lossy()
+                .ends_with("~sonar_attachment_lookup_puls~4187f661.dds")
+        );
+        assert_eq!(constants.source[0], Vec4::new(0., 0.5, 0.5, 60.));
+        assert_eq!(constants.source[2], Vec4::new(1250., 0., 0., 1.25));
+        assert_eq!(constants.source[4].xy(), Vec2::new(1.5, 1.1));
+        assert_eq!(constants.source[5], Vec4::new(10., 1000., 7., 3.));
+        assert_eq!(constants.source[6], Vec4::new(2., 2., 0., 0.));
+        assert_eq!(constants.source[9].x, 1.5);
+        assert!(!state.depth_write);
+        assert_eq!(state.blend.unwrap().color.src_factor, BlendFactor::One);
+        assert_eq!(state.blend.unwrap().color.dst_factor, BlendFactor::One);
+    }
+
+    #[test]
+    #[ignore = "requires staged original Origins material inputs"]
     fn exported_rangefinder_ui3d_material_binds_real_target_contract() {
         use super::super::native_model::NativeModelMaterial;
         let mut app = App::new();
@@ -5472,5 +5646,78 @@ mod tests {
             }
         }
         println!("Bound all 27 original world decal materials and checked their image files");
+    }
+    #[test]
+    #[ignore = "requires exported original source assets"]
+    fn exported_mms_actor_thermal_links_preserve_inputs_and_depth_state() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+            .init_asset::<Image>();
+        let server = app.world().resource::<AssetServer>();
+        for (base, family, emissive, detail) in [
+            (
+                "mtl_c_zom_tomb_german_head_1_u",
+                super::super::native_sonar::SonarProgram::Thermal,
+                3.,
+                0.30000001192092896,
+            ),
+            (
+                "mtl_c_gen_insidemouth",
+                super::super::native_sonar::SonarProgram::ThermalChar,
+                3.,
+                0.3700000047683716,
+            ),
+            (
+                "mtl_gen_eye_iris_blue",
+                super::super::native_sonar::SonarProgram::ThermalChar,
+                4.010000228881836,
+                0.3700000047683716,
+            ),
+        ] {
+            let root = Path::new("target/assets/materials");
+            let source = MaterialDefinition::read(&root.join(format!("mc/{base}.json"))).unwrap();
+            let name = source.thermal_material().unwrap();
+            let thermal = MaterialDefinition::read(&root.join(format!("{name}.json"))).unwrap();
+            let inputs = std::collections::BTreeMap::from([(name.to_owned(), thermal)]);
+            let material = source.sonar_material(server, &inputs).unwrap().unwrap();
+            assert!(material.program == family);
+            assert_eq!(material.constant, Vec4::new(emissive, detail, 0., 0.));
+            assert_eq!(material.textures.len(), 3);
+            assert!(material.state.depth_write);
+            assert_eq!(material.state.depth_compare, CompareFunction::GreaterEqual);
+            assert_eq!(material.state.front_face, FrontFace::Cw);
+            let blend = material.state.blend.unwrap();
+            assert_eq!(blend.color.src_factor, BlendFactor::SrcAlpha);
+            assert_eq!(blend.color.dst_factor, BlendFactor::OneMinusSrcAlpha);
+            assert_eq!(blend.alpha.operation, BlendOperation::Max);
+            assert!(
+                material.textures[0]
+                    .0
+                    .path()
+                    .unwrap()
+                    .path()
+                    .to_string_lossy()
+                    .contains("_ir.dds")
+            );
+            assert!(
+                material.textures[1]
+                    .0
+                    .path()
+                    .unwrap()
+                    .path()
+                    .to_string_lossy()
+                    .ends_with("_n.dds")
+            );
+            assert!(
+                material.textures[2]
+                    .0
+                    .path()
+                    .unwrap()
+                    .path()
+                    .to_string_lossy()
+                    .contains("thermal_gradient")
+            );
+            assert!(material.textures[2].1.address_mode_u == AddressMode::ClampToEdge);
+        }
     }
 }

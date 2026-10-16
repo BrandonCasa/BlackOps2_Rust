@@ -2,6 +2,7 @@
 use super::{
     animated_models::{AnimatedModel, AnimatedModelInstance},
     frame::{NATIVE_DEPTH_FORMAT, NativeRenderView},
+    material::MaterialDefinition,
     native::{NativeWorldScene, NativeWorldState},
     native_model::{ModelGeometry, NativeModelSurface},
     skinning::{PreparedAnimatedModel, PreparedSkin},
@@ -43,6 +44,8 @@ pub(crate) struct SonarAttachment {
 }
 #[derive(Resource, Deserialize)]
 pub(crate) struct SonarAttachmentSources(pub BTreeMap<String, SonarAttachment>);
+#[derive(Resource)]
+struct SonarThermalSources(BTreeMap<String, MaterialDefinition>);
 
 /// Source renderflag0x1000000 owner. Used only to keep its skin/LOD available
 /// for the independent sonar draw list when ordinary world DPVS rejects it.
@@ -51,6 +54,8 @@ pub(crate) struct NativeSonarActor {
     pub owner: Entity,
     pub active: bool,
 }
+#[derive(Component)]
+pub(crate) struct NativeSonarSurfaceOwner(pub Entity);
 #[derive(Component, Clone, Copy, PartialEq)]
 pub(crate) struct NativeSonarView {
     pub viewport: Vec4,
@@ -196,6 +201,7 @@ struct SonarDraw {
     material: Vec4,
 }
 struct ExtractedDraw {
+    view: Entity,
     model: AssetId<AnimatedModel>,
     instance: Entity,
     lod: usize,
@@ -429,6 +435,9 @@ pub(crate) struct PreparedSonarView {
 }
 
 pub(crate) struct NativeSonarPlugin;
+
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct PrepareSonarViews;
 impl Plugin for NativeSonarPlugin {
     fn build(&self, app: &mut App) {
         app.init_asset::<SonarMaterial>()
@@ -440,11 +449,11 @@ impl Plugin for NativeSonarPlugin {
                 (attach_actors, update_contacts)
                     .chain()
                     .after(TransformSystems::Propagate)
-                    .before(super::animated_models::select_lods),
+                    .before(super::animated_models::AnimatedModelSystems::SelectLods),
             )
             .add_systems(
                 PostUpdate,
-                bind_surfaces.after(super::animated_models::bind_animated_draws),
+                bind_surfaces.after(super::animated_models::AnimatedModelSystems::BindDraws),
             );
         load_shader_library!(app, "native_sonar_common.wesl");
         embedded_asset!(app, "native_sonar_overlay.wesl");
@@ -467,7 +476,9 @@ impl Plugin for NativeSonarPlugin {
             .add_systems(ExtractSchedule, extract_sonar)
             .add_systems(
                 Render,
-                prepare_sonar_views.in_set(RenderSystems::PrepareBindGroups),
+                prepare_sonar_views
+                    .in_set(PrepareSonarViews)
+                    .in_set(RenderSystems::PrepareBindGroups),
             )
             .add_systems(
                 Core3d,
@@ -489,12 +500,33 @@ fn load_sources(mut commands: Commands, options: Res<crate::assets::LaunchOption
         "Original MMS attachment fields required"
     );
     commands.insert_resource(sources);
+    let thermal = [
+        "mc/mtl_c_zom_zombie_head_n_therm",
+        "mc/mtl_c_gen_insidemouth_thermal",
+        "mc/mtl_gen_eye_cornea_thermal_s",
+        "mc/mtl_gen_eye_iris_thermal",
+    ]
+    .into_iter()
+    .map(|name| {
+        let path = options.asset_root.join(format!("materials/{name}.json"));
+        let source = MaterialDefinition::read(&path)
+            .unwrap_or_else(|error| panic!("MMS actor thermal input: {error}"));
+        (name.to_owned(), source)
+    })
+    .collect();
+    commands.insert_resource(SonarThermalSources(thermal));
 }
 fn attach_actors(
     mut commands: Commands,
-    instances: Query<Entity, (With<AnimatedModelInstance>, Without<NativeSonarActor>)>,
+    instances: Query<Entity, Added<AnimatedModelInstance>>,
     parents: Query<&ChildOf>,
-    actors: Query<(), With<crate::enemies::Zombie>>,
+    actors: Query<
+        (),
+        (
+            With<crate::enemies::Zombie>,
+            Without<crate::enemies::ActorCorpse>,
+        ),
+    >,
 ) {
     for entity in &instances {
         if let Some(owner) = std::iter::once(entity)
@@ -513,7 +545,13 @@ fn update_contacts(
     sources: Res<SonarAttachmentSources>,
     inventories: Query<&crate::weapons::WeaponInventory, With<crate::player::Player>>,
     cameras: Query<(Entity, &GlobalTransform, Option<&NativeSonarView>), With<NativeRenderView>>,
-    actors: Query<(Entity, &GlobalTransform), With<crate::enemies::Zombie>>,
+    actors: Query<
+        (Entity, &GlobalTransform),
+        (
+            With<crate::enemies::Zombie>,
+            Without<crate::enemies::ActorCorpse>,
+        ),
+    >,
     mut instances: Query<&mut NativeSonarActor>,
     mut contacts: ResMut<Contacts>,
 ) {
@@ -560,10 +598,13 @@ fn update_contacts(
             );
         }
         for mut instance in &mut instances {
-            instance.active = contacts
+            let active = contacts
                 .0
                 .get(&instance.owner)
                 .is_some_and(|history| history.contact.intensity > 0.);
+            if instance.active != active {
+                instance.active = active;
+            }
         }
     }
 }
@@ -571,29 +612,30 @@ fn bind_surfaces(
     mut commands: Commands,
     server: Res<AssetServer>,
     models: Res<Assets<AnimatedModel>>,
+    thermal_sources: Res<SonarThermalSources>,
     mut materials: ResMut<Assets<SonarMaterial>>,
-    surfaces: Query<(Entity, &NativeModelSurface), Without<SonarSurface>>,
-    actors: Query<&NativeSonarActor>,
+    views: Query<(), With<NativeSonarView>>,
+    surfaces: Query<(Entity, &NativeModelSurface, &NativeSonarSurfaceOwner), Without<SonarSurface>>,
     mut shared: Local<Option<(Handle<SonarMaterial>, Handle<SonarMaterial>)>>,
     mut cache: Local<HashMap<(AssetId<AnimatedModel>, String), Handle<SonarMaterial>>>,
 ) {
+    if views.is_empty() {
+        return;
+    }
     let (solid, overlay) = shared.get_or_insert_with(|| {
         (
             materials.add(SonarMaterial::solid()),
             materials.add(SonarMaterial::overlay()),
         )
     });
-    for (entity, surface) in &surfaces {
+    for (entity, surface, actor) in &surfaces {
         let ModelGeometry::Animated {
             model,
-            instance,
             lod,
             surface: index,
+            ..
         } = &surface.geometry
         else {
-            continue;
-        };
-        let Ok(actor) = actors.get(*instance) else {
             continue;
         };
         let Some(model_asset) = models.get(model) else {
@@ -606,13 +648,13 @@ fn bind_surfaces(
             .entry(key)
             .or_insert_with(|| {
                 original
-                    .sonar_material(&server)
+                    .sonar_material(&server, &thermal_sources.0)
                     .unwrap_or_else(|e| panic!("MMS thermal material {}: {e}", source.material))
                     .map_or_else(|| solid.clone(), |material| materials.add(material))
             })
             .clone();
         commands.entity(entity).insert(SonarSurface {
-            actor: actor.owner,
+            actor: actor.0,
             thermal,
             overlay: overlay.clone(),
         });
@@ -667,6 +709,7 @@ fn extract_sonar(
             };
             let world = to_eye * transform.to_matrix();
             request.draws.push(ExtractedDraw {
+                view: render.into(),
                 model: model.id(),
                 instance: render_instance.into(),
                 lod: *lod,
@@ -683,7 +726,7 @@ fn extract_sonar(
     }
     request.draws.sort_by_key(|draw| draw.sort);
 }
-pub(crate) fn prepare_sonar_views(
+fn prepare_sonar_views(
     mut commands: Commands,
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
@@ -785,6 +828,7 @@ pub(crate) fn prepare_sonar_views(
             let prepared = replacement.as_mut().unwrap();
             prepare_draws(
                 prepared,
+                entity,
                 view,
                 scene,
                 &request,
@@ -800,6 +844,7 @@ pub(crate) fn prepare_sonar_views(
         };
         prepare_draws(
             prepared,
+            entity,
             view,
             scene,
             &request,
@@ -814,6 +859,7 @@ pub(crate) fn prepare_sonar_views(
 }
 fn prepare_draws(
     prepared: &mut PreparedSonarView,
+    entity: Entity,
     view: &NativeSonarView,
     scene: &NativeWorldScene,
     request: &SonarRequest,
@@ -835,6 +881,9 @@ fn prepare_draws(
     prepared.draws.clear();
     prepared.draw_uniforms.clear();
     for draw in &request.draws {
+        if draw.view != entity {
+            continue;
+        }
         let material = if view.thermal {
             draw.thermal
         } else {

@@ -671,7 +671,11 @@ pub(crate) struct NativeSkinPalette(pub Vec<Mat4>);
 fn select_lods(
     cameras: Query<(&Camera, &GlobalTransform), With<super::GameCamera>>,
     models: Res<Assets<AnimatedModel>>,
-    mut instances: Query<(&mut AnimatedModelInstance, &NativeBoneBinding)>,
+    mut instances: Query<(
+        &mut AnimatedModelInstance,
+        &NativeBoneBinding,
+        Option<&super::native_sonar::NativeSonarActor>,
+    )>,
     meshes: Query<(&GlobalTransform, Has<NoFrustumCulling>)>,
     world: Option<Res<super::culling::VisibilityWorld>>,
     visible: Res<super::culling::SourceVisibility>,
@@ -693,7 +697,7 @@ fn select_lods(
         });
     }
     let axes = Mat4::from_rotation_x(-std::f32::consts::FRAC_PI_2);
-    for (mut instance, binding) in &mut instances {
+    for (mut instance, binding, sonar) in &mut instances {
         let (Some(model), Ok((mesh, no_culling))) =
             (models.get(&instance.model), meshes.get(binding.mesh))
         else {
@@ -716,9 +720,10 @@ fn select_lods(
             * 0.5;
         let bounds = [(center - extents).to_array(), (center + extents).to_array()];
         let selected = if scale <= 0.
-            || world
-                .as_ref()
-                .is_some_and(|world| !visible.dynamic_visible(world, &bounds))
+            || (sonar.is_none_or(|actor| !actor.active)
+                && world
+                    .as_ref()
+                    .is_some_and(|world| !visible.dynamic_visible(world, &bounds)))
         {
             None
         } else {
@@ -876,6 +881,12 @@ fn update_native_palettes(
 }
 
 pub(crate) struct AnimatedModelPlugin;
+
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum AnimatedModelSystems {
+    SelectLods,
+    BindDraws,
+}
 impl Plugin for AnimatedModelPlugin {
     fn build(&self, app: &mut App) {
         app.init_asset::<AnimatedModel>()
@@ -885,6 +896,7 @@ impl Plugin for AnimatedModelPlugin {
             .add_systems(
                 PostUpdate,
                 select_lods
+                    .in_set(AnimatedModelSystems::SelectLods)
                     .after(bevy::transform::TransformSystems::Propagate)
                     .after(bevy::camera::CameraUpdateSystems)
                     .after(super::culling::update_visibility)
@@ -893,6 +905,7 @@ impl Plugin for AnimatedModelPlugin {
             .add_systems(
                 PostUpdate,
                 bind_animated_draws
+                    .in_set(AnimatedModelSystems::BindDraws)
                     .after(bevy::transform::TransformSystems::Propagate)
                     .before(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate)
                     .before(super::world::object_constants),
@@ -989,6 +1002,7 @@ fn bind_animated_draws(
         Option<&AnimatedDraws>,
         Option<&mut DynamicLightingOrigin>,
     )>,
+    sonar_actors: Query<&super::native_sonar::NativeSonarActor>,
     meshes: Query<(
         &GlobalTransform,
         Option<&RenderLayers>,
@@ -1099,6 +1113,9 @@ fn bind_animated_draws(
                     visibility: 0,
                 },
             ));
+            if let Ok(actor) = sonar_actors.get(entity) {
+                draw.insert(super::native_sonar::NativeSonarSurfaceOwner(actor.owner));
+            }
             if no_culling {
                 draw.insert(NoFrustumCulling);
             }
