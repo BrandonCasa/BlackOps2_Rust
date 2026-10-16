@@ -40,71 +40,80 @@ pub const ROUTE: &[([f32; 3], f32, bool)] = &[
 pub const TAGS: &[(&str, [f32; 3], [f32; 3])] = &[
     (
         "tag_flash",
-        [0.0081725, 0.7645376, -6.8652035],
+        [0.0081725, 1.7645376, -6.8652035],
         [-0.0296599, -0.0001008, -0.99956],
     ),
     (
         "tag_flash_gunner1",
-        [2.3493352, 0.7849894, -3.1570946],
+        [2.3493352, 1.7849894, -3.1570946],
         [2e-07, 0.0, -1.0000001],
     ),
     (
         "tag_flash_gunner2",
-        [-2.3574138, 0.7849901, -3.1562555],
+        [-2.3574138, 1.7849901, -3.1562555],
         [-2e-07, -0.0, -1.0000001],
     ),
     (
         "window_left_1_jmp_jnt",
-        [-3.5898205, -0.9999989, -3.0424096],
+        [-3.5898205, 0.0000011, -3.0424096],
         [1.0000003, 1e-07, 1e-07],
     ),
     (
         "window_left_2_jmp_jnt",
-        [-3.5898205, -0.9999989, -0.6788403],
+        [-3.5898205, 0.0000011, -0.6788403],
         [1.0000003, 1e-07, 1e-07],
     ),
     (
         "window_left_3_jmp_jnt",
-        [-3.5898205, -0.9999989, 1.6263994],
+        [-3.5898205, 0.0000011, 1.6263994],
         [1.0000003, 1e-07, 1e-07],
     ),
     (
         "window_right_front_jmp_jnt",
-        [-0.0, -0.9999989, -6.9078303],
+        [-0.0, 0.0000011, -6.9078303],
         [0.0, 0.0, 1.0],
     ),
     (
         "window_right_1_jmp_jnt",
-        [3.5898364, -0.9999987, -3.0424096],
+        [3.5898364, 0.0000013, -3.0424096],
         [-1.0000003, -1e-07, 1e-07],
     ),
     (
         "window_right_2_jmp_jnt",
-        [3.5898364, -0.9999987, -0.6788403],
+        [3.5898364, 0.0000013, -0.6788403],
         [-1.0000003, -1e-07, 1e-07],
     ),
     (
         "window_right_3_jmp_jnt",
-        [3.5898206, -0.9999987, 1.6263994],
+        [3.5898206, 0.0000013, 1.6263994],
         [-1.0000003, -1e-07, 1e-07],
     ),
     (
         "window_left_rear_jmp_jnt",
-        [-0.0, -0.9999989, 4.7462401],
+        [-0.0, 0.0000011, 4.7462401],
         [0.0, 0.0, -1.0],
     ),
 ];
 
-// veh_t6_dlc_mkiv_tank tag_mechz_1..4, after the existing tank model offset.
+// veh_t6_dlc_mkiv_tank tag_mechz_1..4, in the body's forward-minus-Z frame.
 pub const MECH_TAGS: [[f32; 3]; 4] = [
-    [-2.5400007, -1., -8.1273605],
-    [2.5400007, -1., -8.1273605],
-    [-2.5400007, -1., 5.628099],
-    [2.5400007, -1., 5.628099],
+    [-2.5400007, 0., -8.1273605],
+    [2.5400007, 0., -8.1273605],
+    [-2.5400007, 0., 5.628099],
+    [2.5400007, 0., 5.628099],
 ];
 // Native script_vehicle entity 331 (999E7889), before tank_setup links its
 // roof/use/kill triggers and tank_station moves it onto the route.
 pub(super) fn editor_pose() -> bevy::prelude::Transform {
     bevy::prelude::Transform::from_xyz(-8192. * 0.0254, 0., 4096. * 0.0254)
         .with_rotation(bevy::prelude::Quat::from_rotation_y(270_f32.to_radians()))
+}
+
+// Native tank_start vehicle node 391 (71DD1A8E): angles 0 14.2 0.
+// Model +X is forward; the movement body uses -Z as forward.
+pub(super) fn initial_pose() -> bevy::prelude::Transform {
+    bevy::prelude::Transform::from_translation(bevy::prelude::Vec3::from_array(ROUTE[0].0))
+        .with_rotation(bevy::prelude::Quat::from_rotation_y(
+            (14.2_f32 - 90.).to_radians(),
+        ))
 }

@@ -91,6 +91,7 @@ fn input(app: &mut App, id: u64, ticks: u32, held: Vec<crate::input::Action>) {
                 look: [0., 0.],
                 aim: None,
                 aim_entity: None,
+                arrival_radius: None,
             },
             label: String::new(),
         },
@@ -320,6 +321,7 @@ fn scripted_look_runs_once_per_fixed_tick_before_movement_and_never_in_zero_tick
             look: [6., 0.],
             aim: None,
             aim_entity: None,
+            arrival_radius: None,
         },
         label: String::new(),
     };
@@ -354,6 +356,7 @@ fn command_retry_has_one_queue_entry_and_conflicting_retry_fails() {
             look: [0., 0.],
             aim: None,
             aim_entity: None,
+            arrival_radius: None,
         },
         label: String::new(),
     };
@@ -380,6 +383,67 @@ fn command_retry_has_one_queue_entry_and_conflicting_retry_fails() {
         submit(app.world_mut(), conflicting)
             .unwrap_err()
             .contains("reused")
+    );
+}
+
+#[test]
+fn waypoint_arrival_releases_forward_without_waiting_for_the_runner() {
+    let mut app = harness();
+    let player = app
+        .world_mut()
+        .spawn((
+            crate::player::Player {
+                yaw: 0.,
+                pitch: 0.,
+                velocity: Vec3::ZERO,
+                height: 1.8,
+                grounded: true,
+                crouched: false,
+                prone: false,
+                eye_height: 1.62,
+            },
+            Transform::default(),
+        ))
+        .id();
+    let action = Command::Input {
+        ticks: 1800,
+        held: vec![crate::input::Action::Forward],
+        look: [0., 0.],
+        aim: Some([10., 1.62, 0.]),
+        aim_entity: None,
+        arrival_radius: Some(0.25),
+    };
+    assert!(action.validate().is_ok());
+    command(&mut app, 1, action);
+    frame(&mut app, 1);
+    assert_ne!(app.world().resource::<Trace>().0[0].3, Vec2::ZERO);
+    app.world_mut()
+        .get_mut::<Transform>(player)
+        .unwrap()
+        .translation
+        .x = 9.8;
+    frame(&mut app, 3);
+    assert!(
+        app.world().resource::<Trace>().0[1..]
+            .iter()
+            .all(|tick| tick.3 == Vec2::ZERO)
+    );
+    assert_eq!(
+        app.world().resource::<Controller>().receipts[&(1, 1)].phase,
+        Phase::Executed
+    );
+    assert!(app.world().resource::<Controller>().active.is_none());
+    assert!(
+        Command::Input {
+            ticks: 1,
+            held: vec![],
+            look: [0., 0.],
+            aim: None,
+            aim_entity: None,
+            arrival_radius: Some(0.25)
+        }
+        .validate()
+        .is_err()
     );
 }
 

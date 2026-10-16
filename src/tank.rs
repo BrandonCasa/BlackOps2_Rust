@@ -252,8 +252,7 @@ fn follow_triggers(
     }
 }
 fn model_offset() -> Transform {
-    Transform::from_xyz(0., -1., 0.)
-        .with_rotation(Quat::from_rotation_y(std::f32::consts::FRAC_PI_2))
+    Transform::from_rotation(Quat::from_rotation_y(std::f32::consts::FRAC_PI_2))
 }
 
 fn hull(game: &GameDefinition) -> Collider {
@@ -306,8 +305,8 @@ mod trigger_tests {
             &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/assets/game.json"),
         );
         let collision = hull(&game);
-        assert!(collision.contains_point(Vec3::ZERO, Quat::IDENTITY, Vec3::new(0., 0., 2.5)));
-        assert!(!collision.contains_point(Vec3::ZERO, Quat::IDENTITY, Vec3::new(0., 0.5, 2.5)));
+        assert!(collision.contains_point(Vec3::ZERO, Quat::IDENTITY, Vec3::new(0., 1., 2.5)));
+        assert!(!collision.contains_point(Vec3::ZERO, Quat::IDENTITY, Vec3::new(0., 1.5, 2.5)));
         let sources = game
             .environment
             .triggers
@@ -321,8 +320,7 @@ mod trigger_tests {
             .collect::<Vec<_>>();
         assert_eq!(sources.len(), 2);
         let mut world = World::new();
-        let body = Transform::from_translation(Vec3::from_array(source::ROUTE[0].0) + Vec3::Y)
-            .with_rotation(Quat::from_rotation_y((-104.2_f32).to_radians()));
+        let body = source::initial_pose();
         let tank = world.spawn((TankBody, body)).id();
         let entities = sources
             .iter()
@@ -381,6 +379,21 @@ mod trigger_tests {
     }
 
     #[test]
+    fn church_tank_model_uses_the_native_start_node_origin_and_heading() {
+        let body = source::initial_pose();
+        let model = body.mul_transform(model_offset());
+        assert!(
+            model
+                .translation
+                .abs_diff_eq(Vec3::new(440.9, 36., 2674.22) * 0.0254, 1e-5)
+        );
+        let yaw = 14.2_f32.to_radians();
+        let forward = Vec3::new(yaw.cos(), 0., -yaw.sin());
+        assert!((model.rotation * Vec3::X).abs_diff_eq(forward, 1e-6));
+        assert!((body.rotation * Vec3::NEG_Z).abs_diff_eq(forward, 1e-6));
+    }
+
+    #[test]
     fn environment_trigger_tank_box_preserves_native_center_and_dimensions() {
         let definition = kill_trigger_definition();
         let shape = definition.collider().unwrap();
@@ -429,8 +442,7 @@ fn setup(
             RigidBody::Kinematic,
             CustomPositionIntegration,
             hull(&game),
-            Transform::from_translation(Vec3::from_array(source::ROUTE[0].0) + Vec3::Y)
-                .with_rotation(Quat::from_rotation_y((-104.2_f32).to_radians())),
+            source::initial_pose(),
             Visibility::Inherited,
             DamageEmitter::Vehicle("vehicle.tank".into()),
         ))
@@ -553,7 +565,7 @@ fn movement(
             })
             .count() as f32;
     let (point, speed, stop) = source::ROUTE[tank.node];
-    let destination = Vec3::from_array(point) + Vec3::Y;
+    let destination = Vec3::from_array(point);
     let delta = destination - pose.translation;
     let step = delta.clamp_length_max(tank.speed * dt);
     pose.translation += step;

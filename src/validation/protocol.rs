@@ -24,6 +24,7 @@ pub(super) enum Command {
         look: [f32; 2],
         aim: Option<[f32; 3]>,
         aim_entity: Option<u64>,
+        arrival_radius: Option<f32>,
     },
     Pause,
     Resume,
@@ -60,6 +61,7 @@ impl Command {
                 look,
                 aim,
                 aim_entity,
+                arrival_radius,
             } => {
                 if !(1..=1800).contains(ticks) {
                     return Err("Input must contain 1..1800 ticks".into());
@@ -77,6 +79,13 @@ impl Command {
                 }
                 if aim.is_some() && aim_entity.is_some() {
                     return Err("Choose one aiming target".into());
+                }
+                if arrival_radius
+                    .is_some_and(|radius| !radius.is_finite() || radius <= 0. || aim.is_none())
+                {
+                    return Err(
+                        "Arrival requires a finite positive radius and an aiming point".into(),
+                    );
                 }
             }
             Self::Teleport { feet } if !feet.iter().all(|n| n.is_finite()) => {

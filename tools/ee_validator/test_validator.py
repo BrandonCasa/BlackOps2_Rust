@@ -10,11 +10,12 @@ class RunnerTests(unittest.TestCase):
         from unittest.mock import Mock
         client = Mock()
         client.state.side_effect = [
-            {"control": {"simulation_seconds": seconds, "failure": None, "aborted": False},
+            {"control": {"simulation_seconds": seconds, "failure": None, "aborted": False, "active": {"id": 42}, "queued": 0},
              "player": {"feet": [0, 0, z], "eye": [0, 1.6, z], "yaw": 0}}
             for seconds, z in samples
         ]
         client.send.return_value = {"request": {"id": 42}}
+        client.receipt.return_value = {"phase": "accepted"}
         return client
 
     def test_walking_holds_forward_until_arrival_including_across_pause(self):

@@ -40,7 +40,7 @@ def walk_to(client, point, tolerance=0.8, seconds=30):
     if turn > math.radians(10):
         client.input(math.ceil(turn / (math.pi / 2) * 60), aim=target, label="Face walking destination")
     pending = client.send({"op": "input", "ticks": 1800, "held": ["forward"],
-                           "aim": target, "aim_entity": None, "look": [0, 0]},
+                           "aim": target, "aim_entity": None, "look": [0, 0], "arrival_radius": tolerance},
                           wait=False, label=f"Walk continuously to {point}")
     command = pending["request"]["id"]
     progress_at = None
@@ -55,6 +55,11 @@ def walk_to(client, point, tolerance=0.8, seconds=30):
             remaining = distance(feet, point)
             if remaining <= tolerance:
                 return
+            if control["active"] is None and not control["queued"]:
+                if client.receipt(command)["phase"] == "executed":
+                    if remaining > tolerance + 0.2:
+                        raise ValidationFailure(f"Walking stopped before arrival near {feet}; target {point}")
+                    return
             now = control["simulation_seconds"]
             if progress_at is None:
                 progress_at = now
@@ -68,7 +73,8 @@ def walk_to(client, point, tolerance=0.8, seconds=30):
     finally:
         # Cancel releases the ordinary input owner even when the path is blocked.
         if not state["control"]["failure"] and not state["control"]["aborted"]:
-            client.send({"op": "cancel", "command": command}, label="Release walking input")
+            if client.receipt(command)["phase"] == "accepted":
+                client.send({"op": "cancel", "command": command}, label="Release walking input")
 
 
 def foundation(client):
@@ -257,23 +263,39 @@ def generators_tank(client):
                              "capture": capture(client, "generator-one-powered")}
     client.input(180 * int(state["speed"]), label="Generator one powered: inspect the scene")
 
+    results["boarding"] = board_tank(client)
+    results.update(first_lightning_part(client))
+    return results
+
+
+def board_tank(client):
+
     tank = client.state()["tank"]
     if tank["phase"] != "Ready" or tank["station"] != 0:
         raise ValidationFailure("Tank must begin at its ordinary church station")
     # Stage beside the rear hull. Boarding and the staff jump use movement only.
-    client.send({"op": "teleport", "feet": tank_point(tank, [0.0, -0.65, 4.8])},
+    client.send({"op": "teleport", "feet": tank_point(tank, [0.0, 0.35, 4.8])},
                 label="Stage beside the tank at the church")
     client.input(12)
-    boarding = tank_point(tank, [0.0, 0.016, 2.5])
+    walk_to(client, tank_point(tank, [0.0, 0.35, 3.62]), tolerance=0.1)
+    boarding = tank_point(tank, [0.0, 1.016, 2.5])
     client.input(120, aim=[boarding[0], client.state()["player"]["eye"][1], boarding[2]],
                  label="Inspect the tank boarding route")
-    client.input(24, ("forward", "jump"), label="Board the tank using an ordinary jump")
+    client.send({"op": "input", "ticks": 14, "held": ["jump"], "look": [0, 0],
+                 "aim": None, "aim_entity": None}, wait=False, label="Jump upward at the rear tank lip")
+    client.input(24, ("forward", "jump"), label="Move over the tank lip while airborne")
     client.input(24)
-    walk_to(client, tank_point(tank, [0.0, 0.016, -1.0]), tolerance=0.6, seconds=12)
+    walk_to(client, tank_point(tank, [0.0, 1.016, -3.5]), tolerance=0.25, seconds=12)
     state = client.state()
     if state["player"]["platform"] != tank["entity"]:
         raise ValidationFailure("Tank boarding did not establish platform support")
-    results["boarding"] = capture(client, "tank-boarded")
+    return capture(client, "tank-boarded")
+
+
+def first_lightning_part(client):
+    results = {}
+    state = client.state()
+    tank = state["tank"]
     target = target_of(state, "trig_use_tank")
     state = use_target(client, target, "Tank: purchase the ordinary trip")
     if state["tank"]["phase"] != "Moving":

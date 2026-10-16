@@ -442,11 +442,27 @@ fn tick_input(world: &mut World) {
             look,
             aim,
             aim_entity,
+            arrival_radius,
             ..
         } = &request.action
         else {
             unreachable!()
         };
+        if arrival_radius.zip(*aim).is_some_and(|(radius, target)| {
+            world
+                .query_filtered::<&Transform, With<crate::player::Player>>()
+                .single(world)
+                .is_ok_and(|pose| {
+                    pose.translation
+                        .xz()
+                        .distance(Vec3::from_array(target).xz())
+                        <= radius
+                })
+        }) {
+            crate::input::scripted_tick(world, &[], Vec2::ZERO);
+            *remaining = 0;
+            return;
+        }
         let target = aim.map(Vec3::from_array).or_else(|| {
             aim_entity
                 .and_then(Entity::try_from_bits)
