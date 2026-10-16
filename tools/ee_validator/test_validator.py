@@ -73,6 +73,24 @@ class RunnerTests(unittest.TestCase):
         for actual, expected in zip(point, [10, 3, 28]):
             self.assertAlmostEqual(actual, expected)
 
+    def test_facing_a_tank_waypoint_tracks_the_platform_before_walking(self):
+        from unittest.mock import Mock
+        client = Mock()
+        control = {"simulation_seconds":0,"failure":None,"aborted":False,"active":None,"queued":0}
+        client.state.side_effect = [
+            {"control":control,"player":{"feet":[10,2,0],"eye":[10,3.62,0],"yaw":0},
+             "tank":{"entity":77,"position":[10,0,0],"rotation":[0,0,0,1]}},
+            {"control":control,"player":{"feet":[13,2,0],"eye":[13,3.62,0],"yaw":-1.57},
+             "tank":{"entity":77,"position":[11,0,0],"rotation":[0,0,0,1]}},
+        ]
+        client.send.return_value = {"request":{"id":42}}
+        client.receipt.return_value = {"phase":"accepted"}
+        walk_to(client,[2,2,0],on_tank=True)
+        preface = client.send.call_args_list[0].args[0]
+        self.assertEqual(preface["aim_entity"],77)
+        self.assertEqual(preface["aim_offset"],[2,3.62,0])
+        self.assertNotIn("aim",preface)
+
     def test_lost_reply_retries_same_command(self):
         client = Client()
         client.session = 7

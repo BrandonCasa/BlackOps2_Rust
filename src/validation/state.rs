@@ -147,7 +147,8 @@ pub(super) fn snapshot(world: &mut World) -> Value {
             "gravity":tuning.gravity,"jump_speed":tuning.jump_speed,"radius":tuning.radius,
             "height":tuning.standing_height,"friction":tuning.physics.friction,
             "stop_speed":tuning.physics.stop_speed,"acceleration":tuning.physics.ground_acceleration,
-            "step_down":tuning.physics.step_down,"step_height":tuning.step_height});
+            "step_down":tuning.physics.step_down,"step_height":tuning.step_height,
+            "sprint_toggle":world.resource::<crate::input::ControlSettings>().sprint_mode == crate::input::PressMode::Toggle});
     }
     result["speed"] = json!(world.resource::<Time<Virtual>>().relative_speed_f64());
     if let Some(movie) = world.get_resource::<super::cinematic::Playback>() {

@@ -149,17 +149,25 @@ pub(crate) fn install(app: &mut App) {
             .with_address(std::net::Ipv4Addr::LOCALHOST)
             .with_port(port),
     ));
-    // Keep discovery, but do not publish generic ECS mutation methods on the validator port.
+    // Keep ordinary read-only BRP inspection; gameplay changes go through the input owner.
     let old = app
         .world_mut()
         .remove_resource::<bevy::remote::RemoteMethods>()
         .unwrap();
     let mut methods = bevy::remote::RemoteMethods::new();
-    for name in old
-        .methods()
-        .into_iter()
-        .filter(|name| name.starts_with("origins/validator/") || name == "rpc.discover")
-    {
+    for name in old.methods().into_iter().filter(|name| {
+        name.starts_with("origins/validator/")
+            || matches!(
+                name.as_str(),
+                "rpc.discover"
+                    | "world.query"
+                    | "world.get_components"
+                    | "world.list_components"
+                    | "world.get_resources"
+                    | "world.list_resources"
+                    | "registry.schema"
+            )
+    }) {
         methods.insert(name.clone(), *old.get(&name).unwrap());
     }
     app.insert_resource(methods);
