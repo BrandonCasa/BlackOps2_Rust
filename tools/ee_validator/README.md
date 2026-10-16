@@ -8,6 +8,8 @@ The runner defaults to 2x gameplay speed. Use `--speed 1` for normal speed.
 Single stepping still advances one 1/60-second tick, including native client
 physics, and the ending movie always plays at 1x.
 Validator launches skip the loading intro movie.
+Walking holds forward continuously and steers toward each waypoint until arrival.
+Blocked paths and simulation deadlines release the held controls and fail the run.
 
 The development-only bridge uses the normal input owner and physics. A normal
 launch does not install it; builds without `dev-tools` exclude it.

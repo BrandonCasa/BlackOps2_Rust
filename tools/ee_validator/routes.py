@@ -28,24 +28,47 @@ def capture(client, name):
 
 
 def walk_to(client, point, tolerance=0.8, seconds=30):
-    deadline = client.state()["control"]["simulation_seconds"] + seconds
-    previous = None
-    while True:
-        state = client.state()
-        if state["control"]["simulation_seconds"] > deadline:
-            break
-        feet = state["player"]["feet"]
-        remaining = distance(feet, point)
-        if remaining <= tolerance:
-            client.input(1)
-            return
-        target = [point[0], state["player"]["eye"][1], point[2]]
-        client.input(60, aim=target, label="Turn toward walking waypoint")
-        client.input(min(30, max(1, int(remaining / 4 * 60))), ("forward",), aim=target, label="Walk to waypoint")
-        if previous is not None and abs(previous - remaining) < 0.01:
-            raise ValidationFailure(f"Walking route is blocked near {feet}; target {point}")
-        previous = remaining
-    raise ValidationFailure(f"Walking route deadline: {point}")
+    state = client.state()
+    remaining = distance(state["player"]["feet"], point)
+    if remaining <= tolerance:
+        return
+    deadline = state["control"]["simulation_seconds"] + seconds
+    target = [point[0], state["player"]["eye"][1], point[2]]
+    feet = state["player"]["feet"]
+    yaw = math.atan2(feet[0] - point[0], feet[2] - point[2])
+    turn = abs((yaw - state["player"]["yaw"] + math.pi) % math.tau - math.pi)
+    if turn > math.radians(10):
+        client.input(math.ceil(turn / (math.pi / 2) * 60), aim=target, label="Face walking destination")
+    pending = client.send({"op": "input", "ticks": 1800, "held": ["forward"],
+                           "aim": target, "aim_entity": None, "look": [0, 0]},
+                          wait=False, label=f"Walk continuously to {point}")
+    command = pending["request"]["id"]
+    progress_at = None
+    best = remaining
+    try:
+        while True:
+            state = client.state()
+            control = state["control"]
+            if control["failure"] or control["aborted"]:
+                raise ValidationFailure(control["failure"] or "Run aborted")
+            feet = state["player"]["feet"]
+            remaining = distance(feet, point)
+            if remaining <= tolerance:
+                return
+            now = control["simulation_seconds"]
+            if progress_at is None:
+                progress_at = now
+            if now >= deadline:
+                raise ValidationFailure(f"Walking route deadline: {point}")
+            if remaining < best - 0.15:
+                best, progress_at = remaining, now
+            elif now - progress_at > 2:
+                raise ValidationFailure(f"Walking route is blocked near {feet}; target {point}")
+            time.sleep(0.05)
+    finally:
+        # Cancel releases the ordinary input owner even when the path is blocked.
+        if not state["control"]["failure"] and not state["control"]["aborted"]:
+            client.send({"op": "cancel", "command": command}, label="Release walking input")
 
 
 def foundation(client):

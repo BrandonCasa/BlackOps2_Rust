@@ -2,10 +2,38 @@ import json
 import unittest
 from unittest.mock import patch
 from client import Client, ValidationFailure
-from routes import tank_point
+from routes import tank_point, walk_to
 
 
 class RunnerTests(unittest.TestCase):
+    def walking_client(self, samples):
+        from unittest.mock import Mock
+        client = Mock()
+        client.state.side_effect = [
+            {"control": {"simulation_seconds": seconds, "failure": None, "aborted": False},
+             "player": {"feet": [0, 0, z], "eye": [0, 1.6, z], "yaw": 0}}
+            for seconds, z in samples
+        ]
+        client.send.return_value = {"request": {"id": 42}}
+        return client
+
+    def test_walking_holds_forward_until_arrival_including_across_pause(self):
+        client = self.walking_client([(0, 0), (0.5, -2), (0.5, -2), (0.5, -2), (1, -4), (1.5, -5.5)])
+        with patch("routes.time.sleep"):
+            walk_to(client, [0, 0, -6])
+        client.input.assert_not_called()
+        actions = [call.args[0] for call in client.send.call_args_list]
+        self.assertEqual(len(actions), 2)
+        self.assertEqual(actions[0]["held"], ["forward"])
+        self.assertFalse(client.send.call_args_list[0].kwargs["wait"])
+        self.assertEqual(actions[1], {"op": "cancel", "command": 42})
+
+    def test_blocked_walking_releases_forward(self):
+        client = self.walking_client([(0, 0), (0.5, -1), (1.5, -1), (2.6, -1)])
+        with patch("routes.time.sleep"), self.assertRaisesRegex(ValidationFailure, "blocked"):
+            walk_to(client, [0, 0, -6])
+        self.assertEqual(client.send.call_args.args[0], {"op": "cancel", "command": 42})
+
     def test_tank_waypoints_follow_the_current_rotated_platform(self):
         from math import sqrt
         tank = {"position": [10, 2, 30], "rotation": [0, sqrt(0.5), 0, sqrt(0.5)]}
