@@ -1,7 +1,46 @@
 """Preparation through the existing generator, crafting and portal owners."""
 import math
+import json
 from client import ValidationFailure
 from routes import activate_generator, capture, distance, shoot_at, target_of, use_target, walk_to
+
+
+def opportunity_rejections(client):
+    client.send({"op": "pause"}, label="Inspect opportunity rejection accounting while simulation is paused")
+    client.wait(lambda s: s["game_state"] == "Paused")
+    results = []
+    for action in ({"op": "spawn_choice", "candidate": 4294967295},
+                   {"op": "robot_choice", "robot": 99, "foot": 0},
+                   {"op": "powerup_choice", "id": "powerup.invalid"}):
+        before = client.state()
+        accepted = client.send(action, wait=False)
+        command = accepted["request"]["id"]
+        client.wait(lambda s: client.receipt(command)["phase"] != "accepted", realtime=True)
+        receipt = client.receipt(command)
+        after = client.state()
+        if receipt["phase"] != "rejected" or after["control"]["failure"]:
+            raise ValidationFailure(f"Ineligible opportunity did not reject normally: {receipt}")
+        if any(before[key] != after[key] for key in ("round", "robots", "weather", "parts")):
+            raise ValidationFailure(f"Rejected opportunity changed paused gameplay accounting: {action}")
+        results.append(receipt)
+    # Snow remains subject to the existing round's schedule and overdue rules.
+    accepted = client.send({"op": "weather_choice", "kind": "snow"}, wait=False)
+    command = accepted["request"]["id"]
+    client.wait(lambda s: client.receipt(command)["phase"] != "accepted", realtime=True)
+    results.append(client.receipt(command))
+    if results[-1]["phase"] == "executed":
+        before = client.state()
+        accepted = client.send({"op": "weather_choice", "kind": "snow"}, wait=False)
+        command = accepted["request"]["id"]
+        client.wait(lambda s: client.receipt(command)["phase"] != "accepted", realtime=True)
+        receipt = client.receipt(command)
+        if receipt["phase"] != "rejected" or client.state()["weather"] != before["weather"]:
+            raise ValidationFailure("A duplicate weather selection changed the pending opportunity")
+        results.append(receipt)
+    (client.report / "opportunity-rejections.json").write_text(json.dumps(results, indent=2))
+    client.send({"op": "resume"})
+    client.wait(lambda s: s["game_state"] == "Playing")
+    return [{"op": r["request"]["action"]["op"], "phase": r["phase"]} for r in results]
 
 
 def stage_near(client, target, label):
@@ -11,7 +50,7 @@ def stage_near(client, target, label):
                z + 1.4 * math.sin(i * math.pi / 4)] for i in range(8)]
     probes = client.rpc("origins/validator/jump_probes", [
         {"feet": p, "velocity": [0, 0, 0], "aim": p} for p in points])["results"]
-    floors = [p["feet"] for p in probes if p["landed"] is not None and p["clear"]
+    floors = [p["feet"] for p in probes if p["landed"] is not None and p["clear"] and p["playable"]
               and -0.4 <= y - p["feet"][1] <= 2.1]
     if not floors:
         raise ValidationFailure(f"No clear supporting floor beside {label}: {target['position']}")
@@ -108,7 +147,7 @@ def collect_crystal(client, element, index):
 
 
 def preparation(client):
-    result = {}
+    result = {"opportunities": opportunity_rejections(client)}
     speed = int(client.state()["speed"])
     client.input(120 * speed, label="Preparation: power the map, gather parts, and craft the four staffs")
     for suffix in ("tank_trench", "mid_trench", "nml_right", "nml_left", "church"):
@@ -122,15 +161,15 @@ def preparation(client):
     result["generators"] = capture(client, "all-generators-powered")
     for record in ("player", "master", "fire", "air", "elec", "ice"):
         collect_part(client, f"part.gramophone_vinyl.{record}")
-    for piece in ("brain", "body", "engine"):
-        collect_part(client, f"part.equip_dieseldrone_zm.{piece}")
-    craft(client, "equip_dieseldrone_zm")
-    result["drone"] = capture(client, "maxis-drone-crafted")
     gramophone = target_of(client.state(), "gramophone", 0)
     stage_near(client, gramophone, "excavation gramophone")
     use_target(client, gramophone, "Open excavation through the gramophone")
     client.wait(lambda s: s["portals"]["excavation_open"], seconds=25)
     use_target(client, gramophone, "Retrieve the gramophone after opening excavation")
+    for piece in ("brain", "body", "engine"):
+        collect_part(client, f"part.equip_dieseldrone_zm.{piece}")
+    craft(client, "equip_dieseldrone_zm")
+    result["drone"] = capture(client, "maxis-drone-crafted")
     for index, element in enumerate(("fire", "air", "lightning", "water")):
         collect_crystal(client, element, index)
     pieces = client.state()["parts"]["pieces"]

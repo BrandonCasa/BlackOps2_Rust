@@ -24,6 +24,39 @@ pub enum BoundaryVolume {
     Safe,
     Lethal,
 }
+pub(crate) type BoundarySites<'w, 's> = Query<
+    'w,
+    's,
+    (
+        &'static BoundaryVolume,
+        Option<&'static super::triggers::TriggerState>,
+    ),
+>;
+
+pub(crate) fn playable(
+    spatial: &SpatialQuery,
+    shape: &Collider,
+    pose: &Transform,
+    access: &ZoneAccess,
+    volumes: &BoundarySites,
+) -> bool {
+    let (mut safe, mut playable, mut lethal) = (false, false, false);
+    for entity in spatial.shape_intersections(
+        shape,
+        pose.translation,
+        pose.rotation,
+        &SpatialQueryFilter::from_mask(TRIGGER_LAYER),
+    ) {
+        match volumes.get(entity) {
+            Ok((_, Some(state))) if !state.enabled => (),
+            Ok((BoundaryVolume::Safe, _)) => safe = true,
+            Ok((BoundaryVolume::Lethal, _)) => lethal = true,
+            Ok((BoundaryVolume::Playable(zone), _)) => playable |= access.reachable.contains(zone),
+            Err(_) => (),
+        }
+    }
+    safe || playable && !lethal
+}
 
 #[derive(Component)]
 pub(super) struct NativeKillBrush;
@@ -79,7 +112,7 @@ pub(super) fn boundaries(
     time: Res<Time<Fixed>>,
     spatial: SpatialQuery,
     access: Res<ZoneAccess>,
-    volumes: Query<(&BoundaryVolume, Option<&super::triggers::TriggerState>)>,
+    volumes: BoundarySites,
     mut players: Query<
         (
             Entity,
@@ -114,26 +147,7 @@ pub(super) fn boundaries(
             monitor.remaining = 3.;
             continue;
         }
-        let mut safe = false;
-        let mut playable = false;
-        let mut lethal = false;
-        for entity in spatial.shape_intersections(
-            shape,
-            pose.translation,
-            pose.rotation,
-            &SpatialQueryFilter::from_mask(TRIGGER_LAYER),
-        ) {
-            match volumes.get(entity) {
-                Ok((_, Some(state))) if !state.enabled => (),
-                Ok((BoundaryVolume::Safe, _)) => safe = true,
-                Ok((BoundaryVolume::Lethal, _)) => lethal = true,
-                Ok((BoundaryVolume::Playable(zone), _)) => {
-                    playable |= access.reachable.contains(zone)
-                }
-                Err(_) => (),
-            }
-        }
-        monitor.condemned = !safe && (lethal || !playable);
+        monitor.condemned = !playable(&spatial, shape, pose, &access, &volumes);
         monitor.remaining = if monitor.condemned { 0.5 } else { 3. };
     }
 }
@@ -201,4 +215,61 @@ pub(super) fn damage(
         }
     }
     *clocks = active;
+}
+
+#[cfg(test)]
+#[test]
+fn playable_staging_obeys_reachable_zones_and_safe_lethal_priority() {
+    use bevy::ecs::system::RunSystemOnce;
+    fn inspect(spatial: SpatialQuery, access: Res<ZoneAccess>, volumes: BoundarySites) -> bool {
+        playable(
+            &spatial,
+            &Collider::cuboid(0.7, 1.8, 0.7),
+            &Transform::from_xyz(0., 0.9, 0.),
+            &access,
+            &volumes,
+        )
+    }
+    let mut app = App::new();
+    app.add_plugins((
+        MinimalPlugins,
+        TransformPlugin,
+        AssetPlugin::default(),
+        PhysicsPlugins::new(Update),
+    ))
+    .init_asset::<Mesh>()
+    .init_resource::<ZoneAccess>();
+    let volume = |kind| {
+        (
+            kind,
+            Collider::cuboid(10., 10., 10.),
+            Sensor,
+            CollisionLayers::new(TRIGGER_LAYER, LayerMask::NONE),
+            Transform::default(),
+        )
+    };
+    let zone = ZoneId("zone.crypt".into());
+    app.world_mut()
+        .spawn(volume(BoundaryVolume::Playable(zone.clone())));
+    app.finish();
+    app.cleanup();
+    app.update();
+    assert!(
+        !app.world_mut().run_system_once(inspect).unwrap(),
+        "Locked excavation is not a staging destination"
+    );
+    app.world_mut()
+        .resource_mut::<ZoneAccess>()
+        .reachable
+        .insert(zone);
+    assert!(app.world_mut().run_system_once(inspect).unwrap());
+    app.world_mut().spawn(volume(BoundaryVolume::Lethal));
+    app.update();
+    assert!(!app.world_mut().run_system_once(inspect).unwrap());
+    app.world_mut().spawn(volume(BoundaryVolume::Safe));
+    app.update();
+    assert!(
+        app.world_mut().run_system_once(inspect).unwrap(),
+        "Native life brushes take precedence over kill brushes"
+    );
 }

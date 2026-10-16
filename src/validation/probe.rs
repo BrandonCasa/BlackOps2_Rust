@@ -47,6 +47,8 @@ fn inspect(
     time: Res<Time<Fixed>>,
     players: Query<(Entity, &crate::player::Player, &Collider)>,
     tank: Res<crate::tank::Tank>,
+    access: Res<crate::access::ZoneAccess>,
+    volumes: crate::environment::hazards::BoundarySites,
 ) -> Result<Value, String> {
     let (owner, player, collider) = players.single().map_err(|_| "Expected one player")?;
     let tuning = &definition.tuning;
@@ -186,6 +188,7 @@ fn inspect(
             json!({"feet":(position-offset).to_array(),"velocity":velocity.to_array(),
             "ticks":ticks,"blocked":blocked,"landed":landed.map(Entity::to_bits),
             "clear":slide.spatial_query.shape_intersections(collider,position+Vec3::Y*0.03,Quat::IDENTITY,&filter).is_empty(),
+            "playable":crate::environment::hazards::playable(&slide.spatial_query,collider,&Transform::from_translation(position),&access,&volumes),
             "takeoff":takeoff,"runup":runup}),
         );
     }

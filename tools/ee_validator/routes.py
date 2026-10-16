@@ -424,5 +424,3 @@ def first_lightning_part(client):
                                   "landing": landings[-1]["data"], "capture": capture(client, "lightning-first-part")}
     client.input(180 * int(state["speed"]), label="Generator and tank checkpoint passed: inspect the part")
     return results
-
-

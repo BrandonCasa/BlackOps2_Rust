@@ -284,6 +284,8 @@ pub(super) fn execute(world: &mut World, request: &Request) -> Result<bool, Stri
 fn teleport(
     In(feet): In<Vec3>,
     spatial: SpatialQuery,
+    access: Res<crate::access::ZoneAccess>,
+    volumes: crate::environment::hazards::BoundarySites,
     mut players: Query<(
         Entity,
         &mut Player,
@@ -296,6 +298,15 @@ fn teleport(
     let (entity, mut player, mut pose, shape, mut mobility) =
         players.single_mut().map_err(|_| "Expected one player")?;
     let center = feet + Vec3::Y * player.height * 0.5;
+    if !crate::environment::hazards::playable(
+        &spatial,
+        shape,
+        &Transform::from_translation(center),
+        &access,
+        &volumes,
+    ) {
+        return Err("Teleport destination is outside a reachable playable volume".into());
+    }
     let filter = crate::environment::player_solids([entity]);
     if spatial
         .cast_ray(feet + Vec3::Y * 0.2, Dir3::NEG_Y, 0.8, true, &filter)
