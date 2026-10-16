@@ -19,7 +19,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--until", choices=tuple(ROUTE), default="foundation")
     parser.add_argument("--seed", type=lambda s: int(s, 0), default=0xB02)
-    parser.add_argument("--speed", type=int, choices=(1, 2), default=2, help="Gameplay speed; ending playback remains at 1x")
+    parser.add_argument("--speed", type=int, choices=range(1, 11), default=2, help="Gameplay speed from 1x through 10x; ending playback remains at 1x")
     parser.add_argument("--port", type=int, default=15702)
     parser.add_argument("--exe", type=Path, default=REPO / "target/debug/origins.exe")
     parser.add_argument("--assets", type=Path, default=REPO / "target/assets")

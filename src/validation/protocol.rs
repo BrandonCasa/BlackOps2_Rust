@@ -25,6 +25,7 @@ pub(super) enum Command {
         aim: Option<[f32; 3]>,
         aim_entity: Option<u64>,
         aim_offset: Option<[f32; 3]>,
+        arrival_point: Option<[f32; 3]>,
         arrival_radius: Option<f32>,
     },
     Pause,
@@ -63,6 +64,7 @@ impl Command {
                 aim,
                 aim_entity,
                 aim_offset,
+                arrival_point,
                 arrival_radius,
             } => {
                 if !(1..=1800).contains(ticks) {
@@ -76,6 +78,7 @@ impl Command {
                 }
                 if !look.iter().all(|n| n.is_finite())
                     || aim.is_some_and(|p| !p.iter().all(|n| n.is_finite()))
+                    || arrival_point.is_some_and(|p| !p.iter().all(|n| n.is_finite()))
                 {
                     return Err("Input coordinates must be finite".into());
                 }
@@ -88,11 +91,16 @@ impl Command {
                     return Err("Aiming offsets require an entity and finite coordinates".into());
                 }
                 if arrival_radius.is_some_and(|radius| {
-                    !radius.is_finite() || radius <= 0. || aim.is_none() && aim_entity.is_none()
+                    !radius.is_finite()
+                        || radius <= 0.
+                        || aim.is_none() && aim_entity.is_none() && arrival_point.is_none()
                 }) {
                     return Err(
-                        "Arrival requires a finite positive radius and an aiming point".into(),
+                        "Arrival requires a finite positive radius and a destination".into(),
                     );
+                }
+                if arrival_point.is_some() && arrival_radius.is_none() {
+                    return Err("An arrival point requires a radius".into());
                 }
             }
             Self::Teleport { feet } if !feet.iter().all(|n| n.is_finite()) => {

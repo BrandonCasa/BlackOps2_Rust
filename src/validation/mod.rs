@@ -120,12 +120,21 @@ pub(crate) fn install(app: &mut App) {
         .map(|s| s.parse().expect("Validator port must be a u16"))
         .unwrap_or(15702);
     let speed = std::env::var("ORIGINS_VALIDATOR_SPEED")
-        .map(|s| s.parse::<f64>().expect("Validator speed must be 1 or 2"))
-        .unwrap_or(1.);
-    assert!(matches!(speed, 1. | 2.), "Validator speed must be 1 or 2");
+        .map(|s| {
+            s.parse::<u32>()
+                .expect("Validator speed must be an integer from 1 to 10")
+        })
+        .unwrap_or(1);
+    assert!(
+        (1..=10).contains(&speed),
+        "Validator speed must be from 1 to 10"
+    );
     app.world_mut()
         .resource_mut::<Time<Virtual>>()
-        .set_relative_speed_f64(speed);
+        .set_relative_speed_f64(f64::from(speed));
+    app.world_mut()
+        .resource_mut::<avian3d::prelude::SubstepCount>()
+        .0 *= speed;
     install_controller(app, Controller::new(seed, report));
     app.add_plugins((
         RemotePlugin::default()
@@ -477,6 +486,7 @@ fn tick_input(world: &mut World) {
             aim,
             aim_entity,
             aim_offset,
+            arrival_point,
             arrival_radius,
             ..
         } = &request.action
@@ -490,12 +500,15 @@ fn tick_input(world: &mut World) {
                 })
             })
         });
-        if arrival_radius.zip(target).is_some_and(|(radius, target)| {
-            world
-                .query_filtered::<&Transform, With<crate::player::Player>>()
-                .single(world)
-                .is_ok_and(|pose| pose.translation.xz().distance(target.xz()) <= radius)
-        }) {
+        if arrival_radius
+            .zip(arrival_point.map(Vec3::from_array).or(target))
+            .is_some_and(|(radius, target)| {
+                world
+                    .query_filtered::<&Transform, With<crate::player::Player>>()
+                    .single(world)
+                    .is_ok_and(|pose| pose.translation.xz().distance(target.xz()) <= radius)
+            })
+        {
             crate::input::scripted_tick(world, &[], Vec2::ZERO);
             *remaining = 0;
             return;

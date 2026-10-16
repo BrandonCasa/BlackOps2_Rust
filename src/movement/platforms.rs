@@ -151,6 +151,7 @@ fn raised_platform_floor_is_queryable_before_the_next_physics_frame() {
                 eye_height: 1.62,
             },
             PlatformSupport::default(),
+            Collider::cuboid(0.5, 1.8, 0.5),
             Transform::from_xyz(0., 1.55, 0.),
         ))
         .id();
@@ -159,6 +160,17 @@ fn raised_platform_floor_is_queryable_before_the_next_physics_frame() {
         app.world().get::<PlatformSupport>(player).unwrap().entity,
         Some(platform),
         "Floor-contact rounding must not discard a grounded rider"
+    );
+    app.world_mut()
+        .get_mut::<Transform>(player)
+        .unwrap()
+        .translation
+        .x = 2.1;
+    app.world_mut().run_system_once(track).unwrap();
+    assert_eq!(
+        app.world().get::<PlatformSupport>(player).unwrap().entity,
+        Some(platform),
+        "A rider supported by the edge of their bounds must still be carried"
     );
     app.world_mut().get_mut::<Player>(player).unwrap().grounded = false;
     app.world_mut().run_system_once(track).unwrap();
@@ -225,19 +237,20 @@ pub(crate) fn carry(
 fn track(
     query: SpatialQuery,
     platforms: Query<&Transform, (With<MovingPlatform>, Without<Player>)>,
-    mut players: Query<(Entity, &Player, &Transform, &mut PlatformSupport)>,
+    mut players: Query<(Entity, &Player, &Collider, &Transform, &mut PlatformSupport)>,
 ) {
-    for (entity, player, pose, mut support) in &mut players {
+    for (entity, player, collider, pose, mut support) in &mut players {
         if !player.grounded {
             support.entity = None;
             continue;
         }
-        let feet = pose.translation - Vec3::Y * (player.height * 0.5 - 0.1);
-        let hit = query.cast_ray(
-            feet,
+        let point = pose.translation;
+        let hit = query.cast_shape(
+            collider,
+            point,
+            Quat::IDENTITY,
             Dir3::NEG_Y,
-            0.3,
-            false,
+            &ShapeCastConfig::from_max_distance(0.3),
             &crate::environment::player_solids([entity]),
         );
         let Some((hit, platform)) =
@@ -247,7 +260,7 @@ fn track(
             continue;
         };
         support.entity = Some(hit.entity);
-        support.local_point = platform.compute_affine().inverse().transform_point3(feet);
-        support.previous_point = feet;
+        support.local_point = platform.compute_affine().inverse().transform_point3(point);
+        support.previous_point = point;
     }
 }

@@ -17,6 +17,8 @@ pub struct GameDefinition {
         std::collections::BTreeMap<String, std::collections::BTreeMap<String, Option<String>>>,
     #[serde(skip)]
     pub scene_models: std::collections::BTreeMap<String, String>,
+    #[serde(skip)]
+    pub tank_collision: Option<avian3d::prelude::Collider>,
     pub scene: String,
     #[serde(default)]
     pub additional_scenes: Vec<String>,
@@ -142,6 +144,7 @@ pub(crate) fn read<T: serde::de::DeserializeOwned>(path: &Path) -> T {
 impl GameDefinition {
     pub fn load_from_root(root: &Path) -> Self {
         let mut definition: Self = read(&root.join("game.json"));
+        crate::tank::bind_collision(&mut definition, root);
         audio::bind(&mut definition, root);
         weapons::bind(&mut definition, root)
             .unwrap_or_else(|error| panic!("Weapon bindings: {error}"));

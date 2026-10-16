@@ -274,6 +274,10 @@ def generators_tank(client):
     client.input(180 * int(state["speed"]), label="Generator one powered: inspect the scene")
 
     results["boarding"] = board_tank(client)
+    target = target_of(client.state(), "trig_use_tank")
+    state = use_target(client, target, "Tank: purchase the ordinary trip")
+    if state["tank"]["phase"] != "Moving":
+        raise ValidationFailure("Tank interaction did not start its route")
     results.update(first_lightning_part(client))
     return results
 
@@ -287,11 +291,11 @@ def board_tank(client):
     client.input(120, aim=[11.19886, 2.4, 67.925188])
     capture(client, "tank-placement")
     # Stage beside the rear hull. Boarding and the staff jump use movement only.
-    client.send({"op": "teleport", "feet": tank_point(tank, [0.0, 0.35, 4.8])},
+    client.send({"op": "teleport", "feet": tank_point(tank, [1.5, 0.35, 4.8])},
                 label="Stage beside the tank at the church")
     client.input(12)
-    walk_to(client, tank_point(tank, [0.0, 0.35, 3.62]), tolerance=0.1)
-    boarding = tank_point(tank, [0.0, 1.016, 2.5])
+    walk_to(client, tank_point(tank, [1.5, 0.35, 4.2]), tolerance=0.1)
+    boarding = tank_point(tank, [1.5, 1.0, 3.5])
     client.input(120, aim=[boarding[0], client.state()["player"]["eye"][1], boarding[2]],
                  label="Inspect the tank boarding route")
     client.send([
@@ -299,78 +303,56 @@ def board_tank(client):
         {"op": "input", "ticks": 24, "held": ["forward", "jump"], "look": [0, 0], "aim": None, "aim_entity": None},
     ], label="Jump upward, then move over the rear tank lip")
     client.input(24)
-    # Jump onto the ordinary rear tread, then walk along its inner edge to the switch.
-    walk_to(client, tank_point(tank, [0.75, 1.016, 2.8]), tolerance=0.1)
-    jump_to(client, tank_point(tank, [1.5, 1.6256, 3.2]), "Climb onto the rear tread")
-    walk_to(client, tank_point(tank, [1.5, 1.6256, -3.5]), tolerance=0.2, seconds=12)
+    walk_to(client, tank_point(tank, [0.0, 2.398, -3.5]), tolerance=0.15, seconds=12)
     state = client.state()
     if state["player"]["platform"] != tank["entity"]:
         raise ValidationFailure("Tank boarding did not establish platform support")
     return capture(client, "tank-boarded")
 
 
-def jump_to(client, point, label):
-    aim = [point[0], client.state()["player"]["eye"][1], point[2]]
-    client.input(120, aim=aim, label=label)
-    client.send([
-        {"op": "input", "ticks": 14, "held": ["jump"], "look": [0, 0], "aim": aim, "aim_entity": None},
-        {"op": "input", "ticks": 60, "held": ["forward", "jump"], "look": [0, 0],
-         "aim": aim, "aim_entity": None, "arrival_radius": 0.15},
-    ], label=label)
-    state = client.wait(lambda s: s["player"]["grounded"], seconds=5)
-    if distance(state["player"]["feet"], point) > 0.6 or abs(state["player"]["feet"][1] - point[1]) > 0.25:
-        raise ValidationFailure(f"{label}: did not land on the intended surface; {state['player']['feet']}")
-
-
 def first_lightning_part(client):
     results = {}
     state = client.state()
     tank = state["tank"]
-    target = target_of(state, "trig_use_tank")
-    state = use_target(client, target, "Tank: purchase the ordinary trip")
     if state["tank"]["phase"] != "Moving":
-        raise ValidationFailure("Tank interaction did not start its route")
-    state = client.state()
+        raise ValidationFailure("The paid tank trip must be moving")
     start = state["tank"]["position"]
     deadline = state["control"]["simulation_seconds"] + 150
     supported = 0
-    at_rear = False
-    while state["tank"]["position"][2] > -79.4:
+    while state["tank"]["position"][2] > -20:
         if state["control"]["simulation_seconds"] > deadline:
             raise ValidationFailure("Tank did not reach the first lightning jump")
         if state["player"]["platform"] != tank["entity"]:
             raise ValidationFailure("Platform support was lost during the tank ride")
         supported += 1
-        if not at_rear and state["tank"]["position"][2] < -50:
-            walk_to(client, [1.5, 1.6256, 3.5], tolerance=0.3, seconds=12, on_tank=True)
-            at_rear = True
-            state = client.state()
-            continue
-        if "ride_capture" not in results and state["tank"]["position"][2] < -45:
-            results["ride_capture"] = capture(client, "tank-ride")
         client.input(12, aim=[100.0, state["player"]["eye"][1], state["player"]["feet"][2]],
                      label="Ride the tank to the first lightning-part platform")
         state = client.state()
     if distance(start, state["tank"]["position"]) < 50 or supported < 5:
         raise ValidationFailure("The tank ride did not demonstrate sustained platform carry")
     results["ride"] = {"supported_observations": supported}
+    results["ride_capture"] = capture(client, "tank-ride")
+    walk_to(client, [1.1, 2.36, -3.5], tolerance=0.1, seconds=10, on_tank=True)
+    state = client.state()
     sequence = state["evidence"]["sequence"]
-    landing = [40.5, -2.85623, -76.949554]
+    landing = [43.5, -3.76, -83.9]
     client.send([
-        {"op": "input", "ticks": 8, "held": ["forward", "sprint"], "aim": landing, "aim_entity": None, "look": [0, 0]},
-        {"op": "input", "ticks": 18, "held": ["forward", "sprint", "jump"], "aim": landing, "aim_entity": None, "look": [0, 0]},
-        {"op": "input", "ticks": 60, "held": ["forward", "sprint"], "aim": landing, "aim_entity": None, "look": [0, 0], "arrival_radius": 0.5},
-    ], label="Sprint and jump from the moving rear tread toward the lightning platform")
+        {"op": "input", "ticks": 1800, "held": [], "aim": landing, "look": [0, 0],
+         "arrival_point": [33.7, 0., -82.0], "arrival_radius": 0.5},
+        {"op": "input", "ticks": 12, "held": ["forward", "sprint"], "aim": landing, "look": [0, 0]},
+        {"op": "input", "ticks": 18, "held": ["forward", "sprint", "jump"], "aim": landing, "look": [0, 0]},
+        {"op": "input", "ticks": 60, "held": ["forward", "sprint"], "aim": landing, "look": [0, 0], "arrival_radius": 0.5},
+    ], label="Ride to the native jump entrance, then sprint and jump onto the lightning catwalk")
     state = client.wait(lambda s: s["player"]["grounded"], seconds=5)
     landings = [e for e in state["evidence"]["events"] if e["sequence"] > sequence
                 and e["kind"] == "landing" and e["data"]["owner"] == state["player"]["entity"]]
-    if not landings or state["player"]["platform"] == tank["entity"]:
+    if not landings or state["player"]["platform"] == tank["entity"] or abs(state["player"]["feet"][1] - landing[1]) > 0.3 or distance(state["player"]["feet"], landing) > 1.5:
         raise ValidationFailure("Lightning jump has no landing away from the tank")
     jumps = [e for e in state["evidence"]["events"] if e["sequence"] > sequence
              and e["kind"] == "jump" and e["data"]["platform"] == tank["entity"]]
     if not jumps:
         raise ValidationFailure("Lightning jump has no native takeoff from the tank")
-    for point in ([43.0, -2.85623, -76.949554], [50.0, -2.85623, -76.949554],
+    for point in ([48.0, -3.8, -83.9], [51.0, -3.8, -83.9], [52.0, -3.8, -81.0],
                   [57.2, -2.85623, -76.949554]):
         walk_to(client, point, tolerance=0.65, seconds=15)
     part = "part.elemental_staff_lightning.upper_staff"

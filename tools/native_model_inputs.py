@@ -14,11 +14,46 @@ def local_translations(model):
     ]
 
 
+def export_tank_collision(model, destination):
+    """Recover the vehicle's original collision triangles from their plane coordinates."""
+    def cross(a, b):
+        return [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]]
+
+    def dot(a, b):
+        return sum(x*y for x, y in zip(a, b))
+
+    vertices, triangles = [], []
+    for surface in model["collSurfs"] or ():
+        if not surface["contents"] & 1:
+            continue
+        low, high = surface.unpack("<3f", "mins"), surface.unpack("<3f", "maxs")
+        for triangle in surface["collTris"] or ():
+            plane, s, t = [triangle.unpack("<4f", name) for name in ("plane", "svec", "tvec")]
+            axes = [cross(s[:3], t[:3]), cross(t[:3], plane[:3]), cross(plane[:3], s[:3])]
+            determinant = dot(plane[:3], axes[0])
+            assert abs(determinant) > 1e-12, "Degenerate native tank collision triangle"
+            points = [[sum(axis[i]*value for axis, value in zip(axes, (plane[3], s[3]+u, t[3]+v)))/determinant
+                       for i in range(3)] for u, v in ((0, 0), (1, 0), (0, 1))]
+            assert all(low[i]-.01 <= p[i] <= high[i]+.01 for p in points for i in range(3)), "Tank collision plane coordinates exceed their native bounds"
+            normal = cross([b-a for a,b in zip(points[0], points[1])], [b-a for a,b in zip(points[0], points[2])])
+            if dot(normal, plane[:3]) < 0:
+                points[1], points[2] = points[2], points[1]
+            first = len(vertices)
+            vertices.extend(points)
+            triangles.append([first, first+1, first+2])
+    assert triangles, "Original tank collision surfaces are required"
+    path = destination / "model_export/veh_t6_dlc_mkiv_tank.collision.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"vertices":vertices, "triangles":triangles}, separators=(",", ":")), encoding="utf-8")
+
+
 def export_model(walk, asset, destination):
     from scripts.cod.iw5.dumpers import xmodel
     from scripts.cod.materials import material_file_stem
 
     model = asset.record
+    if asset.name == "veh_t6_dlc_mkiv_tank":
+        export_tank_collision(model, destination)
     names = xmodel.bone_names(walk, model)
     assert len(names) == model["numBones"], f"{asset.name}: incomplete bone names"
     streams = {name: bytearray() for name in ("vertices", "indices", "blends", "tension")}

@@ -17,7 +17,13 @@ struct ClientPhysicsClock {
     delta: Duration,
 }
 impl ClientPhysicsClock {
-    fn advance(&mut self, elapsed: Option<Duration>, active: bool, paused: bool) -> Duration {
+    fn advance(
+        &mut self,
+        elapsed: Option<Duration>,
+        active: bool,
+        paused: bool,
+        speed: f64,
+    ) -> Duration {
         self.delta = Duration::ZERO;
         if !active {
             self.previous = None;
@@ -31,7 +37,7 @@ impl ClientPhysicsClock {
             if elapsed < previous {
                 self.pending = Duration::ZERO;
             } else {
-                self.pending += (elapsed - previous).min(Duration::from_millis(100));
+                self.pending += (elapsed - previous).min(Duration::from_millis(100).mul_f64(speed));
                 // Keep fractional ticks so 60/120 Hz rendering still yields 30 Hz
                 // physics. Combine overdue ticks into one step; never catch up
                 // with multiple simulations in the same rendered frame.
@@ -75,6 +81,7 @@ fn client_clock(
         Some(source.elapsed(&time)),
         active,
         **state == GameState::Paused,
+        time.relative_speed_f64(),
     );
     #[cfg(feature = "dev-tools")]
     let delta = if controller.as_ref().is_some_and(|c| c.stepping()) {
@@ -1092,26 +1099,35 @@ mod tests {
     fn native_client_physics_clock_clamps_frames_and_resets_pause_and_scene_boundaries() {
         let mut clock = ClientPhysicsClock::default();
         let at = |milliseconds| Some(Duration::from_millis(milliseconds));
-        assert_eq!(clock.advance(None, true, false), Duration::ZERO);
-        assert_eq!(clock.advance(at(50), true, false), CLIENT_PHYSICS_INTERVAL);
-        assert_eq!(clock.advance(at(50), true, false), Duration::ZERO);
-        assert_eq!(clock.advance(at(51), true, false), Duration::ZERO);
+        assert_eq!(clock.advance(None, true, false, 1.), Duration::ZERO);
         assert_eq!(
-            clock.advance(at(451), true, false),
+            clock.advance(at(50), true, false, 1.),
+            CLIENT_PHYSICS_INTERVAL
+        );
+        assert_eq!(clock.advance(at(50), true, false, 1.), Duration::ZERO);
+        assert_eq!(clock.advance(at(51), true, false, 1.), Duration::ZERO);
+        assert_eq!(
+            clock.advance(at(451), true, false, 1.),
             CLIENT_PHYSICS_INTERVAL * 3
         );
-        assert_eq!(clock.advance(at(449), true, false), Duration::ZERO);
-        assert_eq!(clock.advance(at(500), true, true), Duration::ZERO);
-        assert_eq!(clock.advance(at(516), true, false), Duration::ZERO);
-        assert_eq!(clock.advance(at(534), true, false), CLIENT_PHYSICS_INTERVAL);
-        assert_eq!(clock.advance(None, false, false), Duration::ZERO);
-        assert_eq!(clock.advance(at(50), true, false), CLIENT_PHYSICS_INTERVAL);
+        assert_eq!(clock.advance(at(449), true, false, 1.), Duration::ZERO);
+        assert_eq!(clock.advance(at(500), true, true, 1.), Duration::ZERO);
+        assert_eq!(clock.advance(at(516), true, false, 1.), Duration::ZERO);
+        assert_eq!(
+            clock.advance(at(534), true, false, 1.),
+            CLIENT_PHYSICS_INTERVAL
+        );
+        assert_eq!(clock.advance(None, false, false, 1.), Duration::ZERO);
+        assert_eq!(
+            clock.advance(at(50), true, false, 1.),
+            CLIENT_PHYSICS_INTERVAL
+        );
     }
 
     #[test]
     #[cfg(feature = "dev-tools")]
-    fn assisted_step_includes_native_client_physics_at_both_gameplay_speeds() {
-        for speed in [1., 2.] {
+    fn assisted_step_includes_native_client_physics_through_10x_speed() {
+        for speed in [1., 2., 10.] {
             let mut app = crate::validation::tests::harness();
             app.init_resource::<crate::session::SessionClock>()
                 .init_resource::<ClientPhysicsClock>()
@@ -1140,19 +1156,26 @@ mod tests {
     }
 
     #[test]
-    fn client_physics_runs_at_30_hz_without_render_rate_drift() {
-        for render_hz in [30, 60, 120, 144, 240] {
+    fn client_physics_preserves_virtual_time_through_10x_without_render_rate_drift() {
+        for (speed, render_hz) in [1., 2., 10.]
+            .into_iter()
+            .flat_map(|speed| [30, 60, 120, 144, 240].map(|hz| (speed, hz)))
+        {
             let mut clock = ClientPhysicsClock::default();
             let mut updates = 0;
             let mut simulated = Duration::ZERO;
             for frame in 1..=render_hz * 10 {
-                let elapsed = Duration::from_secs_f64(frame as f64 / render_hz as f64);
-                let delta = clock.advance(Some(elapsed), true, false);
+                let elapsed = Duration::from_secs_f64(frame as f64 * speed / render_hz as f64);
+                let delta = clock.advance(Some(elapsed), true, false, speed);
                 updates += usize::from(!delta.is_zero());
                 simulated += delta;
             }
-            assert_eq!(updates, 300, "render rate: {render_hz}");
-            assert_eq!(simulated, CLIENT_PHYSICS_INTERVAL * 300);
+            assert_eq!(
+                updates,
+                (300 * speed as usize).min(render_hz * 10),
+                "render rate: {render_hz}, speed: {speed}"
+            );
+            assert_eq!(simulated, CLIENT_PHYSICS_INTERVAL * (300 * speed as u32));
         }
     }
 

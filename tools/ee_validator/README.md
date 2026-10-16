@@ -4,7 +4,8 @@
 python tools/ee_validator/run.py --build --until foundation
 ```
 
-The runner defaults to 2x gameplay speed. Use `--speed 1` for normal speed.
+The runner defaults to 2x gameplay speed. Use `--speed 10` for 10x gameplay,
+or select any whole-number speed from 1 through 10. Use `--speed 1` for normal speed.
 Single stepping still advances one 1/60-second tick, including native client
 physics, and the ending movie always plays at 1x.
 Validator launches skip the loading intro movie.

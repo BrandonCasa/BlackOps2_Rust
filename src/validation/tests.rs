@@ -92,6 +92,7 @@ fn input(app: &mut App, id: u64, ticks: u32, held: Vec<crate::input::Action>) {
                 aim: None,
                 aim_entity: None,
                 aim_offset: None,
+                arrival_point: None,
                 arrival_radius: None,
             },
             label: String::new(),
@@ -340,6 +341,7 @@ fn scripted_look_runs_once_per_fixed_tick_before_movement_and_never_in_zero_tick
             aim: None,
             aim_entity: None,
             aim_offset: None,
+            arrival_point: None,
             arrival_radius: None,
         },
         label: String::new(),
@@ -376,6 +378,7 @@ fn command_retry_has_one_queue_entry_and_conflicting_retry_fails() {
             aim: None,
             aim_entity: None,
             aim_offset: None,
+            arrival_point: None,
             arrival_radius: None,
         },
         label: String::new(),
@@ -432,6 +435,7 @@ fn waypoint_arrival_releases_forward_without_waiting_for_the_runner() {
         aim: Some([10., 1.62, 0.]),
         aim_entity: None,
         aim_offset: None,
+        arrival_point: None,
         arrival_radius: Some(0.25),
     };
     assert!(action.validate().is_ok());
@@ -471,6 +475,7 @@ fn waypoint_arrival_releases_forward_without_waiting_for_the_runner() {
             aim: None,
             aim_entity: Some(platform.to_bits()),
             aim_offset: Some([4., 1.62, 0.]),
+            arrival_point: None,
             arrival_radius: Some(0.25),
         },
     );
@@ -493,6 +498,30 @@ fn waypoint_arrival_releases_forward_without_waiting_for_the_runner() {
         app.world().resource::<Controller>().receipts[&(1, 2)].phase,
         Phase::Executed
     );
+    command(
+        &mut app,
+        3,
+        Command::Input {
+            ticks: 1800,
+            held: vec![crate::input::Action::Forward],
+            look: [0., 0.],
+            aim: Some([100., 1.62, 0.]),
+            aim_entity: None,
+            aim_offset: None,
+            arrival_point: Some([10., 0., 5.]),
+            arrival_radius: Some(0.25),
+        },
+    );
+    frame(&mut app, 3);
+    assert_eq!(
+        app.world().resource::<Controller>().receipts[&(1, 3)].phase,
+        Phase::Executed,
+        "Riding to a world waypoint must complete independently of the gaze target"
+    );
+    assert_eq!(
+        app.world().resource::<Trace>().0.last().unwrap().3,
+        Vec2::ZERO
+    );
     assert!(
         Command::Input {
             ticks: 1,
@@ -501,6 +530,7 @@ fn waypoint_arrival_releases_forward_without_waiting_for_the_runner() {
             aim: None,
             aim_entity: None,
             aim_offset: None,
+            arrival_point: None,
             arrival_radius: Some(0.25)
         }
         .validate()
