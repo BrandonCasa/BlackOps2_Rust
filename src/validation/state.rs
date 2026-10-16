@@ -89,11 +89,14 @@ pub(super) fn snapshot(world: &mut World) -> Value {
         json!({"entity":entity.to_bits(),"position":t.translation.to_array(),"feet":(t.translation-Vec3::Y*p.height*0.5).to_array(),"eye":(t.translation+Vec3::Y*(p.eye_height-p.height*0.5)).to_array(),"yaw":p.yaw,"pitch":p.pitch,"grounded":p.grounded,"velocity":p.velocity.to_array(),"health":h.current(),"life":format!("{:?}",h.state()),"platform":s.and_then(|s|s.entity).map(Entity::to_bits),"shovel":d.is_some_and(|d|d.shovel),"inventory":w.owned().map(|(slot,weapon)|json!({"slot":slot,"id":weapon.definition.0,"magazine":weapon.magazine})).collect::<Vec<_>>(),"weapon":w.active().map(|w|w.definition.0.clone())})
     });
     let enemies:Vec<_>=world.query::<(Entity,&crate::enemies::Zombie,&Transform,&Vitality,Option<&crate::rounds::SpawnZone>,Option<&crate::generators::GeneratorDefender>,Option<&crate::hit_regions::Hitboxes>)>().iter(world).map(|(e,z,t,h,zone,defender,boxes)| {
-        let head=boxes.and_then(|boxes|boxes.volumes.iter().find(|v|v.region.head())).map(|v|t.transform_point((v.start+v.end)*0.5).to_array());
+        let head_offset=boxes.and_then(|boxes|boxes.volumes.iter().find(|v|v.region.head())).map(|v|(v.start+v.end)*0.5);
+        let head=head_offset.map(|p|t.transform_point(p).to_array());
         let aim=t.transform_point(boxes.and_then(aim_point).unwrap_or(Vec3::ZERO));
-        json!({"entity":e.to_bits(),"position":t.translation.to_array(),"aim":aim.to_array(),"head":head,"definition":z.definition.0,"generator":defender.map(|d|&d.generator.0),"health":h.current(),"life":format!("{:?}",h.state()),"emerged":z.completed_emerging(),"zone":zone.map(|z|z.0.0.clone())})
+        json!({"entity":e.to_bits(),"position":t.translation.to_array(),"aim":aim.to_array(),"head":head,"head_offset":head_offset.map(|p|p.to_array()),"definition":z.definition.0,"generator":defender.map(|d|&d.generator.0),"health":h.current(),"life":format!("{:?}",h.state()),"emerged":z.completed_emerging(),"zone":zone.map(|z|z.0.0.clone())})
     }).collect();
     let mut targets:Vec<_>=world.query::<(Entity,&crate::environment::digging::DigTarget,&Transform)>().iter(world).map(|(e,target,t)|json!({"entity":e.to_bits(),"target":target,"position":t.translation.to_array()})).collect();
+    targets.extend(world.query::<(Entity, &crate::generators::rewards::Reward, &Transform)>().iter(world)
+        .filter_map(|(e, reward, _)| reward.part().map(|(id, position)| json!({"entity":e.to_bits(),"target":{"kind":"capture_reward","value":id},"position":position.to_array()}))));
     targets.extend(
         world
             .query::<(Entity, &crate::crafting::CraftTarget, &Transform)>()
@@ -198,6 +201,18 @@ pub(super) fn snapshot(world: &mut World) -> Value {
         .filter(|(_,p,_)| !p.quest || blood)
         .map(|(e,p,t)|json!({"entity":e.to_bits(),"quest":p.quest,"position":t.translation.to_array()})).collect::<Vec<_>>());
     if let Some(game) = world.get_resource::<crate::assets::GameDefinition>() {
+        if let Some(digging) = &game.environment.digging {
+            for target in result["targets"].as_array_mut().unwrap() {
+                if target["target"]["kind"] == "mound" {
+                    if let Some(site) = target["target"]["value"]
+                        .as_u64()
+                        .and_then(|i| digging.mounds.get(i as usize))
+                    {
+                        target["zone"] = json!(site.zone);
+                    }
+                }
+            }
+        }
         let tuning = &game.tuning;
         result["movement"] = json!({"walk_speed":tuning.walk_speed,"sprint_speed":tuning.sprint_speed,
             "gravity":tuning.gravity,"jump_speed":tuning.jump_speed,"radius":tuning.radius,

@@ -189,22 +189,43 @@ pub(super) fn execute(world: &mut World, request: &Request) -> Result<bool, Stri
                 });
             }
             if *doors {
-                let connections: Vec<_> = world
+                let doors: Vec<_> = world
                     .query::<&crate::interactions::Usable>()
                     .iter(world)
                     .filter_map(|u| match &u.source.action {
                         crate::origins::content::InteractionAction::Door { connection, .. } => {
-                            Some(connection.clone())
+                            Some((connection.clone(), u.source.source_trigger.clone()))
                         }
                         _ => None,
                     })
                     .collect();
-                world.resource_scope(|world, game: Mut<crate::assets::GameDefinition>| {
-                    let mut access = world.resource_mut::<crate::access::ZoneAccess>();
-                    for connection in connections {
-                        let _ = access.unlock(&game, &connection);
-                    }
-                });
+                let flags =
+                    world.resource_scope(|world, game: Mut<crate::assets::GameDefinition>| {
+                        let mut access = world.resource_mut::<crate::access::ZoneAccess>();
+                        let mut activated = Vec::new();
+                        for (connection, source) in doors {
+                            if access.unlock(&game, &connection).is_ok() {
+                                for flag in game
+                                    .environment
+                                    .triggers
+                                    .iter()
+                                    .find(|t| Some(&t.id) == source.as_ref())
+                                    .and_then(|t| t.source.get("script_flag"))
+                                    .into_iter()
+                                    .flat_map(|s| s.split(','))
+                                    .map(str::trim)
+                                    .filter(|s| !s.is_empty())
+                                {
+                                    access.set_flag(&game.content, &game.access, flag);
+                                    activated.push(flag.to_owned());
+                                }
+                            }
+                        }
+                        activated
+                    });
+                for flag in flags {
+                    world.write_message(crate::access::ZoneFlagSet(flag));
+                }
             }
             Ok(true)
         }

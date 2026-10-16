@@ -41,19 +41,28 @@ class Client:
     def wait(self, predicate, *, seconds=30, allow_failure=False, realtime=False):
         remaining = seconds
         previous = time.monotonic()
+        previous_sim = None
+        previous_session = None
         last = None
         while remaining > 0:
             last = self.state()
             now = time.monotonic()
-            if realtime or not last["control"]["paused"]:
+            if realtime:
                 remaining -= now - previous
+            else:
+                simulation = last["control"]["simulation_seconds"]
+                if previous_session == last["session"] and previous_sim is not None:
+                    remaining -= max(0, simulation - previous_sim)
+                previous_sim, previous_session = simulation, last["session"]
             previous = now
             if not allow_failure and (last["control"]["failure"] or last["control"]["aborted"]):
                 raise ValidationFailure(last["control"]["failure"] or "Run aborted")
             if predicate(last):
                 return last
             time.sleep(0.1)
-        raise ValidationFailure(f"Wait timed out after {seconds}s; last state: {last}")
+        control = last["control"]
+        feet = (last.get("player") or {}).get("feet")
+        raise ValidationFailure(f"Wait timed out after {seconds}s at tick {control['tick']}, feet {feet}; {control.get('label', '')[:160]}")
 
     def send(self, action, *, label="", wait=True, allow_failure=False):
         batch = isinstance(action, list)

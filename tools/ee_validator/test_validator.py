@@ -6,6 +6,38 @@ from routes import tank_point, walk_to, shoot_at
 
 
 class RunnerTests(unittest.TestCase):
+    def waiting_client(self, samples):
+        from unittest.mock import Mock
+        client = Client()
+        client.state = Mock(side_effect=[{"session":1,"game_state":"Paused" if paused else "Playing",
+            "control":{"simulation_seconds":seconds,"paused":paused,"failure":None,"aborted":False,
+                       "tick":int(seconds*60),"label":"Portal approach"},
+            "player":{"feet":[1,2,3]},"enemies":["unused world data" * 1000]}
+            for seconds,paused in samples])
+        return client
+
+    def test_wait_deadline_uses_simulation_time_at_accelerated_speed(self):
+        client = self.waiting_client([(0,False),(2,False)])
+        with patch("client.time.sleep"), patch("client.time.monotonic", return_value=0):
+            with self.assertRaisesRegex(ValidationFailure, "tick 120, feet") as error:
+                client.wait(lambda s:False,seconds=1)
+        self.assertEqual(client.state.call_count,2)
+        self.assertLess(len(str(error.exception)),300)
+
+    def test_paused_wait_does_not_consume_gameplay_deadline(self):
+        client = self.waiting_client([(0,False),(0,True),(0,True),(.5,False),(1.1,False)])
+        with patch("client.time.sleep"), patch("client.time.monotonic", return_value=1000):
+            with self.assertRaises(ValidationFailure):
+                client.wait(lambda s:False,seconds=1)
+        self.assertEqual(client.state.call_count,5)
+
+    def test_real_time_wait_expires_even_when_gameplay_is_paused(self):
+        client = self.waiting_client([(0,True),(0,True)])
+        with patch("client.time.sleep"), patch("client.time.monotonic", side_effect=[0,.6,1.2]):
+            with self.assertRaises(ValidationFailure):
+                client.wait(lambda s:False,seconds=1,realtime=True)
+        self.assertEqual(client.state.call_count,2)
+
     def test_shooting_queues_native_cadence_without_round_trips_between_shots(self):
         from unittest.mock import Mock
         for speed in [1, 10]:
@@ -60,6 +92,19 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(actions[0]["held"], ["forward"])
         self.assertFalse(client.send.call_args_list[0].kwargs["wait"])
         self.assertEqual(actions[1], {"op": "cancel", "command": 42})
+
+    def test_portal_transit_releases_walking_before_testing_the_new_world_position(self):
+        from unittest.mock import Mock
+        client = Mock()
+        def sample(feet, trips):
+            return {"control":{"simulation_seconds":trips,"failure":None,"aborted":False,
+                               "active":{"id":42},"queued":0},
+                    "player":{"feet":feet,"eye":[0,1.62,0],"yaw":0},"portals":{"trips":trips}}
+        client.state.side_effect = [sample([0,0,0],0),sample([200,-10,200],1)]
+        client.send.return_value = {"request":{"id":42}}
+        client.receipt.return_value = {"phase":"accepted"}
+        walk_to(client,[0,0,-6],through_portal=True)
+        self.assertEqual(client.send.call_args.args[0],{"op":"cancel","command":42})
 
     def test_blocked_walking_releases_forward(self):
         client = self.walking_client([(0, 0), (0.5, -1), (1.5, -1), (2.6, -1)])

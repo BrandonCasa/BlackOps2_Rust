@@ -307,12 +307,7 @@ fn observe(
     mut drops: Query<(Entity, &mut FirePieceDrop)>,
     players: Query<(), With<crate::player::Player>>,
 ) {
-    if state.village_round.is_none()
-        && access
-            .open
-            .iter()
-            .any(|z| z.0 == "connection.activate_zone_village_0.0")
-    {
+    if state.village_round.is_none() && access.flags.contains("activate_zone_village_0") {
         state.village_round = Some(session.round);
     }
     if !state.fire_started && state.village_round.is_some_and(|r| session.round > r) {

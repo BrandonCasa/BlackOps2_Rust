@@ -13,7 +13,7 @@ use std::collections::{BTreeMap, BTreeSet};
 mod crystals;
 mod effects;
 mod raids;
-mod rewards;
+pub(crate) mod rewards;
 pub use crystals::CrystalProfile;
 pub use raids::GeneratorRaids;
 pub(crate) use rewards::BoxGlowRamp;
@@ -108,7 +108,6 @@ pub struct Generators {
     pub defenders_cleared: u32,
     pub excess_retired: u32,
     pub(crate) raid_active: bool,
-    initial_reward: bool,
     retirement_pending: bool,
     retirement_clock: Timer,
     spawn_clock: f32,
@@ -866,11 +865,8 @@ fn tick(
                 site.purchaser = None;
             }
         }
-        if completed && !generators.initial_reward {
-            generators.initial_reward = true;
-            chests.queue(2.);
-        }
         if completed {
+            chests.captured(d.number);
             for (player, _, _, _) in &players {
                 if inside(Some(player)) {
                     captured.write(GeneratorCaptured {

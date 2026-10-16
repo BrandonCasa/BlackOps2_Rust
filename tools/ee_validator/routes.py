@@ -28,14 +28,15 @@ def capture(client, name):
     return {"path": str(path), "width": width, "height": height}
 
 
-def walk_to(client, point, tolerance=0.8, seconds=30, *, on_tank=False):
+def walk_to(client, point, tolerance=0.8, seconds=30, *, on_tank=False, through_portal=False):
     state = client.state()
+    trips = state["portals"]["trips"] if through_portal else None
     local = point if on_tank else None
     tank = state.get("tank") if on_tank else None
     if on_tank:
         point = tank_point(tank, local)
     remaining = distance(state["player"]["feet"], point)
-    if remaining <= tolerance:
+    if remaining <= tolerance and not through_portal:
         return
     deadline = state["control"]["simulation_seconds"] + seconds
     target = [point[0], state["player"]["eye"][1], point[2]]
@@ -61,14 +62,18 @@ def walk_to(client, point, tolerance=0.8, seconds=30, *, on_tank=False):
             control = state["control"]
             if control["failure"] or control["aborted"]:
                 raise ValidationFailure(control["failure"] or "Run aborted")
+            if through_portal and state["portals"]["trips"] > trips:
+                return
             feet = state["player"]["feet"]
             if on_tank:
                 point = tank_point(state["tank"], local)
             remaining = distance(feet, point)
-            if remaining <= tolerance:
+            if remaining <= tolerance and not through_portal:
                 return
             if control["active"] is None and not control["queued"]:
                 if client.receipt(command)["phase"] == "executed":
+                    if through_portal:
+                        raise ValidationFailure(f"Portal approach ended without transit near {feet}")
                     if remaining > tolerance + 0.2:
                         raise ValidationFailure(f"Walking stopped before arrival near {feet}; target {point}")
                     return
@@ -89,7 +94,7 @@ def walk_to(client, point, tolerance=0.8, seconds=30, *, on_tank=False):
                 client.send({"op": "cancel", "command": command}, label="Release walking input")
 
 
-def shoot_at(client, entity, *, shots=4, label="Fire equipped weapon at its native cadence"):
+def shoot_at(client, entity, *, shots=4, head=False, label="Fire equipped weapon at its native cadence"):
     state = client.state()
     firing = state["firing"]
     if not firing["magazine"] and firing["ready"]:
@@ -100,13 +105,17 @@ def shoot_at(client, entity, *, shots=4, label="Fire equipped weapon at its nati
         firing = state["firing"]
     observed = next(e for e in state["enemies"] + state.get("robot_feet", []) + state.get("planes", [])
                     if e["entity"] == entity)
-    target = observed.get("aim", observed.get("position"))
+    target = observed.get("head") if head else observed.get("aim", observed.get("position"))
+    if target is None:
+        raise ValidationFailure("The requested visible head target has no hit volume")
     eye = state["player"]["eye"]
     yaw = math.atan2(eye[0] - target[0], eye[2] - target[2])
     pitch = math.atan2(target[1] - eye[1], distance(eye, target))
     turn = max(abs((yaw - state["player"]["yaw"] + math.pi) % math.tau - math.pi),
                abs(pitch - state["player"]["pitch"]))
     aiming = {"op": "input", "aim_entity": entity, "look": [0, 0]}
+    if head:
+        aiming["aim_offset"] = observed["head_offset"]
     steps = []
     steps.append({**aiming, "ticks": max(1, math.ceil(turn / (math.pi / 2) * 60),
                                         math.ceil(firing["aim_seconds"] * 60) + 1), "held": ["aim"]})

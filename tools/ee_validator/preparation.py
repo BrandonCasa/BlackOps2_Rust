@@ -46,8 +46,8 @@ def opportunity_rejections(client):
 def stage_near(client, target, label):
     """Inspect nearby floors before requesting the collision-checked staging cheat."""
     x, y, z = target["position"]
-    points = [[x + 1.4 * math.cos(i * math.pi / 4), y + 0.8,
-               z + 1.4 * math.sin(i * math.pi / 4)] for i in range(8)]
+    points = [[x + 1.4 * math.cos(i * math.pi / 4), y + height,
+               z + 1.4 * math.sin(i * math.pi / 4)] for height in (-1.3, -0.2, 0.8) for i in range(8)]
     probes = client.rpc("origins/validator/jump_probes", [
         {"feet": p, "velocity": [0, 0, 0], "aim": p} for p in points])["results"]
     floors = [p["feet"] for p in probes if p["landed"] is not None and p["clear"] and p["playable"]
@@ -61,7 +61,7 @@ def stage_near(client, target, label):
 
 
 def part_target(state, name):
-    return next(t for t in state["targets"] if t["target"]["kind"] in ("part", "craft_part")
+    return next(t for t in state["targets"] if t["target"]["kind"] in ("part", "craft_part", "capture_reward")
                 and t["target"]["value"] == name)
 
 
@@ -104,24 +104,20 @@ def craft(client, recipe):
 
 
 def collect_crystal(client, element, index):
-    gramophone = target_of(client.state(), "gramophone", index + 1)
+    state = client.state()
+    gramophone = target_of(state, "gramophone", index + 1)
+    entrance = min((t for t in state["targets"] if t["target"]["kind"] == "portal_entrance"),
+                   key=lambda t: distance(t["position"], gramophone["position"]))
     stage_near(client, gramophone, f"{element} gramophone site")
     use_target(client, gramophone, f"Place the gramophone for the {element} portal")
     client.wait(lambda s: s["portals"]["entrances"][index] == "Open", seconds=20)
-    state = client.state()
-    entrance = min((t for t in state["targets"] if t["target"]["kind"] == "portal_entrance"),
-                   key=lambda t: distance(t["position"], gramophone["position"]))
-    point = entrance["position"]
-    aim = [point[0], state["player"]["eye"][1], point[2]]
-    client.input(120, aim=aim, label=f"Face the open {element} portal")
-    trips = state["portals"]["trips"]
-    pending = client.send({"op": "input", "ticks": 600, "held": ["forward"], "look": [0, 0], "aim": aim},
-                          wait=False, label=f"Walk into the {element} portal")
-    try:
-        client.wait(lambda s: s["portals"]["trips"] > trips, seconds=10)
-    finally:
-        client.send({"op": "cancel", "command": pending["request"]["id"]}, label="Release walking during portal transit")
+    stage_near(client, entrance, f"open {element} portal approach")
+    walk_to(client, entrance["position"], tolerance=0.35, seconds=10, through_portal=True)
     client.input(150, label="Watch the ordinary portal transit finish")
+    take_crystal_and_return(client, element, index)
+
+
+def take_crystal_and_return(client, element, index):
     state = client.state()
     if not state["portals"]["visited"][index] or state["player"]["feet"][0] < 200:
         raise ValidationFailure(f"The {element} portal did not deliver this player to the Crazy Place")
@@ -140,6 +136,7 @@ def collect_crystal(client, element, index):
     client.input(150, label="Watch the return transit finish")
     if client.state()["player"]["feet"][0] > 200:
         raise ValidationFailure("Return portal did not leave the Crazy Place")
+    gramophone = target_of(client.state(), "gramophone", index + 1)
     stage_near(client, gramophone, "gramophone retrieval")
     state = use_target(client, gramophone, "Retrieve the gramophone through interaction")
     if not state["crafting"]["gramophone"]:
@@ -159,6 +156,7 @@ def preparation(client):
     if not all(g["state"] == "Active" for g in client.state()["generators"]["sites"].values()):
         raise ValidationFailure("Preparation did not leave all six generators powered")
     result["generators"] = capture(client, "all-generators-powered")
+    collect_part(client, "part.elemental_staff_fire.upper_staff")
     for record in ("player", "master", "fire", "air", "elec", "ice"):
         collect_part(client, f"part.gramophone_vinyl.{record}")
     gramophone = target_of(client.state(), "gramophone", 0)
