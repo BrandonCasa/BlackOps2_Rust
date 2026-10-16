@@ -14,6 +14,10 @@ pub(super) struct Evidence {
     pub interactions: u32,
     pub sequence: u64,
     pub events: VecDeque<Value>,
+    #[serde(skip)]
+    airborne: bool,
+    #[serde(skip)]
+    support: Option<u64>,
 }
 impl Evidence {
     fn push(&mut self, session: u64, tick: u64, kind: &str, data: Value) {
@@ -31,7 +35,12 @@ pub(super) fn observe(
     mut hits: MessageReader<crate::damage::DamageApplied>,
     mut deaths: MessageReader<crate::damage::EnemyDeath>,
     mut landings: MessageReader<crate::movement::Landing>,
-    players: Query<(), With<Player>>,
+    players: Query<(
+        Entity,
+        &Player,
+        &Transform,
+        Option<&crate::movement::platforms::PlatformSupport>,
+    )>,
     focus: Res<crate::interactions::InteractionFocus>,
 ) {
     let Some(session) = controller.session else {
@@ -41,6 +50,16 @@ pub(super) fn observe(
         return;
     };
     let tick = controller.tick;
+    if let Ok((owner, player, pose, platform)) = players.single() {
+        if !player.grounded && !controller.evidence.airborne && player.velocity.y > 0. {
+            let support = controller.evidence.support;
+            controller.evidence.push(session, tick, "jump", json!({"owner":owner.to_bits(),
+                "platform":support,"position":(pose.translation-Vec3::Y*player.height*0.5).to_array(),
+                "velocity":player.velocity.to_array()}));
+        }
+        controller.evidence.airborne = !player.grounded;
+        controller.evidence.support = platform.and_then(|p| p.entity).map(Entity::to_bits);
+    }
     for hit in hits.read().filter(|h| players.contains(h.impact.attacker)) {
         controller.evidence.hits += 1;
         controller.evidence.push(session,tick,"hit",json!({"attacker":hit.impact.attacker.to_bits(),"target":hit.impact.target.to_bits(),"source":hit.impact.source.id(),"before":hit.before,"lethal":hit.lethal}));
