@@ -244,8 +244,10 @@ def target_of(state, kind, value=None):
 
 def use_target(client, target, label, *, aim=None):
     aim = target["position"] if aim is None else aim
-    client.input(120, aim=aim, label=label)
     before = client.state()
+    if before["interaction"]["target"] != target["entity"]:
+        client.input(120, aim=aim, label=label)
+        before = client.state()
     if before["interaction"]["target"] != target["entity"]:
         raise ValidationFailure(f"{label}: target is not focused; {before['interaction']}")
     client.input(12, ("interact",), aim=aim, label=label)

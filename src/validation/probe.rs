@@ -12,6 +12,8 @@ pub(super) struct Candidate {
     #[serde(default)]
     view: Option<[f32; 3]>,
     #[serde(default)]
+    bullet_view: bool,
+    #[serde(default)]
     runup_ticks: Option<u32>,
     #[serde(default)]
     include_tank: bool,
@@ -52,6 +54,7 @@ fn inspect(
     tank: Res<crate::tank::Tank>,
     access: Res<crate::access::ZoneAccess>,
     volumes: crate::environment::hazards::BoundarySites,
+    actors: Query<(), With<crate::enemies::Zombie>>,
 ) -> Result<Value, String> {
     let (owner, player, collider) = players.single().map_err(|_| "Expected one player")?;
     let tuning = &definition.tuning;
@@ -191,16 +194,23 @@ fn inspect(
             let eye = position - offset + Vec3::Y * player.eye_height;
             let delta = Vec3::from_array(view) - eye;
             Dir3::new(delta).ok().and_then(|direction| {
-                slide
-                    .spatial_query
-                    .cast_ray(
+                let filter = crate::environment::solids([owner]);
+                let range = (delta.length() - 0.12).max(0.);
+                let hit = if candidate.bullet_view {
+                    slide.spatial_query.cast_ray_predicate(
                         eye,
                         direction,
-                        (delta.length() - 0.12).max(0.),
+                        range,
                         true,
-                        &crate::environment::solids([owner]),
+                        &filter,
+                        &|entity| !actors.contains(entity),
                     )
-                    .map(|hit| hit.entity.to_bits())
+                } else {
+                    slide
+                        .spatial_query
+                        .cast_ray(eye, direction, range, true, &filter)
+                };
+                hit.map(|hit| hit.entity.to_bits())
             })
         });
         let staging_feet = position - offset + Vec3::Y * tuning.physics.ground_probe;
