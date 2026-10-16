@@ -60,6 +60,8 @@ fn client_clock(
     mut physics: ResMut<Time<Physics>>,
     mut substeps: ResMut<Time<Substeps>>,
     count: Res<SubstepCount>,
+    #[cfg(feature = "dev-tools")] controller: Option<Res<crate::validation::Controller>>,
+    #[cfg(feature = "dev-tools")] fixed: Res<Time<Fixed>>,
 ) {
     let active = matches!(
         **state,
@@ -74,6 +76,17 @@ fn client_clock(
         active,
         **state == GameState::Paused,
     );
+    #[cfg(feature = "dev-tools")]
+    let delta = if controller.as_ref().is_some_and(|c| c.stepping()) {
+        // An explicit assisted tick includes physics even when it is shorter
+        // than the ordinary 30 Hz client interval. Do not leave catch-up debt.
+        clock.previous = Some(source.elapsed(&time));
+        clock.pending = Duration::ZERO;
+        clock.delta = fixed.timestep();
+        clock.delta
+    } else {
+        delta
+    };
     advance_clocks(&mut physics, &mut substeps, count.0, delta);
 }
 
@@ -1093,6 +1106,37 @@ mod tests {
         assert_eq!(clock.advance(at(534), true, false), CLIENT_PHYSICS_INTERVAL);
         assert_eq!(clock.advance(None, false, false), Duration::ZERO);
         assert_eq!(clock.advance(at(50), true, false), CLIENT_PHYSICS_INTERVAL);
+    }
+
+    #[test]
+    #[cfg(feature = "dev-tools")]
+    fn assisted_step_includes_native_client_physics_at_both_gameplay_speeds() {
+        for speed in [1., 2.] {
+            let mut app = crate::validation::tests::harness();
+            app.init_resource::<crate::session::SessionClock>()
+                .init_resource::<ClientPhysicsClock>()
+                .add_systems(PostUpdate, client_clock.in_set(PhysicsSystems::First));
+            app.world_mut()
+                .resource_mut::<Time<Virtual>>()
+                .set_relative_speed_f64(speed);
+            let body = app
+                .world_mut()
+                .spawn((
+                    RigidBody::Dynamic,
+                    Collider::sphere(0.25),
+                    Transform::from_xyz(0., 10., 0.),
+                ))
+                .id();
+            crate::validation::tests::assert_physics_step(&mut app);
+            assert!(
+                app.world().get::<LinearVelocity>(body).unwrap().y < 0.,
+                "The stepped native solver must apply gravity at {speed}x"
+            );
+            assert_eq!(
+                app.world().resource::<ClientPhysicsClock>().pending,
+                Duration::ZERO
+            );
+        }
     }
 
     #[test]

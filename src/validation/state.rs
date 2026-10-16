@@ -88,6 +88,10 @@ pub(super) fn snapshot(world: &mut World) -> Value {
     let focus = world.resource::<crate::interactions::InteractionFocus>();
     let mut result = json!({"session":world.resource::<crate::session::SessionId>().0,"seed":c.seed,"game_state":format!("{:?}",world.resource::<State<GameState>>().get()),"ready":matches!(world.resource::<State<GameState>>().get(),GameState::Playing|GameState::Paused)&&player.is_some(),"control":{"owned":c.owns_input(),"paused":c.paused,"aborted":c.aborted,"failure":c.failure,"tick":c.tick,"simulation_seconds":c.simulation_seconds,"label":c.label,"queued":c.queue.len(),"active":c.active.as_ref().map(|(r,n)|json!({"id":r.id,"remaining":n})),"god":c.god},"player":player,"round":{"number":session.round,"pending":session.pending,"points":session.points},"interaction":{"target":focus.target.map(Entity::to_bits),"accepted":focus.accepted,"prompt":focus.prompt,"rejection":focus.rejection.map(|r|format!("{r:?}"))},"enemies":enemies,"targets":targets,"evidence":c.evidence});
     result["process_id"] = json!(std::process::id());
+    result["speed"] = json!(world.resource::<Time<Virtual>>().relative_speed_f64());
+    if let Some(movie) = world.get_resource::<super::cinematic::Playback>() {
+        result["cinematic"] = serde_json::to_value(movie).unwrap();
+    }
     if let Some(physics) = world.get_resource::<Time<avian3d::prelude::Physics>>() {
         result["physics_seconds"] = json!(physics.elapsed_secs_f64());
     }

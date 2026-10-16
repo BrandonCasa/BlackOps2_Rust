@@ -19,6 +19,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--until", choices=tuple(ROUTE), default="foundation")
     parser.add_argument("--seed", type=lambda s: int(s, 0), default=0xB02)
+    parser.add_argument("--speed", type=int, choices=(1, 2), default=2, help="Gameplay speed; ending playback remains at 1x")
     parser.add_argument("--port", type=int, default=15702)
     parser.add_argument("--exe", type=Path, default=REPO / "target/debug/origins.exe")
     parser.add_argument("--assets", type=Path, default=REPO / "target/assets")
@@ -37,7 +38,7 @@ def main():
     report.mkdir(parents=True, exist_ok=False)
     exe, assets = args.exe.resolve(), args.assets.resolve()
     client = Client(args.port, report)
-    result = {"status": "running", "requested_milestone": args.until, "seed": args.seed,
+    result = {"status": "running", "requested_milestone": args.until, "seed": args.seed, "speed": args.speed,
               "proves": "Only the assisted gameplay steps completed in this run",
               "does_not_prove": ["normal spawning", "survival balance", "economy", "unscripted timing", "performance"]}
     process = None
@@ -54,6 +55,7 @@ def main():
                 subprocess.run(["cargo", "build", "--features", "dev-tools", "--locked"], cwd=REPO, stdout=log, stderr=subprocess.STDOUT, check=True)
         env = os.environ.copy()
         env.update(ORIGINS_VALIDATOR_REPORT=str(report), ORIGINS_VALIDATOR_SEED=str(args.seed), ORIGINS_VALIDATOR_PORT=str(args.port),
+                   ORIGINS_VALIDATOR_SPEED=str(args.speed),
                    DISABLE_VULKAN_OW_OBS_CAPTURE="1", DISABLE_VK_LAYER_reshade_1="1")
         output = (report / "game.log").open("wb")
         process = subprocess.Popen([str(exe), "--asset-root", str(assets)], cwd=REPO, env=env, stdout=output, stderr=subprocess.STDOUT)
@@ -76,6 +78,8 @@ def main():
         client.session = state["session"]
         state = client.wait(lambda s: s["ready"] and s["game_state"] == "Playing", seconds=600, realtime=True)
         client.session = state["session"]
+        if state["speed"] != args.speed:
+            raise ValidationFailure(f"Gameplay speed is {state['speed']}, expected {args.speed}")
         result["increments"] = {}
         for name, route in ROUTE.items():
             print(f"Running {name}; report: {report}", flush=True)
@@ -96,7 +100,6 @@ def main():
         except Exception as recovery:
             result["recovery_error"] = str(recovery)
     finally:
-        client.flush()
         client.beat_stop()
         if output:
             output.close()

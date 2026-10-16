@@ -42,6 +42,17 @@ pub(super) fn execute(world: &mut World, request: &Request) -> Result<bool, Stri
             if world.resource::<Controller>().aborted {
                 return Err("An aborted run cannot resume".into());
             }
+            if state == GameState::Ending && world.resource::<Controller>().paused {
+                world
+                    .resource_mut::<super::cinematic::Playback>()
+                    .pause(false);
+                let mut c = world.resource_mut::<Controller>();
+                c.paused = false;
+                c.failure = None;
+                c.heartbeat = Instant::now();
+                world.resource_mut::<Time<Virtual>>().unpause();
+                return Ok(true);
+            }
             if state != GameState::Paused {
                 return Err("Resume requires a paused match".into());
             }

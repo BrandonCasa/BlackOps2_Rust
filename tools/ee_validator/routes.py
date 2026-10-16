@@ -111,7 +111,7 @@ def foundation(client):
     if stepped["control"]["tick"] != tick + 1:
         raise ValidationFailure("Step did not advance exactly one fixed tick")
     if not math.isclose(stepped["physics_seconds"] - paused["physics_seconds"], 1 / 60, abs_tol=1e-7):
-        raise ValidationFailure("Step did not include exactly one timestep of physics")
+        raise ValidationFailure(f"Step did not include exactly one timestep of physics: delta={stepped['physics_seconds'] - paused['physics_seconds']}")
     client.send({"op": "resume"}, label="Foundation: resume")
     client.wait(lambda s: s["game_state"] == "Playing")
     pending = client.send({"op": "input", "ticks": 1200, "held": ["fire"], "look": [0, 0], "aim": None, "aim_entity": None}, wait=False)

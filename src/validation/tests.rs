@@ -14,7 +14,7 @@ fn sample_tick(
         .push((input.fire, input.fire_held, input.jump, input.movement, yaw));
     input.take_edges();
 }
-fn harness() -> App {
+pub(crate) fn harness() -> App {
     let mut app = App::new();
     app.add_plugins((
         MinimalPlugins,
@@ -163,23 +163,26 @@ fn batches_cross_a_multi_tick_frame_without_repeating_or_underflowing() {
 #[test]
 fn paused_step_advances_one_fixed_tick_and_post_update_physics() {
     let mut app = harness();
-    command(&mut app, 1, Command::Pause);
-    frame(&mut app, 3);
+    assert_physics_step(&mut app);
+}
+pub(crate) fn assert_physics_step(app: &mut App) {
+    command(app, 1, Command::Pause);
+    frame(app, 3);
     assert_eq!(
         *app.world().resource::<State<GameState>>().get(),
         GameState::Paused
     );
     let physics_before = app.world().resource::<Time<Physics>>().elapsed();
     let real_before = app.world().resource::<Time<Real>>().elapsed();
-    command(&mut app, 2, Command::Step);
-    frame(&mut app, 0);
+    command(app, 2, Command::Step);
+    frame(app, 0);
     assert_eq!(app.world().resource::<Trace>().0.len(), 1);
     assert_eq!(
         app.world().resource::<Time<Physics>>().elapsed() - physics_before,
         app.world().resource::<Time<Fixed>>().timestep()
     );
     assert_eq!(app.world().resource::<Time<Real>>().elapsed(), real_before);
-    frame(&mut app, 3);
+    frame(app, 3);
     assert_eq!(app.world().resource::<Trace>().0.len(), 1);
     assert_eq!(
         *app.world().resource::<State<GameState>>().get(),

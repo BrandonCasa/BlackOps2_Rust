@@ -50,6 +50,8 @@ struct Video {
     pipe: String,
     connection: Option<File>,
     skip_enabled: bool,
+    #[cfg(feature = "dev-tools")]
+    exit_seen: Option<std::time::Instant>,
 }
 impl Drop for Video {
     fn drop(&mut self) {
@@ -86,6 +88,7 @@ fn start(
     mut playback: ResMut<LoadingPlayback>,
     mut cameras: Query<&mut Camera, With<crate::rendering::GameCamera>>,
     windows: Query<&bevy::window::RawHandleWrapper, With<bevy::window::PrimaryWindow>>,
+    #[cfg(feature = "dev-tools")] controller: Option<Res<crate::validation::Controller>>,
 ) {
     if playback.video.is_some() || playback.done {
         return;
@@ -106,15 +109,32 @@ fn start(
     } else {
         &sequences.intro
     };
-    playback.skippable = ending;
-    playback.video = Some(sequence.play(&options.asset_root, &audio, parent));
+    #[cfg(feature = "dev-tools")]
+    let observed = ending && controller.as_ref().is_some_and(|c| c.owns_input());
+    #[cfg(not(feature = "dev-tools"))]
+    let observed = false;
+    #[cfg(feature = "dev-tools")]
+    if observed {
+        commands.insert_resource(crate::validation::cinematic::Playback::new(
+            options.asset_root.join(&sequence.video),
+            controller.as_ref().unwrap(),
+        ));
+    }
+    playback.skippable = ending && !observed;
+    playback.video = Some(sequence.play(&options.asset_root, &audio, parent, observed));
     for mut camera in &mut cameras {
         camera.is_active = false;
     }
     commands.insert_resource(bevy::winit::WinitSettings::continuous());
 }
 impl Sequence {
-    fn play(&self, root: &std::path::Path, audio: &AudioSettings, parent: u64) -> Video {
+    fn play(
+        &self,
+        root: &std::path::Path,
+        audio: &AudioSettings,
+        parent: u64,
+        observed: bool,
+    ) -> Video {
         let tracks = self.stems.each_ref().map(|stem| {
             (
                 root.join(&stem.path),
@@ -151,6 +171,9 @@ impl Sequence {
             .arg(format!("--lavfi-complex={filter}"))
             .arg(root.join(&self.video))
             .stdin(Stdio::null());
+        if observed {
+            command.arg("--pause=yes");
+        }
         #[cfg(windows)]
         command.creation_flags(0x08000000);
         let player = command.spawn().expect("start mpv cinematic player");
@@ -159,6 +182,8 @@ impl Sequence {
             pipe,
             connection: None,
             skip_enabled: false,
+            #[cfg(feature = "dev-tools")]
+            exit_seen: None,
         }
     }
 }
@@ -169,16 +194,56 @@ fn advance(
     mut next: ResMut<NextState<GameState>>,
     keys: Res<ButtonInput<KeyCode>>,
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
+    #[cfg(feature = "dev-tools")] mut observed: Option<
+        ResMut<crate::validation::cinematic::Playback>,
+    >,
+    #[cfg(feature = "dev-tools")] mut controller: Option<ResMut<crate::validation::Controller>>,
+    #[cfg(feature = "dev-tools")] mut commands: Commands,
 ) {
     let skippable = playback.skippable;
     let Some(video) = playback.video.as_mut() else {
         return;
     };
-    if let Some(status) = video.player.try_wait().expect("cinematic player status") {
-        assert!(status.success(), "cinematic player failed: {status}");
-        playback.video = None;
-        playback.done = true;
-        if **state == GameState::Ending {
+    #[cfg(feature = "dev-tools")]
+    if **state == GameState::Ending
+        && let Some(observed) = observed.as_mut()
+    {
+        match observed.poll(&video.pipe) {
+            Ok(controls) => {
+                if let Some(controller) = controller.as_mut() {
+                    for control in controls {
+                        match control.as_str() {
+                            "validator-toggle-pause" => controller.request_pause_toggle(),
+                            "validator-abort" => controller.request_abort(),
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            Err(reason) => {
+                if observed.failed(reason.clone()) {
+                    commands.queue(move |world: &mut World| crate::validation::fail(world, reason));
+                }
+                return;
+            }
+        }
+        // Drain buffered terminal messages before treating process exit as failure.
+        if let Some(status) = video.player.try_wait().expect("cinematic player status") {
+            let exited = video.exit_seen.get_or_insert_with(std::time::Instant::now);
+            if observed.terminal.is_none()
+                && status.success()
+                && exited.elapsed().as_secs_f32() < 1.
+            {
+                return;
+            }
+            if let Err(reason) = observed.exited() {
+                if observed.failed(reason.clone()) {
+                    commands.queue(move |world: &mut World| crate::validation::fail(world, reason));
+                }
+                return;
+            }
+            playback.video = None;
+            playback.done = true;
             next.set(GameState::GameOver);
         }
         return;
@@ -193,6 +258,15 @@ fn advance(
             .expect("cinematic loading prompt");
             video.connection = Some(pipe);
         }
+    }
+    if let Some(status) = video.player.try_wait().expect("cinematic player status") {
+        assert!(status.success(), "cinematic player failed: {status}");
+        playback.video = None;
+        playback.done = true;
+        if **state == GameState::Ending {
+            next.set(GameState::GameOver);
+        }
+        return;
     }
     if skippable != video.skip_enabled {
         if let Some(pipe) = video.connection.as_mut() {

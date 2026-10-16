@@ -22,7 +22,6 @@ class Client:
         self.next_id = time.time_ns()
         self._heartbeat_stop = threading.Event()
         self._heartbeat_thread = None
-        self.timeline = []
 
     def rpc(self, method: str, params=None, timeout=5):
         body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}).encode()
@@ -76,8 +75,9 @@ class Client:
                 raise ValidationFailure(f"Command {request['id']}: {receipt['phase']}: {receipt.get('error')}")
             return receipt["phase"] == goal
         self.wait(complete, seconds=600 if action["op"] == "start" else 90, allow_failure=allow_failure, realtime=action["op"] in ("start", "pause", "resume", "step", "abort", "finish", "capture", "quit"))
-        self.timeline.append(receipt)
-        self.flush()
+        if self.report:
+            with (self.report / "commands.jsonl").open("a", encoding="utf-8") as log:
+                log.write(json.dumps(receipt) + "\n")
         return receipt
 
     def input(self, ticks=1, held=(), *, aim=None, aim_entity=None, look=(0, 0), label=""):
@@ -107,7 +107,3 @@ class Client:
         if self._heartbeat_thread:
             self._heartbeat_thread.join(timeout=6)
             self._heartbeat_thread = None
-
-    def flush(self):
-        if self.report:
-            (self.report / "commands.json").write_text(json.dumps(self.timeline, indent=2), encoding="utf-8")

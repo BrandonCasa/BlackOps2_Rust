@@ -1,9 +1,10 @@
 //! Opt-in development BRP. The game owns simulation; this module supplies inputs and observations.
 mod actions;
+pub(crate) mod cinematic;
 mod protocol;
 mod state;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 use crate::{GameState, gameplay::Session, session::SessionId};
 use bevy::{
@@ -69,6 +70,9 @@ impl Controller {
     pub(crate) fn owns_input(&self) -> bool {
         self.session.is_some()
     }
+    pub(crate) fn stepping(&self) -> bool {
+        self.step_frame
+    }
     pub(crate) fn request_pause_toggle(&mut self) {
         if self.failure.is_none() && !self.aborted {
             let action = if self.paused {
@@ -115,6 +119,13 @@ pub(crate) fn install(app: &mut App) {
     let port = std::env::var("ORIGINS_VALIDATOR_PORT")
         .map(|s| s.parse().expect("Validator port must be a u16"))
         .unwrap_or(15702);
+    let speed = std::env::var("ORIGINS_VALIDATOR_SPEED")
+        .map(|s| s.parse::<f64>().expect("Validator speed must be 1 or 2"))
+        .unwrap_or(1.);
+    assert!(matches!(speed, 1. | 2.), "Validator speed must be 1 or 2");
+    app.world_mut()
+        .resource_mut::<Time<Virtual>>()
+        .set_relative_speed_f64(speed);
     install_controller(app, Controller::new(seed, report));
     app.add_plugins((
         RemotePlugin::default()
@@ -184,6 +195,7 @@ fn scripted_look(controller: Res<Controller>) -> bool {
 }
 
 pub(crate) fn initialize(world: &mut World, session: &mut Session) {
+    world.remove_resource::<cinematic::Playback>();
     let id = world.resource::<SessionId>().0;
     let Some(mut c) = world.get_resource_mut::<Controller>() else {
         return;
@@ -524,6 +536,9 @@ fn pause(world: &mut World) {
         return;
     }
     let saved = crate::input::suspend_script(world);
+    if let Some(mut movie) = world.get_resource_mut::<cinematic::Playback>() {
+        movie.pause(true);
+    }
     {
         let mut c = world.resource_mut::<Controller>();
         c.paused = true;
@@ -548,7 +563,7 @@ fn pause(world: &mut World) {
             .set(GameState::Paused);
     }
 }
-fn fail(world: &mut World, reason: String) {
+pub(crate) fn fail(world: &mut World, reason: String) {
     if world.resource::<Controller>().failure.is_some() {
         return;
     }
