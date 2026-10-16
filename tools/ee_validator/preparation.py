@@ -1,0 +1,147 @@
+"""Preparation through the existing generator, crafting and portal owners."""
+import math
+from client import ValidationFailure
+from routes import activate_generator, capture, distance, shoot_at, target_of, use_target, walk_to
+
+
+def stage_near(client, target, label):
+    """Inspect nearby floors before requesting the collision-checked staging cheat."""
+    x, y, z = target["position"]
+    points = [[x + 1.4 * math.cos(i * math.pi / 4), y + 0.8,
+               z + 1.4 * math.sin(i * math.pi / 4)] for i in range(8)]
+    probes = client.rpc("origins/validator/jump_probes", [
+        {"feet": p, "velocity": [0, 0, 0], "aim": p} for p in points])["results"]
+    floors = [p["feet"] for p in probes if p["landed"] is not None and p["clear"]
+              and -0.4 <= y - p["feet"][1] <= 2.1]
+    if not floors:
+        raise ValidationFailure(f"No clear supporting floor beside {label}: {target['position']}")
+    current = client.state()["player"]["feet"]
+    feet = min(floors, key=lambda p: distance(p, current))
+    client.send({"op": "teleport", "feet": feet}, label=f"Stage beside {label}")
+    client.input(12)
+
+
+def part_target(state, name):
+    return next(t for t in state["targets"] if t["target"]["kind"] in ("part", "craft_part")
+                and t["target"]["value"] == name)
+
+
+def collect_part(client, name, *, stage=True):
+    state = client.state()
+    if state["parts"]["pieces"].get(name, {}).get("state") in ("owned", "consumed"):
+        return
+    target = part_target(state, name)
+    if stage:
+        stage_near(client, target, name)
+    state = use_target(client, part_target(client.state(), name), f"Collect {name} through interaction")
+    part = state["parts"]["pieces"].get(name, {})
+    if part.get("state") != "owned" or part.get("player") != state["player"]["entity"]:
+        raise ValidationFailure(f"Part was not collected by this player: {name}")
+
+
+def bench_target(state, recipe):
+    choices = [t for t in state["targets"] if t["target"]["kind"] == "bench"
+               and t["target"]["recipe"] == recipe]
+    return min(choices, key=lambda t: distance(t["position"], state["player"]["feet"]))
+
+
+def craft(client, recipe):
+    target = bench_target(client.state(), "open_table" if recipe == "equip_dieseldrone_zm" else recipe)
+    stage_near(client, target, f"{recipe} workbench")
+    client.input(120, aim=target["position"], label=f"Inspect the {recipe} workbench")
+    if recipe == "equip_dieseldrone_zm":
+        client.input(1, ("buildable",), aim=target["position"], label="Select Maxis Drone on the ordinary workbench")
+        client.input(1, aim=target["position"])
+    state = client.state()
+    if state["interaction"]["target"] != target["entity"] or recipe.replace("_", " ") not in state["interaction"]["prompt"]:
+        raise ValidationFailure(f"The requested recipe is not focused: {recipe}; {state['interaction']}")
+    client.input(240, ("interact",), aim=target["position"], label=f"Hold the normal crafting interaction for {recipe}")
+    client.input(1)
+    if recipe not in client.state()["crafting"]["crafted"]:
+        raise ValidationFailure(f"Crafting did not complete: {recipe}")
+    state = use_target(client, target, f"Take the crafted {recipe}")
+    if recipe == "equip_dieseldrone_zm" and recipe not in state["buildables"]["owned"]:
+        raise ValidationFailure("The crafted Maxis Drone was not taken")
+
+
+def collect_crystal(client, element, index):
+    gramophone = target_of(client.state(), "gramophone", index + 1)
+    stage_near(client, gramophone, f"{element} gramophone site")
+    use_target(client, gramophone, f"Place the gramophone for the {element} portal")
+    client.wait(lambda s: s["portals"]["entrances"][index] == "Open", seconds=20)
+    state = client.state()
+    entrance = min((t for t in state["targets"] if t["target"]["kind"] == "portal_entrance"),
+                   key=lambda t: distance(t["position"], gramophone["position"]))
+    point = entrance["position"]
+    aim = [point[0], state["player"]["eye"][1], point[2]]
+    client.input(120, aim=aim, label=f"Face the open {element} portal")
+    trips = state["portals"]["trips"]
+    pending = client.send({"op": "input", "ticks": 600, "held": ["forward"], "look": [0, 0], "aim": aim},
+                          wait=False, label=f"Walk into the {element} portal")
+    try:
+        client.wait(lambda s: s["portals"]["trips"] > trips, seconds=10)
+    finally:
+        client.send({"op": "cancel", "command": pending["request"]["id"]}, label="Release walking during portal transit")
+    client.input(150, label="Watch the ordinary portal transit finish")
+    state = client.state()
+    if not state["portals"]["visited"][index] or state["player"]["feet"][0] < 200:
+        raise ValidationFailure(f"The {element} portal did not deliver this player to the Crazy Place")
+    name = f"part.elemental_staff_{element}.gem"
+    crystal = part_target(state, name)
+    stage_near(client, crystal, f"{element} crystal plinth")
+    client.input(900, aim=crystal["position"], label=f"Watch the {element} plinth reveal its crystal")
+    if not client.state()["portals"]["crystals_ready"][index]:
+        raise ValidationFailure(f"The {element} plinth did not reveal its crystal")
+    collect_part(client, name, stage=False)
+    returning = target_of(client.state(), "portal_return", index)
+    stage_near(client, returning, f"{element} return portal")
+    trips = client.state()["portals"]["trips"]
+    use_target(client, returning, f"Activate the {element} return portal")
+    client.wait(lambda s: s["portals"]["trips"] > trips, seconds=40)
+    client.input(150, label="Watch the return transit finish")
+    if client.state()["player"]["feet"][0] > 200:
+        raise ValidationFailure("Return portal did not leave the Crazy Place")
+    stage_near(client, gramophone, "gramophone retrieval")
+    state = use_target(client, gramophone, "Retrieve the gramophone through interaction")
+    if not state["crafting"]["gramophone"]:
+        raise ValidationFailure("Gramophone was not retrieved after portal travel")
+
+
+def preparation(client):
+    result = {}
+    speed = int(client.state()["speed"])
+    client.input(120 * speed, label="Preparation: power the map, gather parts, and craft the four staffs")
+    for suffix in ("tank_trench", "mid_trench", "nml_right", "nml_left", "church"):
+        generator = f"generator.generator_{suffix}"
+        if client.state()["generators"]["sites"][generator]["state"] != "Active":
+            target = target_of(client.state(), "generator", generator)
+            stage_near(client, target, generator)
+            result[generator] = activate_generator(client, generator, f"generator-{suffix}-powered")
+    if not all(g["state"] == "Active" for g in client.state()["generators"]["sites"].values()):
+        raise ValidationFailure("Preparation did not leave all six generators powered")
+    result["generators"] = capture(client, "all-generators-powered")
+    for record in ("player", "master", "fire", "air", "elec", "ice"):
+        collect_part(client, f"part.gramophone_vinyl.{record}")
+    for piece in ("brain", "body", "engine"):
+        collect_part(client, f"part.equip_dieseldrone_zm.{piece}")
+    craft(client, "equip_dieseldrone_zm")
+    result["drone"] = capture(client, "maxis-drone-crafted")
+    gramophone = target_of(client.state(), "gramophone", 0)
+    stage_near(client, gramophone, "excavation gramophone")
+    use_target(client, gramophone, "Open excavation through the gramophone")
+    client.wait(lambda s: s["portals"]["excavation_open"], seconds=25)
+    use_target(client, gramophone, "Retrieve the gramophone after opening excavation")
+    for index, element in enumerate(("fire", "air", "lightning", "water")):
+        collect_crystal(client, element, index)
+    pieces = client.state()["parts"]["pieces"]
+    missing = [f"part.elemental_staff_{element}.{piece}"
+               for element in ("fire", "air", "lightning", "water")
+               for piece in ("upper_staff", "middle_staff", "lower_staff")
+               if pieces.get(f"part.elemental_staff_{element}.{piece}", {}).get("state") != "owned"]
+    if missing:
+        raise ValidationFailure(f"Preparation still needs normal elemental-part acquisition: {missing}")
+    for element in ("fire", "air", "lightning", "water"):
+        craft(client, f"elemental_staff_{element}")
+    result["staffs"] = capture(client, "four-staffs-crafted")
+    client.input(180 * speed, label="Preparation complete: inspect the four crafted staffs")
+    return result

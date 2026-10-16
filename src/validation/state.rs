@@ -156,6 +156,14 @@ pub(super) fn snapshot(world: &mut World) -> Value {
     let mut result = json!({"session":world.resource::<crate::session::SessionId>().0,"seed":c.seed,"game_state":format!("{:?}",world.resource::<State<GameState>>().get()),"ready":matches!(world.resource::<State<GameState>>().get(),GameState::Playing|GameState::Paused)&&player.is_some(),"control":{"owned":c.owns_input(),"paused":c.paused,"aborted":c.aborted,"failure":c.failure,"tick":c.tick,"simulation_seconds":c.simulation_seconds,"label":c.label,"queued":c.queue.len(),"active":c.active.as_ref().map(|(r,n)|json!({"id":r.id,"remaining":n})),"god":c.god},"player":player,"round":{"number":session.round,"pending":session.pending,"points":session.points},"interaction":{"target":focus.target.map(Entity::to_bits),"accepted":focus.accepted,"prompt":focus.prompt,"rejection":focus.rejection.map(|r|format!("{r:?}"))},"enemies":enemies,"targets":targets,"evidence":c.evidence});
     result["process_id"] = json!(std::process::id());
     result["firing"] = firing.unwrap_or(Value::Null);
+    result["buildables"] = world
+        .query_filtered::<&crate::crafting::BuildableInventory, With<Player>>()
+        .single(world)
+        .ok()
+        .map_or(
+            Value::Null,
+            |b| json!({"owned":b.owned,"equipped":b.equipped}),
+        );
     if let Some(crafting) = world.get_resource::<crate::crafting::Crafting>() {
         result["crafting"] = json!({"crafted":crafting.crafted,"consumed":crafting.consumed,
             "records":crafting.records,"gramophone":crafting.gramophone});
@@ -180,7 +188,15 @@ pub(super) fn snapshot(world: &mut World) -> Value {
             "occupancy":robots.occupancy.map(|o|json!({"robot":o.robot,"remaining":o.remaining,"exit":o.exit.to_array()}))});
     }
     result["robot_feet"] = json!(world.query::<(Entity,&crate::robots::Foot,&GlobalTransform)>().iter(world)
-        .map(|(e,f,t)|json!({"entity":e.to_bits(),"robot":f.robot,"side":f.side,"position":t.translation().to_array()})).collect::<Vec<_>>());
+        .map(|(e,f,t)|json!({"entity":e.to_bits(),"robot":f.robot,"side":f.side,"position":t.translation().to_array(),
+            "openable":world.get_resource::<crate::robots::Robots>().is_some_and(|r|r.passes[f.robot].is_some_and(|p|p.openable(f.side)))
+        })).collect::<Vec<_>>());
+    let blood = world
+        .get_resource::<crate::powerups::PowerupEffects>()
+        .is_some_and(|p| p.zombie_blood > 0.);
+    result["planes"] = json!(world.query::<(Entity, &crate::quest_recovery::Plane, &Transform)>().iter(world)
+        .filter(|(_,p,_)| !p.quest || blood)
+        .map(|(e,p,t)|json!({"entity":e.to_bits(),"quest":p.quest,"position":t.translation.to_array()})).collect::<Vec<_>>());
     if let Some(game) = world.get_resource::<crate::assets::GameDefinition>() {
         let tuning = &game.tuning;
         result["movement"] = json!({"walk_speed":tuning.walk_speed,"sprint_speed":tuning.sprint_speed,

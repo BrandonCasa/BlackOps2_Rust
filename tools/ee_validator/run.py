@@ -10,7 +10,10 @@ import socket
 import csv
 
 from client import Client, ValidationFailure
-from routes import ROUTE
+from routes import foundation, generators_tank
+from preparation import preparation
+
+ROUTE = {"foundation": foundation, "generators-tank": generators_tank, "preparation": preparation}
 
 REPO = Path(__file__).resolve().parents[2]
 

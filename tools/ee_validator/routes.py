@@ -98,8 +98,9 @@ def shoot_at(client, entity, *, shots=4, label="Fire equipped weapon at its nati
         state = client.wait(lambda s: s["firing"]["ready"] and s["firing"]["magazine"] > 0,
                             seconds=10)
         firing = state["firing"]
-    enemy = next(e for e in state["enemies"] if e["entity"] == entity)
-    target = enemy["aim"]
+    observed = next(e for e in state["enemies"] + state.get("robot_feet", []) + state.get("planes", [])
+                    if e["entity"] == entity)
+    target = observed.get("aim", observed.get("position"))
     eye = state["player"]["eye"]
     yaw = math.atan2(eye[0] - target[0], eye[2] - target[2])
     pitch = math.atan2(target[1] - eye[1], distance(eye, target))
@@ -255,27 +256,11 @@ def tank_point(tank, local):
     return [p+d for p, d in zip(tank["position"], rotated)]
 
 
-def generators_tank(client):
-    results = {}
-    client.send({"op": "assist", "god": True, "points": 100000, "ammo": True, "doors": True},
-                label="Generator and tank: open routes and replenish equipment")
-    client.input(120 * int(client.state()["speed"]), label="Activate and defend generator one, then ride the tank")
-    client.send({"op": "teleport", "feet": [63.0, -9.2, -135.3]},
-                label="Stage beside the starting-room M14")
-    client.input(12)
-    rifle = target_of(client.state(), "wall_weapon", "weapon.m14_zm")
-    state = use_target(client, rifle, "Buy the starting-room M14 through its ordinary wall interaction")
-    if not any(w["id"] == "weapon.m14_zm" for w in state["player"]["inventory"]):
-        raise ValidationFailure("The M14 wall purchase did not grant the weapon")
-    client.input(120, label="Equip the purchased rifle before defending the generator")
-    generator = "generator.generator_start_bunker"
-    client.send({"op": "teleport", "feet": [57.25, -7.3914, -122.9]},
-                label="Stage on the floor beside generator one")
-    client.input(12)
+def activate_generator(client, generator, capture_name):
     target = target_of(client.state(), "generator", generator)
     # generators::use_point selects the pump at half of the native use-box height.
     x, y, z = target["position"]
-    state = use_target(client, target, "Generator one: purchase activation", aim=[x, y + 1.6256, z])
+    state = use_target(client, target, "Purchase generator activation", aim=[x, y + 1.6256, z])
     if state["generators"]["sites"][generator]["state"] != "Capturing":
         raise ValidationFailure("Generator interaction did not begin capture")
     sequence = state["evidence"]["sequence"]
@@ -300,8 +285,28 @@ def generators_tank(client):
              and e["kind"] == "kill" and e["data"]["target"] in defenders]
     if not kills:
         raise ValidationFailure("Generator powered without a player-attributed defender kill")
-    results["generator"] = {"id": generator, "defender_kills": len(kills),
-                             "capture": capture(client, "generator-one-powered")}
+    return {"id": generator, "defender_kills": len(kills), "capture": capture(client, capture_name)}
+
+
+def generators_tank(client):
+    results = {}
+    client.send({"op": "assist", "god": True, "points": 100000, "ammo": True, "doors": True},
+                label="Generator and tank: open routes and replenish equipment")
+    client.input(120 * int(client.state()["speed"]), label="Activate and defend generator one, then ride the tank")
+    client.send({"op": "teleport", "feet": [63.0, -9.2, -135.3]},
+                label="Stage beside the starting-room M14")
+    client.input(12)
+    rifle = target_of(client.state(), "wall_weapon", "weapon.m14_zm")
+    state = use_target(client, rifle, "Buy the starting-room M14 through its ordinary wall interaction")
+    if not any(w["id"] == "weapon.m14_zm" for w in state["player"]["inventory"]):
+        raise ValidationFailure("The M14 wall purchase did not grant the weapon")
+    client.input(120, label="Equip the purchased rifle before defending the generator")
+    generator = "generator.generator_start_bunker"
+    client.send({"op": "teleport", "feet": [57.25, -7.3914, -122.9]},
+                label="Stage on the floor beside generator one")
+    client.input(12)
+    results["generator"] = activate_generator(client, generator, "generator-one-powered")
+    state = client.state()
     client.input(180 * int(state["speed"]), label="Generator one powered: inspect the scene")
 
     results["boarding"] = board_tank(client)
@@ -421,4 +426,3 @@ def first_lightning_part(client):
     return results
 
 
-ROUTE = {"foundation": foundation, "generators-tank": generators_tank}

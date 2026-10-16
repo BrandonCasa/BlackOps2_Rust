@@ -185,6 +185,7 @@ fn inspect(
         results.push(
             json!({"feet":(position-offset).to_array(),"velocity":velocity.to_array(),
             "ticks":ticks,"blocked":blocked,"landed":landed.map(Entity::to_bits),
+            "clear":slide.spatial_query.shape_intersections(collider,position+Vec3::Y*0.03,Quat::IDENTITY,&filter).is_empty(),
             "takeoff":takeoff,"runup":runup}),
         );
     }

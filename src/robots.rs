@@ -40,6 +40,15 @@ pub struct RobotPass {
     hatch_age: f32,
     intro: bool,
 }
+impl RobotPass {
+    pub(crate) fn openable(&self, side: usize) -> bool {
+        self.delay <= 0.
+            && self.eligible == Some(side)
+            && self.can_open
+            && self.ready_at.is_some_and(|t| self.age >= t)
+            && self.hatch == HatchState::Closed
+    }
+}
 #[derive(Clone, Copy, Debug)]
 pub struct Occupancy {
     pub player: Entity,
@@ -686,12 +695,7 @@ fn tick(
         let Some(p) = robots.passes[foot.robot].as_mut() else {
             continue;
         };
-        if p.delay <= 0.
-            && p.eligible == Some(foot.side)
-            && p.can_open
-            && p.ready_at.is_some_and(|t| p.age >= t)
-            && p.hatch == HatchState::Closed
-        {
+        if p.openable(foot.side) {
             p.hatch = HatchState::Open;
             p.hatch_age = 0.;
             p.can_open = false;

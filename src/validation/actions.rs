@@ -6,6 +6,16 @@ use std::time::Instant;
 
 pub(super) fn execute(world: &mut World, request: &Request) -> Result<bool, String> {
     let state = *world.resource::<State<GameState>>().get();
+    if matches!(
+        request.action,
+        Command::SpawnChoice { .. }
+            | Command::RobotChoice { .. }
+            | Command::WeatherChoice { .. }
+            | Command::PowerupChoice { .. }
+    ) && !matches!(state, GameState::Playing | GameState::Paused)
+    {
+        return Err("Opportunity selection requires a playing or paused match".into());
+    }
     let key = (request.session, request.id);
     match &request.action {
         Command::Start => {

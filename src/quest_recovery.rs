@@ -10,8 +10,8 @@ mod source;
 #[derive(Component)]
 pub struct BloodRestricted;
 #[derive(Component)]
-struct Plane {
-    quest: bool,
+pub(crate) struct Plane {
+    pub(crate) quest: bool,
     node: usize,
     glow: Option<Entity>,
 }
