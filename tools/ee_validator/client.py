@@ -64,7 +64,7 @@ class Client:
         feet = (last.get("player") or {}).get("feet")
         raise ValidationFailure(f"Wait timed out after {seconds}s at tick {control['tick']}, feet {feet}; {control.get('label', '')[:160]}")
 
-    def send(self, action, *, label="", wait=True, allow_failure=False):
+    def send(self, action, *, label="", wait=True, allow_failure=False, allow_rejection=False):
         batch = isinstance(action, list)
         actions = action if batch else [action]
         requests = [{"session": self.session, "id": self.next_id + index, "action": step, "label": label}
@@ -88,6 +88,8 @@ class Client:
             def complete(state):
                 nonlocal receipt
                 receipt = self.receipt(request["id"], session=request["session"])
+                if allow_rejection and receipt["phase"] == "rejected":
+                    return True
                 if receipt["phase"] in ("failed", "rejected", "cancelled"):
                     raise ValidationFailure(f"Command {request['id']}: {receipt['phase']}: {receipt.get('error')}")
                 return receipt["phase"] == "executed"

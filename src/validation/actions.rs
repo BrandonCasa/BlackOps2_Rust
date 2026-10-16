@@ -330,11 +330,16 @@ fn teleport(
     {
         return Err("Teleport has no nearby supporting floor".into());
     }
-    if !spatial
-        .shape_intersections(shape, center, Quat::IDENTITY, &filter)
-        .is_empty()
-    {
-        return Err("Teleport capsule intersects solid geometry".into());
+    let blockers = spatial.shape_intersections(shape, center, Quat::IDENTITY, &filter);
+    if !blockers.is_empty() {
+        return Err(format!(
+            "Teleport capsule intersects solid geometry: {:?}",
+            blockers
+                .iter()
+                .take(4)
+                .map(|e| e.to_bits())
+                .collect::<Vec<_>>()
+        ));
     }
     *mobility = crate::movement::Mobility::new(player.eye_height);
     mobility.fall_origin = feet.y;

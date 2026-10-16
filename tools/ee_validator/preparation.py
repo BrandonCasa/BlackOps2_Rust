@@ -66,7 +66,9 @@ def stage_near(client, target, label, *, focus=False, radii=(1.4,), view=None,
         raise ValidationFailure(f"No clear supporting floor beside {label}: {target['position']}")
     current = client.state()["player"]["feet"]
     for feet in sorted(floors, key=lambda p: distance(p, current)):
-        client.send({"op": "teleport", "feet": feet}, label=f"Stage beside {label}")
+        receipt = client.send({"op": "teleport", "feet": feet}, label=f"Stage beside {label}", allow_rejection=True)
+        if receipt["phase"] == "rejected":
+            continue
         client.input(12)
         if not focus:
             return

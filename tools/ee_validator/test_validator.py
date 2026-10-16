@@ -6,6 +6,16 @@ from routes import tank_point, walk_to, shoot_at
 
 
 class RunnerTests(unittest.TestCase):
+    def test_expected_staging_rejection_is_returned_only_when_explicitly_allowed(self):
+        client = Client()
+        state = {"control": {"failure": None, "aborted": False, "paused": False}}
+        receipt = {"phase": "rejected", "error": "Destination occupied"}
+        with patch.object(client, "rpc", return_value=receipt), patch.object(client, "wait", side_effect=lambda predicate, **_: predicate(state)):
+            result = client.send({"op": "teleport", "feet": [1, 2, 3]}, allow_rejection=True)
+            self.assertEqual(result, receipt)
+            with self.assertRaisesRegex(ValidationFailure, "Destination occupied"):
+                client.send({"op": "teleport", "feet": [1, 2, 3]})
+
     def waiting_client(self, samples):
         from unittest.mock import Mock
         client = Client()

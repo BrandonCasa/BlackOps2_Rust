@@ -437,7 +437,8 @@ fn control(world: &mut World) {
                 if owns_input(world)
                     && !matches!(
                         request.action,
-                        Command::SpawnChoice { .. }
+                        Command::Teleport { .. }
+                            | Command::SpawnChoice { .. }
                             | Command::RobotChoice { .. }
                             | Command::WeatherChoice { .. }
                             | Command::PowerupChoice { .. }

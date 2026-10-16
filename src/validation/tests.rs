@@ -3,6 +3,89 @@ use avian3d::prelude::*;
 
 #[derive(Resource, Default)]
 struct Trace(Vec<(bool, bool, bool, Vec2, f32)>);
+
+#[test]
+fn rejected_staging_preserves_the_player_and_allows_another_checked_location() {
+    let mut app = harness();
+    app.init_resource::<crate::access::ZoneAccess>();
+    let zone = crate::origins::ZoneId("zone.staging".into());
+    app.world_mut()
+        .resource_mut::<crate::access::ZoneAccess>()
+        .reachable
+        .insert(zone.clone());
+    app.world_mut().spawn((
+        crate::access::ZoneSensor { zone },
+        Collider::cuboid(20., 20., 20.),
+        Sensor,
+        Transform::default(),
+        CollisionLayers::new(crate::access::ZONE_SENSOR_LAYER, LayerMask::NONE),
+    ));
+    app.world_mut().spawn((
+        Collider::cuboid(20., 0.4, 20.),
+        Transform::from_xyz(0., -0.2, 0.),
+    ));
+    app.world_mut().spawn((
+        Collider::cuboid(2., 3., 2.),
+        Transform::from_xyz(3., 1.5, 0.),
+    ));
+    let start = Transform::from_xyz(0., 0.9, 0.);
+    let player = app
+        .world_mut()
+        .spawn((
+            crate::player::Player {
+                yaw: 0.,
+                pitch: 0.,
+                velocity: Vec3::ZERO,
+                height: 1.8,
+                grounded: true,
+                crouched: false,
+                prone: false,
+                eye_height: 1.62,
+            },
+            start,
+            Collider::cuboid(0.7, 1.8, 0.7),
+            crate::movement::Mobility::new(1.62),
+        ))
+        .id();
+    frame(&mut app, 1);
+    command(
+        &mut app,
+        1,
+        Command::Teleport {
+            feet: [3., 0.0254, 0.],
+        },
+    );
+    frame(&mut app, 1);
+    assert_eq!(
+        app.world().resource::<Controller>().receipts[&(1, 1)].phase,
+        Phase::Rejected
+    );
+    assert!(app.world().resource::<Controller>().failure.is_none());
+    assert!(!app.world().resource::<Controller>().paused);
+    assert_eq!(
+        app.world().get::<Transform>(player).unwrap().translation,
+        start.translation
+    );
+    command(
+        &mut app,
+        2,
+        Command::Teleport {
+            feet: [0.5, 0.0254, 0.],
+        },
+    );
+    frame(&mut app, 1);
+    assert_eq!(
+        app.world().resource::<Controller>().receipts[&(1, 2)].phase,
+        Phase::Executed
+    );
+    assert!(
+        app.world()
+            .get::<Transform>(player)
+            .unwrap()
+            .translation
+            .abs_diff_eq(Vec3::new(0.5, 0.9254, 0.), 1e-6)
+    );
+}
 fn sample_tick(
     mut trace: ResMut<Trace>,
     mut input: ResMut<crate::input::GameInput>,

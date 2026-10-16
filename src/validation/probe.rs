@@ -203,11 +203,12 @@ fn inspect(
                     .map(|hit| hit.entity.to_bits())
             })
         });
-        let staging = position + Vec3::Y * tuning.physics.ground_probe;
+        let staging_feet = position - offset + Vec3::Y * tuning.physics.ground_probe;
+        let staging = staging_feet + offset;
         results.push(
             json!({"feet":(position-offset).to_array(),"velocity":velocity.to_array(),
             "ticks":ticks,"blocked":blocked,"landed":landed.map(Entity::to_bits),
-            "staging_feet":(staging-offset).to_array(),
+            "staging_feet":staging_feet.to_array(),
             "clear":slide.spatial_query.shape_intersections(collider,staging,Quat::IDENTITY,&filter).is_empty(),
             "playable":crate::environment::hazards::playable(&slide.spatial_query,collider,&Transform::from_translation(position),&access,&volumes),
             "takeoff":takeoff,"runup":runup,
