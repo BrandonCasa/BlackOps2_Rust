@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+mod feedback;
 pub mod physics;
 pub mod platforms;
 #[derive(Component, Default)]
@@ -98,11 +99,6 @@ pub struct MobilityTuning {
     pub fall_fatal: f32,
     pub landing_dip: f32,
     pub landing_seconds: f32,
-    pub walk_bob: [f32; 2],
-    pub sprint_bob: [f32; 2],
-    pub stride: [f32; 2],
-    pub sway_limit: f32,
-    pub sway_response: f32,
 }
 impl Default for MobilityTuning {
     fn default() -> Self {
@@ -127,11 +123,6 @@ impl Default for MobilityTuning {
             fall_fatal: 7.62,
             landing_dip: 0.12,
             landing_seconds: 0.3,
-            walk_bob: [0.016, 0.024],
-            sprint_bob: [0.025, 0.04],
-            stride: [2.4, 3.0],
-            sway_limit: 0.04,
-            sway_response: 14.,
         }
     }
 }
@@ -393,7 +384,11 @@ pub struct MotionFeedback {
     pub bob: Vec2,
     pub previous_bob: Vec2,
     pub phase: f32,
-    pub position: Option<Vec3>,
+    pub previous_phase: f32,
     pub look: Option<Vec2>,
     pub sway: Vec2,
+    pub sway_position: Vec2,
+    pub idle_phase: Vec3,
+    pub idle_factor: f32,
+    pub view_angles: Vec2,
 }

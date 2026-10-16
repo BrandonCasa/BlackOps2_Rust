@@ -165,6 +165,9 @@ pub enum WeaponAnimation {
     SprintEnter,
     SprintLoop,
     SprintLeave,
+    SprintEnterEmpty,
+    SprintLoopEmpty,
+    SprintLeaveEmpty,
     ProneEnter,
     ProneLoop,
     ProneBack,
@@ -236,6 +239,8 @@ pub struct WeaponMechanics {
     pub ads_fov: f32,
     pub ads_seconds: [f32; 2],
     pub sprint_seconds: [f32; 3],
+    pub sprint_duration_scale: f32,
+    pub view_motion: WeaponViewMotion,
     pub crawl_seconds: [f32; 7],
     pub dive_seconds: [f32; 3],
     pub ads_zoom_fraction: [f32; 2],
@@ -302,6 +307,8 @@ impl Default for WeaponMechanics {
             ads_fov: 50.,
             ads_seconds: [0.2, 0.2],
             sprint_seconds: [0.; 3],
+            sprint_duration_scale: 1.,
+            view_motion: WeaponViewMotion::default(),
             crawl_seconds: [0.; 7],
             dive_seconds: [0.; 3],
             ads_zoom_fraction: [1., 1.],
@@ -336,6 +343,24 @@ impl Default for WeaponMechanics {
         }
     }
 }
+
+/// Native weapon-file values, in degrees and source inches.
+#[derive(Clone, Default, Deserialize)]
+pub struct WeaponViewMotion {
+    pub scoped_ads: bool,
+    pub sway: [f32; 6],
+    pub ads_sway: [f32; 6],
+    pub idle_amount: [f32; 2],
+    pub idle_speed: [f32; 2],
+    pub idle_stance: [f32; 2],
+    pub sprint_bob: [f32; 2],
+    pub dive_bob: [f32; 2],
+    pub sprint_cycle: f32,
+    pub dive_cycle: f32,
+    pub ads_bob: f32,
+    pub ads_view_bob: f32,
+}
+
 #[derive(Clone, Deserialize)]
 pub struct AdsSight {
     pub joint: String,

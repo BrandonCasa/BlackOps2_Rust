@@ -165,6 +165,50 @@ pub(crate) fn bind(game: &mut GameDefinition, root: &Path) -> Result<(), String>
                 .parse::<f32>()
                 .map_err(|_| format!("Weapon {name} has invalid {key}"))
         };
+        let motion_number = |key: &str| -> Result<f32, String> {
+            let value = text(key)
+                .ok_or_else(|| format!("Weapon {name} lacks required motion value {key}"))?
+                .parse::<f32>()
+                .map_err(|_| format!("Weapon {name} has invalid motion value {key}"))?;
+            if !value.is_finite() {
+                return Err(format!("Weapon {name} has nonfinite motion value {key}"));
+            }
+            Ok(value)
+        };
+        let sway = |prefix: &str| -> Result<[f32; 6], String> {
+            Ok([
+                motion_number(&format!("{prefix}MaxAngle"))?,
+                motion_number(&format!("{prefix}LerpSpeed"))?,
+                motion_number(&format!("{prefix}PitchScale"))?,
+                motion_number(&format!("{prefix}YawScale"))?,
+                motion_number(&format!("{prefix}HorizScale"))?,
+                motion_number(&format!("{prefix}VertScale"))?,
+            ])
+        };
+        weapon.mechanics.sprint_duration_scale = motion_number("sprintDurationScale")?;
+        weapon.mechanics.view_motion = super::content::WeaponViewMotion {
+            scoped_ads: text("adsOverlayReticle").is_some_and(|value| value != "none"),
+            sway: sway("sway")?,
+            ads_sway: sway("adsSway")?,
+            idle_amount: [
+                motion_number("hipIdleAmount")?,
+                motion_number("adsIdleAmount")?,
+            ],
+            idle_speed: [
+                motion_number("hipIdleSpeed")?,
+                motion_number("adsIdleSpeed")?,
+            ],
+            idle_stance: [
+                motion_number("idleCrouchFactor")?,
+                motion_number("idleProneFactor")?,
+            ],
+            sprint_bob: [motion_number("sprintBobH")?, motion_number("sprintBobV")?],
+            dive_bob: [motion_number("dtpBobH")?, motion_number("dtpBobV")?],
+            sprint_cycle: motion_number("sprintScale")?,
+            dive_cycle: motion_number("dtpScale")?,
+            ads_bob: motion_number("adsBobFactor")?,
+            ads_view_bob: motion_number("adsViewBobMult")?,
+        };
         if let Some(throwable) = &mut weapon.throwable {
             throwable.speed = number("projectileSpeed")? * crate::assets::SOURCE_UNIT_METERS;
             throwable.up_speed = number("projectileSpeedUp")? * crate::assets::SOURCE_UNIT_METERS;
@@ -220,6 +264,9 @@ pub(crate) fn bind(game: &mut GameDefinition, root: &Path) -> Result<(), String>
             (WeaponAnimation::QuickEquip, "quickRaiseAnim"),
             (WeaponAnimation::UnequipEmpty, "emptyDropAnim"),
             (WeaponAnimation::HoldFire, "holdFireAnim"),
+            (WeaponAnimation::SprintEnterEmpty, "sprintInEmptyAnim"),
+            (WeaponAnimation::SprintLoopEmpty, "sprintLoopEmptyAnim"),
+            (WeaponAnimation::SprintLeaveEmpty, "sprintOutEmptyAnim"),
         ] {
             let Some(name) = text(key).map(str::to_lowercase) else {
                 continue;

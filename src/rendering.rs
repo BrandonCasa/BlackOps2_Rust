@@ -325,10 +325,16 @@ fn camera_follow(
             body.translation
         }) + Vec3::Y * (eye - player.height * 0.5)
             + Quat::from_rotation_y(player.yaw) * Vec3::new(bob.x, bob.y, 0.),
-        rotation: Quat::from_rotation_y(player.yaw + inventory.recoil.x + feedback.rumble.x)
-            * Quat::from_rotation_x(
-                (player.pitch + inventory.recoil.y + feedback.rumble.y).clamp(-1.5, 1.5),
-            ),
+        rotation: Quat::from_rotation_y(
+            player.yaw
+                + inventory.recoil.x
+                + feedback.rumble.x
+                + feedback.view_angles.y.to_radians(),
+        ) * Quat::from_rotation_x(
+            (player.pitch + inventory.recoil.y + feedback.rumble.y
+                - feedback.view_angles.x.to_radians())
+            .clamp(-1.5, 1.5),
+        ),
         ..*camera
     };
     camera.set_if_neq(target);

@@ -10,7 +10,7 @@ class RunnerTests(unittest.TestCase):
         from unittest.mock import Mock
         for speed in [1, 10]:
             client = Mock()
-            client.state.return_value = {"speed":speed, "firing":{"interval":.096,"automatic":False,"magazine":8,"capacity":8},
+            client.state.return_value = {"speed":speed, "firing":{"interval":.096,"automatic":False,"magazine":8,"ready":True},
                 "player":{"eye":[0,1.62,0],"yaw":0,"pitch":0},
                 "enemies":[{"entity":42,"position":[0,0,-5],"head":[0,1.62,-5]}]}
             shoot_at(client, 42)
@@ -19,6 +19,23 @@ class RunnerTests(unittest.TestCase):
             self.assertEqual([(s["ticks"],s["held"]) for s in steps[1:]], [(1,["fire"]),(5,[])]*4)
             self.assertTrue(all(s["aim_entity"]==42 for s in steps))
             client.input.assert_not_called()
+
+    def test_shooting_waits_for_native_reload_completion_before_queuing_fire(self):
+        from unittest.mock import Mock
+        client = Mock()
+        busy = {"firing": {"ready":False,"magazine":0}}
+        loaded = {"firing":{"ready":True,"magazine":8,"interval":.096,"automatic":False},
+                  "player":{"eye":[0,1.62,0],"yaw":0,"pitch":0},
+                  "enemies":[{"entity":42,"position":[0,1.62,-5]}]}
+        client.state.return_value = busy
+        client.wait.return_value = loaded
+        shoot_at(client, 42)
+        predicate = client.wait.call_args.args[0]
+        self.assertFalse(predicate(busy))
+        self.assertTrue(predicate(loaded))
+        client.input.assert_not_called()
+        client.send.assert_called_once()
+        self.assertEqual(sum("fire" in step["held"] for step in client.send.call_args.args[0]), 4)
 
     def walking_client(self, samples):
         from unittest.mock import Mock

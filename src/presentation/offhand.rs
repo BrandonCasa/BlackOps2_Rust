@@ -140,8 +140,15 @@ pub(super) fn select_visible(
     definition: Option<Res<GameDefinition>>,
     owners: Owners,
     mut views: Query<(&FirstPerson, &mut Visibility, &mut Transform)>,
-    mut motions: Query<(&crate::player::Player, &mut crate::movement::MotionFeedback)>,
+    mut motions: Query<(
+        &crate::player::Player,
+        &crate::movement::SprintState,
+        &crate::movement::Mobility,
+        &mut crate::movement::MotionFeedback,
+    )>,
     time: Res<Time>,
+    fixed: Res<Time<Fixed>>,
+    state: Res<State<GameState>>,
 ) {
     let Some(definition) = definition else {
         return;
@@ -155,27 +162,26 @@ pub(super) fn select_visible(
             .as_ref()
             .map(|s| &s.weapon)
             .or_else(|| primary.active().map(|w| &w.definition));
-        let mut sway = Vec2::ZERO;
-        if let Ok((player, mut motion)) = motions.get_mut(owner) {
-            let look = Vec2::new(player.yaw, player.pitch);
-            let delta = motion.look.map_or(Vec2::ZERO, |last| {
-                Vec2::new(
-                    (look.x - last.x).sin().atan2((look.x - last.x).cos()),
-                    look.y - last.y,
-                )
-            });
-            motion.look = Some(look);
-            let tuning = &definition.tuning.mobility;
-            let target = (-delta * 0.6).clamp(
-                Vec2::splat(-tuning.sway_limit),
-                Vec2::splat(tuning.sway_limit),
-            );
-            motion.sway = motion.sway.lerp(
-                target,
-                1. - (-tuning.sway_response * time.delta_secs()).exp(),
-            );
-            sway = motion.sway * (1. - primary.ads * 2.).max(0.);
-        }
+        let weapon = visible.and_then(|id| definition.content.weapons.iter().find(|w| &w.id == id));
+        let feedback = if let (Some(weapon), Ok((player, sprint, mobility, mut motion))) =
+            (weapon, motions.get_mut(owner))
+        {
+            motion.weapon_pose(
+                player,
+                sprint,
+                mobility,
+                &weapon.mechanics.view_motion,
+                if selected.is_some() { 0. } else { primary.ads },
+                if **state == GameState::Playing {
+                    time.delta_secs()
+                } else {
+                    0.
+                },
+                fixed.overstep_fraction(),
+            )
+        } else {
+            Transform::IDENTITY
+        };
         for (view, mut visibility, mut pose) in &mut views {
             if view.owner == owner {
                 if let Some(weapon) = definition
@@ -184,10 +190,9 @@ pub(super) fn select_visible(
                     .iter()
                     .find(|w| w.id == view.weapon)
                 {
-                    pose.translation = Vec3::from_array(weapon.view_offset)
-                        + Vec3::new(sway.x * 0.1, sway.y * 0.1, 0.);
-                    pose.rotation = Quat::from_euler(EulerRot::XYZ, sway.y, sway.x, 0.)
-                        * Quat::from_rotation_y(std::f32::consts::FRAC_PI_2);
+                    pose.translation = Vec3::from_array(weapon.view_offset) + feedback.translation;
+                    pose.rotation =
+                        feedback.rotation * Quat::from_rotation_y(std::f32::consts::FRAC_PI_2);
                 }
                 *visibility = if visible == Some(&view.weapon) {
                     Visibility::Inherited

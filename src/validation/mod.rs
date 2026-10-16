@@ -1,6 +1,7 @@
 //! Opt-in development BRP. The game owns simulation; this module supplies inputs and observations.
 mod actions;
 pub(crate) mod cinematic;
+mod probe;
 mod protocol;
 mod state;
 #[cfg(test)]
@@ -139,6 +140,7 @@ pub(crate) fn install(app: &mut App) {
     app.add_plugins((
         RemotePlugin::default()
             .with_method_main("origins/validator/state", remote_state)
+            .with_method_main("origins/validator/jump_probes", probe::remote)
             .with_method_main("origins/validator/command", remote_command)
             .with_method_main("origins/validator/input_batch", remote_input_batch)
             .with_method_main("origins/validator/receipt", remote_receipt)
@@ -453,6 +455,7 @@ fn focus(world: &mut World) {
 }
 
 fn tick_input(world: &mut World) {
+    let mut arrival_expired = false;
     world.resource_scope(|world, mut c: Mut<Controller>| {
         if !c.owns_input() || c.paused && !c.step_frame {
             return;
@@ -513,6 +516,10 @@ fn tick_input(world: &mut World) {
             *remaining = 0;
             return;
         }
+        if arrival_radius.is_some() && *remaining == 1 {
+            arrival_expired = true;
+            return;
+        }
         let look = target.map_or_else(
             || Vec2::from_array(*look),
             |target| actions::look_delta(world, target),
@@ -520,6 +527,9 @@ fn tick_input(world: &mut World) {
         crate::input::scripted_tick(world, held, look);
         *remaining -= 1;
     });
+    if arrival_expired {
+        fail(world, "Input arrival waypoint deadline expired".into());
+    }
 }
 
 fn finish_frame(world: &mut World) {

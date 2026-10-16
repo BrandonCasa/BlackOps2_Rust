@@ -49,3 +49,14 @@ success does not establish survival balance, economy or performance.
 `--until generators-tank` adds generator activation and defense, movement onto
 the tank, an ordinary paid ride, and the first lightning-part jump and pickup.
 Its visible validation is pending.
+
+With a validator scene paused, inspect first-jump launch combinations through
+the read-only native collision query:
+
+```powershell
+python tools/ee_validator/probe_jumps.py --output reports/ee-validator/jump-probes.json
+```
+
+The query reuses the player's movement collision routine against the frozen
+world and excludes the tank. It selects candidates for a real input run;
+probe landings cannot complete a milestone or collect a part.

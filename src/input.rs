@@ -39,6 +39,9 @@ impl Default for Actions {
     }
 }
 impl Actions {
+    pub(crate) fn clear_toggle(&mut self, action: Action) {
+        self.states[action as usize].toggled = false;
+    }
     pub fn state(&self, action: Action) -> ActionState {
         self.states[action as usize]
     }
@@ -55,7 +58,7 @@ impl Actions {
         if held != state.held {
             if held {
                 state.pressed = true;
-                state.toggled = !state.toggled;
+                state.toggled = action == Action::Sprint || !state.toggled;
             } else {
                 state.released = true;
             }
@@ -479,6 +482,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn native_sprint_press_latches_until_movement_cancels_it() {
+        let mut actions = Actions::default();
+        for held in [true, false, true, false] {
+            actions.transition(Action::Sprint, held);
+            assert!(actions.active(Action::Sprint));
+        }
+        actions.clear_toggle(Action::Sprint);
+        assert!(!actions.active(Action::Sprint));
+        actions.transition(Action::Sprint, true);
+        assert!(actions.active(Action::Sprint));
+        let mut input = GameInput::default();
+        actions.event(Binding::Key(KeyCode::ControlLeft), true);
+        write_actions(&mut actions, &mut input, false);
+        assert!(input.prone && !input.crouch);
+    }
+
+    #[test]
     fn focused_gameplay_accepts_movement_and_look_before_cursor_capture() {
         let mut app = App::new();
         app.add_plugins(bevy::input::InputPlugin)
@@ -667,7 +687,7 @@ mod tests {
         {
             let mut actions = world.resource_mut::<Actions>();
             actions.event(Binding::Key(KeyCode::KeyW), true);
-            actions.event(Binding::Key(KeyCode::ControlLeft), true);
+            actions.event(Binding::Key(KeyCode::KeyC), true);
             actions.event(Binding::Mouse(MouseButton::Left), true);
         }
         world.resource_mut::<GameInput>().fire = true;

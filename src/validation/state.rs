@@ -81,8 +81,8 @@ pub(super) fn snapshot(world: &mut World) -> Value {
         let definition = game.content.weapons.iter().find(|weapon| weapon.id == active.definition)?;
         Some(json!({"interval":definition.fire_interval * inventory.firing.interval_scale,
             "automatic":matches!(definition.mechanics.fire, crate::origins::content::FirePattern::Automatic),
-            "reload_seconds":definition.reload_seconds * inventory.reload_duration_scale(),
-            "magazine":active.magazine,"capacity":definition.magazine}))
+            "ready":inventory.action == crate::weapons::WeaponAction::Ready,
+            "magazine":active.magazine}))
     });
     let player=world.query_filtered::<(Entity,&Player,&Transform,&Vitality,&crate::weapons::WeaponInventory,Option<&crate::environment::digging::Digger>,Option<&crate::movement::platforms::PlatformSupport>),With<Player>>().single(world).ok().map(|(entity,p,t,h,w,d,s)| {
         json!({"entity":entity.to_bits(),"position":t.translation.to_array(),"feet":(t.translation-Vec3::Y*p.height*0.5).to_array(),"eye":(t.translation+Vec3::Y*(p.eye_height-p.height*0.5)).to_array(),"yaw":p.yaw,"pitch":p.pitch,"grounded":p.grounded,"velocity":p.velocity.to_array(),"health":h.current(),"life":format!("{:?}",h.state()),"platform":s.and_then(|s|s.entity).map(Entity::to_bits),"shovel":d.is_some_and(|d|d.shovel),"inventory":w.owned().map(|(slot,weapon)|json!({"slot":slot,"id":weapon.definition.0,"magazine":weapon.magazine})).collect::<Vec<_>>(),"weapon":w.active().map(|w|w.definition.0.clone())})
@@ -141,6 +141,14 @@ pub(super) fn snapshot(world: &mut World) -> Value {
     let mut result = json!({"session":world.resource::<crate::session::SessionId>().0,"seed":c.seed,"game_state":format!("{:?}",world.resource::<State<GameState>>().get()),"ready":matches!(world.resource::<State<GameState>>().get(),GameState::Playing|GameState::Paused)&&player.is_some(),"control":{"owned":c.owns_input(),"paused":c.paused,"aborted":c.aborted,"failure":c.failure,"tick":c.tick,"simulation_seconds":c.simulation_seconds,"label":c.label,"queued":c.queue.len(),"active":c.active.as_ref().map(|(r,n)|json!({"id":r.id,"remaining":n})),"god":c.god},"player":player,"round":{"number":session.round,"pending":session.pending,"points":session.points},"interaction":{"target":focus.target.map(Entity::to_bits),"accepted":focus.accepted,"prompt":focus.prompt,"rejection":focus.rejection.map(|r|format!("{r:?}"))},"enemies":enemies,"targets":targets,"evidence":c.evidence});
     result["process_id"] = json!(std::process::id());
     result["firing"] = firing.unwrap_or(Value::Null);
+    if let Some(game) = world.get_resource::<crate::assets::GameDefinition>() {
+        let tuning = &game.tuning;
+        result["movement"] = json!({"walk_speed":tuning.walk_speed,"sprint_speed":tuning.sprint_speed,
+            "gravity":tuning.gravity,"jump_speed":tuning.jump_speed,"radius":tuning.radius,
+            "height":tuning.standing_height,"friction":tuning.physics.friction,
+            "stop_speed":tuning.physics.stop_speed,"acceleration":tuning.physics.ground_acceleration,
+            "step_down":tuning.physics.step_down,"step_height":tuning.step_height});
+    }
     result["speed"] = json!(world.resource::<Time<Virtual>>().relative_speed_f64());
     if let Some(movie) = world.get_resource::<super::cinematic::Playback>() {
         result["cinematic"] = serde_json::to_value(movie).unwrap();

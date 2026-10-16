@@ -216,48 +216,26 @@ fn feedback(
     for (owner, player, pose, health, terrain, sprint, mobility, inventory, mut motion) in
         &mut players
     {
-        motion.previous_bob = motion.bob;
-        let distance = motion
-            .position
-            .map_or(0., |p| p.xz().distance(pose.translation.xz()));
-        motion.position = Some(pose.translation);
-        let moving = player.grounded
-            && distance > 0.0001
-            && distance < 0.5
-            && !mobility.busy()
-            && health.state() == crate::life::LifeState::Standing
-            && !player.prone;
-        let tuning = &game.tuning.mobility;
-        let mut target = Vec2::ZERO;
-        if moving {
-            let stride = if sprint.sprinting {
-                tuning.stride[1]
-            } else {
-                tuning.stride[0]
-            };
-            let before = (motion.phase / std::f32::consts::PI).floor();
-            motion.phase += distance / stride * std::f32::consts::TAU;
-            if (motion.phase / std::f32::consts::PI).floor() != before {
-                let surface = if terrain.muddy {
+        let Some(weapon) = inventory.definition(&game.content.weapons) else {
+            continue;
+        };
+        if motion.advance_bob(
+            player,
+            sprint,
+            mobility,
+            &weapon.mechanics.view_motion,
+            time.delta_secs(),
+        ) && health.state() == crate::life::LifeState::Standing
+        {
+            steps.write(Footstep {
+                owner,
+                surface: if terrain.muddy {
                     FootstepSurface::Mud
                 } else {
                     FootstepSurface::Solid
-                };
-                steps.write(Footstep {
-                    owner,
-                    surface,
-                    position: pose.translation - Vec3::Y * player.height * 0.5,
-                });
-            }
-            motion.phase %= std::f32::consts::TAU * 2.;
-            let amplitude = Vec2::from_array(if sprint.sprinting {
-                tuning.sprint_bob
-            } else {
-                tuning.walk_bob
+                },
+                position: pose.translation - Vec3::Y * player.height * 0.5,
             });
-            let scale = if player.crouched { 0.5 } else { 1. } * (1. - inventory.ads * 0.85);
-            target = Vec2::new((motion.phase * 0.5).sin(), motion.phase.cos()) * amplitude * scale;
         }
-        motion.bob = motion.bob.lerp(target, (12. * time.delta_secs()).min(1.));
     }
 }

@@ -63,6 +63,30 @@ pub fn read(path: &Path) -> Result<ControlSettings, String> {
         );
     }
     let defaults = ControlSettings::default();
+    if settings.version < 2 {
+        // Upgrade only the old stock movement layout; user remaps keep their meaning.
+        use super::{Action, Binding, PressMode};
+        if settings.bindings.get(&Action::Crouch) == Some(&vec![Binding::Key(KeyCode::ControlLeft)])
+            && settings.bindings.get(&Action::Prone) == Some(&vec![Binding::Key(KeyCode::KeyZ)])
+            && !settings
+                .bindings
+                .values()
+                .any(|bindings| bindings.contains(&Binding::Key(KeyCode::KeyC)))
+        {
+            for action in [Action::Crouch, Action::Prone] {
+                settings
+                    .bindings
+                    .insert(action, defaults.bindings[&action].clone());
+            }
+            if settings.sprint_mode == PressMode::Hold {
+                settings.sprint_mode = PressMode::Toggle;
+            }
+            if settings.crouch_mode == PressMode::Hold {
+                settings.crouch_mode = PressMode::Toggle;
+            }
+        }
+        settings.version = 2;
+    }
     for action in [
         super::Action::Buildable,
         super::Action::StaffSecondary,

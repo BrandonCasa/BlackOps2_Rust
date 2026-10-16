@@ -187,6 +187,45 @@ fn jump_evidence_requires_native_takeoff_and_keeps_the_previous_platform() {
 }
 
 #[test]
+fn missed_waypoint_stops_a_queued_jump_before_the_next_fixed_tick() {
+    let mut app = harness();
+    command(
+        &mut app,
+        1,
+        Command::Input {
+            ticks: 2,
+            held: vec![],
+            look: [0., 0.],
+            aim: Some([10., 0., 0.]),
+            aim_entity: None,
+            aim_offset: None,
+            arrival_point: None,
+            arrival_radius: Some(0.2),
+        },
+    );
+    input(
+        &mut app,
+        2,
+        10,
+        vec![crate::input::Action::Forward, crate::input::Action::Jump],
+    );
+    frame(&mut app, 4);
+    let controller = app.world().resource::<Controller>();
+    assert_eq!(
+        controller.failure.as_deref(),
+        Some("Input arrival waypoint deadline expired")
+    );
+    assert!(controller.paused && controller.active.is_none() && controller.queue.is_empty());
+    assert!(
+        !app.world()
+            .resource::<Trace>()
+            .0
+            .iter()
+            .any(|tick| tick.2 || tick.3 != Vec2::ZERO)
+    );
+}
+
+#[test]
 fn zero_fixed_ticks_preserve_input_and_multiple_ticks_emit_one_edge() {
     let mut app = harness();
     input(
@@ -423,7 +462,7 @@ fn scripted_look_runs_once_per_fixed_tick_before_movement_and_never_in_zero_tick
     );
     frame(&mut app, 2);
     let trace = &app.world().resource::<Trace>().0;
-    assert!((trace[0].4 + 6. * sensitivity).abs() < 1e-7);
+    assert!((trace[0].4 + 6. * sensitivity).abs() < 1e-7, "trace={trace:?}; sensitivity={sensitivity}");
     assert!((trace[1].4 + 12. * sensitivity).abs() < 1e-7);
     request.id = 2;
     assert!(submit(app.world_mut(), request).is_ok());

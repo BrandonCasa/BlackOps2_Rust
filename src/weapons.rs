@@ -156,6 +156,7 @@ pub enum WeaponSignal {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct WeaponIntent {
     pub suspended: bool,
+    pub sprint: bool,
     pub pressed: bool,
     pub held: bool,
     pub secondary_pressed: bool,
@@ -559,6 +560,47 @@ mod native_location_tests {
         }
     }
 
+    #[test]
+    fn sprint_reload_cancel_preserves_the_transfer_on_the_current_tick() {
+        for (before, step, expected) in [(0.98, 0.01, 1), (0.99, 0.01, 8), (1.01, 0.01, 8)] {
+            let mut weapon = pistol();
+            weapon.mechanics.reload_transfer_seconds = Some([1., 1.]);
+            let mut inventory = WeaponInventory::default();
+            inventory.grant(&weapon).unwrap();
+            inventory.slots[0].as_mut().unwrap().magazine = 1;
+            let weapons = [weapon];
+            inventory.tick(
+                0.,
+                WeaponIntent {
+                    reload: true,
+                    ..default()
+                },
+                &weapons,
+            );
+            inventory.tick(before, WeaponIntent::default(), &weapons);
+            inventory.tick(
+                step,
+                WeaponIntent {
+                    sprint: true,
+                    ..default()
+                },
+                &weapons,
+            );
+            assert_eq!(inventory.action, WeaponAction::Ready);
+            assert_eq!(inventory.active().unwrap().magazine, expected);
+            let reserve = inventory.reserve(&weapons[0]);
+            inventory.tick(
+                0.25,
+                WeaponIntent {
+                    sprint: true,
+                    ..default()
+                },
+                &weapons,
+            );
+            assert_eq!(inventory.reserve(&weapons[0]), reserve);
+        }
+    }
+
     fn dual_pistols() -> [WeaponDefinition; 2] {
         let mut right = pistol();
         let mut left = right.clone();
@@ -821,6 +863,7 @@ mod native_location_tests {
                 cycle: true,
                 slot: Some(1),
                 ads: true,
+                sprint: true,
             },
             &definitions,
         );
@@ -1777,7 +1820,7 @@ impl WeaponInventory {
         ];
         let mut fired = false;
         let mut dry_fire = false;
-        let interrupted = intent.melee || intent.slot.is_some();
+        let interrupted = intent.sprint || intent.melee || intent.slot.is_some();
         for ((hand, (magazine, definition)), (pressed, held)) in self
             .hands
             .iter_mut()
@@ -1818,6 +1861,10 @@ impl WeaponInventory {
                     hand.sequence = hand.sequence.wrapping_add(1);
                     emissions.push(WeaponEmission::ReloadCompleted(definition.id.clone()));
                 }
+            }
+            if interrupted && hand.reload.take().is_some() {
+                hand.signal = WeaponSignal::Idle;
+                hand.sequence = hand.sequence.wrapping_add(1);
             }
             if !interrupted
                 && (intent.reload || (!intent.suspended && *magazine == 0 && hand.cooldown == 0.))
@@ -2017,6 +2064,7 @@ impl WeaponInventory {
             return emissions;
         };
         intent.reload |= !intent.suspended
+            && !intent.sprint
             && self.cooldown == 0.
             && self
                 .active()
@@ -2188,7 +2236,7 @@ impl WeaponInventory {
                         transferred = true;
                     }
                 }
-                if intent.melee || intent.slot.is_some() {
+                if intent.sprint || intent.melee || intent.slot.is_some() {
                     self.cancel_action();
                 } else if remaining > 0. {
                     self.action = WeaponAction::Reloading {
@@ -2229,6 +2277,10 @@ impl WeaponInventory {
                     self.insert(definition, 1);
                     emissions.push(WeaponEmission::ReloadCompleted(definition.id.clone()));
                     inserted = true;
+                }
+                if intent.sprint {
+                    self.cancel_action();
+                    return emissions;
                 }
                 let interrupt = intent.slot.is_some()
                     || intent.melee

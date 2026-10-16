@@ -47,6 +47,9 @@ impl WeaponLocomotion {
                 WeaponAnimation::DiveEnter => WeaponAnimation::DiveEnterEmpty,
                 WeaponAnimation::DiveLoop => WeaponAnimation::DiveLoopEmpty,
                 WeaponAnimation::DiveLeave => WeaponAnimation::DiveLeaveEmpty,
+                WeaponAnimation::SprintEnter => WeaponAnimation::SprintEnterEmpty,
+                WeaponAnimation::SprintLoop => WeaponAnimation::SprintLoopEmpty,
+                WeaponAnimation::SprintLeave => WeaponAnimation::SprintLeaveEmpty,
                 _ => phase,
             }
         } else {
@@ -138,14 +141,14 @@ fn update(
         return;
     };
     if life.state() != LifeState::Standing
-        || inventory.action != WeaponAction::Ready
+        || inventory.action != WeaponAction::Ready && !actions.sprint
         || inventory.signal == WeaponSignal::Fire
         || lethal.busy()
         || tactical.busy()
         || mines.busy()
         || drinking.is_some()
         || reserved
-        || actions.reload
+        || actions.reload && !sprint.sprinting
         || actions.melee
         || actions.cycle_weapon
         || actions.weapon_slot.is_some()

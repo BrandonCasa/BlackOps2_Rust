@@ -194,8 +194,8 @@ impl Default for ControlSettings {
             (Left, KeyCode::KeyA),
             (Right, KeyCode::KeyD),
             (Sprint, KeyCode::ShiftLeft),
-            (Crouch, KeyCode::ControlLeft),
-            (Prone, KeyCode::KeyZ),
+            (Crouch, KeyCode::KeyC),
+            (Prone, KeyCode::ControlLeft),
             (Jump, KeyCode::Space),
             (Melee, KeyCode::KeyV),
             (Reload, KeyCode::KeyR),
@@ -222,14 +222,14 @@ impl Default for ControlSettings {
         ])
         .collect::<BTreeMap<_, _>>();
         let mut result = Self {
-            version: 1,
+            version: 2,
             bindings,
             sensitivity: 1.,
             ads_sensitivity: 1.,
             invert_mouse_y: false,
             aim_mode: PressMode::Hold,
-            crouch_mode: PressMode::Hold,
-            sprint_mode: PressMode::Hold,
+            crouch_mode: PressMode::Toggle,
+            sprint_mode: PressMode::Toggle,
             audio: crate::audio::AudioSettings::default(),
         };
         result
@@ -241,8 +241,6 @@ impl Default for ControlSettings {
     }
 }
 impl ControlSettings {
-
-
     fn binding_allowed(&self, action: Action, binding: Binding) -> bool {
         match binding {
             Binding::WheelUp | Binding::WheelDown => action.accepts_wheel(),

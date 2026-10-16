@@ -153,6 +153,7 @@ pub(crate) fn combat(
         &crate::solo_revive::PerkInventory,
         Has<crate::actions::HandReservation>,
         &crate::crafting::BuildableInventory,
+        &crate::movement::MotionFeedback,
         Has<crate::robots::StompReaction>,
         Has<crate::robots::RobotTransit>,
         Has<crate::tank::TankRescue>,
@@ -194,6 +195,7 @@ pub(crate) fn combat(
         perks,
         reserved,
         buildables,
+        feedback,
         stomp,
         robot_transit,
         tank_rescue,
@@ -260,7 +262,12 @@ pub(crate) fn combat(
     }
     let emissions = inventory.tick(
         dt,
-        if grenades.busy() || mines.busy() || tactical.busy() || drinking.is_some() {
+        if actions.suspended
+            || grenades.busy()
+            || mines.busy()
+            || tactical.busy()
+            || drinking.is_some()
+        {
             WeaponIntent {
                 suspended: true,
                 ..default()
@@ -268,6 +275,7 @@ pub(crate) fn combat(
         } else {
             WeaponIntent {
                 suspended: false,
+                sprint: actions.sprint,
                 pressed: actions.fire,
                 held: actions.fire_held,
                 secondary_pressed: actions.secondary_fire,
@@ -283,8 +291,11 @@ pub(crate) fn combat(
     );
     let eye = player.eye_height;
     let origin = transform.translation + Vec3::Y * (eye - player.height * 0.5);
-    let rotation = Quat::from_rotation_y(player.yaw + inventory.recoil.x)
-        * Quat::from_rotation_x((player.pitch + inventory.recoil.y).clamp(-1.5, 1.5));
+    let rotation = Quat::from_rotation_y(
+        player.yaw + inventory.recoil.x + feedback.view_angles.y.to_radians(),
+    ) * Quat::from_rotation_x(
+        (player.pitch + inventory.recoil.y - feedback.view_angles.x.to_radians()).clamp(-1.5, 1.5),
+    );
     let direction = Dir3::new(rotation * Vec3::NEG_Z).unwrap_or(Dir3::NEG_Z);
     for emission in emissions {
         let (melee, damage, weapon_id, weapon) = match emission {

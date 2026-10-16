@@ -45,6 +45,8 @@ fn remember_translation(mut players: Query<(&Transform, &mut PreviousTranslation
 
 #[derive(Resource, Default)]
 pub struct TickActions {
+    pub suspended: bool,
+    pub sprint: bool,
     pub fire: bool,
     pub secondary_fire: bool,
     pub melee: bool,
@@ -181,7 +183,7 @@ pub(crate) fn look(
 pub(crate) fn move_player(
     mut input: ResMut<GameInput>,
     settings: Res<crate::input::ControlSettings>,
-    controls: Res<crate::input::Actions>,
+    mut controls: ResMut<crate::input::Actions>,
     mut actions: ResMut<TickActions>,
     definition: Res<GameDefinition>,
     time: Res<Time<Fixed>>,
@@ -325,8 +327,12 @@ pub(crate) fn move_player(
     } else if drinking.is_none() && !reserved.contains(entity) && !mobility.busy() {
         if jump && mobility.stance != crate::movement::Stance::Standing {
             requested = crate::movement::Stance::Standing;
+            controls.clear_toggle(crate::input::Action::Crouch);
+            input.crouch = false;
             jump = false;
         } else if prone_edge {
+            controls.clear_toggle(crate::input::Action::Crouch);
+            input.crouch = false;
             requested = if mobility.stance == crate::movement::Stance::Prone {
                 crate::movement::Stance::Standing
             } else {
@@ -343,13 +349,24 @@ pub(crate) fn move_player(
                     .is_none_or(|age| age > m.dive_exhaustion)
                 && player.grounded
                 && mobility.stance == crate::movement::Stance::Standing
-                && inventory.action == crate::weapons::WeaponAction::Ready
+                && matches!(
+                    inventory.action,
+                    crate::weapons::WeaponAction::Ready
+                        | crate::weapons::WeaponAction::Reloading { .. }
+                        | crate::weapons::WeaponAction::ShellReload { .. }
+                )
                 && !lethal.busy()
                 && !tactical.busy()
                 && !mines.busy()
                 && !input.grenade_held
                 && !input.tactical_held
                 && !input.mine_held;
+        } else if controls.state(crate::input::Action::Sprint).pressed
+            && input.movement.y >= 105. / 127.
+        {
+            requested = crate::movement::Stance::Standing;
+            controls.clear_toggle(crate::input::Action::Crouch);
+            input.crouch = false;
         } else if input.crouch {
             requested = crate::movement::Stance::Crouched;
         } else if mobility.stance == crate::movement::Stance::Crouched {
@@ -508,7 +525,10 @@ pub(crate) fn move_player(
         mobility.fall_speed = 0.;
     }
     if mobility.busy() {
-        *actions = TickActions::default();
+        *actions = TickActions {
+            suspended: true,
+            ..default()
+        };
         input.use_held = false;
         input.grenade_held = false;
         input.mine_held = false;
@@ -557,7 +577,12 @@ pub(crate) fn move_player(
         && drinking.is_none()
         && !input.ads
         && inventory.ads < 0.05
-        && inventory.action == crate::weapons::WeaponAction::Ready
+        && matches!(
+            inventory.action,
+            crate::weapons::WeaponAction::Ready
+                | crate::weapons::WeaponAction::Reloading { .. }
+                | crate::weapons::WeaponAction::ShellReload { .. }
+        )
         && !matches!(
             inventory.signal,
             crate::weapons::WeaponSignal::Fire | crate::weapons::WeaponSignal::DryFire
@@ -569,17 +594,35 @@ pub(crate) fn move_player(
         && !actions.melee
         && !actions.reload
         && input.movement.y >= 105. / 127.;
+    let was_sprinting = sprint.sprinting;
+    if !was_sprinting
+        && !eligible
+        && settings.sprint_mode == crate::input::PressMode::Toggle
+        && !controls.state(crate::input::Action::Sprint).held
+    {
+        controls.clear_toggle(crate::input::Action::Sprint);
+        input.sprint = false;
+    }
+    let weapon_sprint_scale = inventory
+        .definition(&definition.content.weapons)
+        .map_or(1., |weapon| weapon.mechanics.sprint_duration_scale);
     sprint.update(
         dt,
         input.sprint,
         eligible,
         jump_command,
-        tuning.sprint_seconds * duration_scale,
+        tuning.sprint_seconds * duration_scale * weapon_sprint_scale,
         tuning.sprint_minimum,
         tuning.sprint_recovery_rate,
         tuning.sprint_recovery_delay,
         settings.sprint_mode == crate::input::PressMode::Hold,
     );
+    if was_sprinting && !sprint.sprinting && settings.sprint_mode == crate::input::PressMode::Toggle
+    {
+        controls.clear_toggle(crate::input::Action::Sprint);
+        input.sprint = false;
+    }
+    actions.sprint = sprint.sprinting;
     let movement_scale = terrain.scale
         * inventory
             .definition(&definition.content.weapons)

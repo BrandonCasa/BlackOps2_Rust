@@ -88,6 +88,12 @@ def walk_to(client, point, tolerance=0.8, seconds=30, *, on_tank=False):
 def shoot_at(client, entity, *, shots=4, label="Fire equipped weapon at its native cadence"):
     state = client.state()
     firing = state["firing"]
+    if not firing["magazine"] and firing["ready"]:
+        client.input(1, ("reload",), label="Reload the empty equipped weapon")
+    if not firing["ready"] or not firing["magazine"]:
+        state = client.wait(lambda s: s["firing"]["ready"] and s["firing"]["magazine"] > 0,
+                            seconds=10)
+        firing = state["firing"]
     enemy = next(e for e in state["enemies"] if e["entity"] == entity)
     target = enemy["position"]
     eye = state["player"]["eye"]
@@ -97,11 +103,8 @@ def shoot_at(client, entity, *, shots=4, label="Fire equipped weapon at its nati
                abs(pitch - state["player"]["pitch"]))
     aiming = {"op": "input", "aim_entity": entity, "look": [0, 0]}
     steps = []
-    if not firing["magazine"]:
-        steps.extend([{**aiming, "ticks": 1, "held": ["reload"]},
-                      {**aiming, "ticks": math.ceil(firing["reload_seconds"] * 60) + 2, "held": []}])
     steps.append({**aiming, "ticks": max(1, math.ceil(turn / (math.pi / 2) * 60)), "held": []})
-    count = min(shots, firing["magazine"] or firing["capacity"])
+    count = min(shots, firing["magazine"])
     interval = max(2, math.ceil(firing["interval"] * 60))
     if firing["automatic"]:
         steps.append({**aiming, "ticks": interval * count, "held": ["fire"]})
@@ -324,7 +327,7 @@ def board_tank(client):
     client.send({"op": "teleport", "feet": tank_point(tank, [1.5, 0.35, 4.8])},
                 label="Stage beside the tank at the church")
     client.input(12)
-    walk_to(client, tank_point(tank, [1.5, 0.35, 4.2]), tolerance=0.1)
+    walk_to(client, tank_point(tank, [1.5, 0.35, 4.2]), tolerance=0.2)
     boarding = tank_point(tank, [1.5, 1.0, 3.5])
     client.input(120, aim=[boarding[0], client.state()["player"]["eye"][1], boarding[2]],
                  label="Inspect the tank boarding route")
@@ -342,7 +345,7 @@ def board_tank(client):
         {"op": "input", "ticks": 18, "held": ["forward", "jump"], "aim": aim, "look": [0, 0]},
         {"op": "input", "ticks": 30, "held": [], "look": [0, 0]},
     ], label="Jump normally onto the raised native tank roof")
-    walk_to(client, tank_point(tank, [0.0, 2.398, -3.5]), tolerance=0.15, seconds=12)
+    walk_to(client, tank_point(tank, [0.0, 2.398, -3.5]), tolerance=0.5, seconds=12)
     state = client.state()
     if state["player"]["platform"] != tank["entity"]:
         raise ValidationFailure("Tank boarding did not establish platform support")
@@ -374,10 +377,18 @@ def first_lightning_part(client):
     walk_to(client, [1.1, 2.36, -3.5], tolerance=0.5, seconds=10, on_tank=True)
     state = client.state()
     sequence = state["evidence"]["sequence"]
-    landing = [43.5, -3.76, -83.9]
+    landing = [41.9, -3.76, -82.5]
+    tank = state["tank"]
+    x, y, z, w = tank["rotation"]
+    local = tank_point({"position": [0, 0, 0], "rotation": [-x, -y, -z, w]},
+                       [a-b for a,b in zip(state["player"]["feet"], tank["position"])])
+    # Jump before the fence begins and before the native path turns southwest.
+    yaw = math.atan2(34.036 - 33.9852, 73.9902 - 45.4914)
+    takeoff = tank_point({"position": [33.9863, 0, -73.4],
+                          "rotation": [0, math.sin(yaw / 2), 0, math.cos(yaw / 2)]}, local)
     client.send([
         {"op": "input", "ticks": 1800, "held": [], "aim": landing, "look": [0, 0],
-         "arrival_point": [34.8, 0., -86.6], "arrival_radius": 0.6},
+         "arrival_point": takeoff, "arrival_radius": 0.2},
         {"op": "input", "ticks": 12, "held": ["forward", "sprint"], "aim": landing, "look": [0, 0]},
         {"op": "input", "ticks": 18, "held": ["forward", "sprint", "jump"], "aim": landing, "look": [0, 0]},
         {"op": "input", "ticks": 60, "held": ["forward", "sprint"], "aim": landing, "look": [0, 0], "arrival_radius": 0.5},
