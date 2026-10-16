@@ -57,6 +57,22 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(calls[0], calls[1])
         self.assertEqual(client.next_id, first_id + 1)
 
+    def test_lost_batch_reply_reuses_all_ids(self):
+        client = Client()
+        first_id = client.next_id
+        calls = []
+        def rpc(method, params):
+            calls.append((method, json.loads(json.dumps(params))))
+            if len(calls) == 1:
+                raise OSError("Batch accepted but reply lost")
+            return [{"request": request, "phase": "accepted"} for request in params]
+        with patch.object(client, "rpc", side_effect=rpc):
+            result = client.send([{"op":"input","ticks":8,"held":["forward","sprint"]},
+                                  {"op":"input","ticks":18,"held":["forward","sprint","jump"]}], wait=False)
+        self.assertEqual(calls[0], calls[1])
+        self.assertEqual([r["id"] for r in calls[0][1]], [first_id, first_id + 1])
+        self.assertEqual(result["request"]["id"], first_id + 1)
+
     def test_accepted_command_is_not_finished(self):
         client = Client()
         state = {"control": {"failure": None, "aborted": False, "paused": False}}

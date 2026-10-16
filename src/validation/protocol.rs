@@ -24,6 +24,7 @@ pub(super) enum Command {
         look: [f32; 2],
         aim: Option<[f32; 3]>,
         aim_entity: Option<u64>,
+        aim_offset: Option<[f32; 3]>,
         arrival_radius: Option<f32>,
     },
     Pause,
@@ -61,6 +62,7 @@ impl Command {
                 look,
                 aim,
                 aim_entity,
+                aim_offset,
                 arrival_radius,
             } => {
                 if !(1..=1800).contains(ticks) {
@@ -80,9 +82,14 @@ impl Command {
                 if aim.is_some() && aim_entity.is_some() {
                     return Err("Choose one aiming target".into());
                 }
-                if arrival_radius
-                    .is_some_and(|radius| !radius.is_finite() || radius <= 0. || aim.is_none())
-                {
+                if aim_offset.is_some_and(|offset| {
+                    aim_entity.is_none() || !offset.iter().all(|n| n.is_finite())
+                }) {
+                    return Err("Aiming offsets require an entity and finite coordinates".into());
+                }
+                if arrival_radius.is_some_and(|radius| {
+                    !radius.is_finite() || radius <= 0. || aim.is_none() && aim_entity.is_none()
+                }) {
                     return Err(
                         "Arrival requires a finite positive radius and an aiming point".into(),
                     );

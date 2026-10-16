@@ -27,8 +27,12 @@ def capture(client, name):
     return {"path": str(path), "width": width, "height": height}
 
 
-def walk_to(client, point, tolerance=0.8, seconds=30):
+def walk_to(client, point, tolerance=0.8, seconds=30, *, on_tank=False):
     state = client.state()
+    local = point if on_tank else None
+    tank = state.get("tank") if on_tank else None
+    if on_tank:
+        point = tank_point(tank, local)
     remaining = distance(state["player"]["feet"], point)
     if remaining <= tolerance:
         return
@@ -40,7 +44,9 @@ def walk_to(client, point, tolerance=0.8, seconds=30):
     if turn > math.radians(10):
         client.input(math.ceil(turn / (math.pi / 2) * 60), aim=target, label="Face walking destination")
     pending = client.send({"op": "input", "ticks": 1800, "held": ["forward"],
-                           "aim": target, "aim_entity": None, "look": [0, 0], "arrival_radius": tolerance},
+                           "aim": None if on_tank else target, "aim_entity": tank["entity"] if on_tank else None,
+                           "aim_offset": [local[0], local[1] + state["player"]["eye"][1] - feet[1], local[2]] if on_tank else None,
+                           "look": [0, 0], "arrival_radius": tolerance},
                           wait=False, label=f"Walk continuously to {point}")
     command = pending["request"]["id"]
     progress_at = None
@@ -52,6 +58,8 @@ def walk_to(client, point, tolerance=0.8, seconds=30):
             if control["failure"] or control["aborted"]:
                 raise ValidationFailure(control["failure"] or "Run aborted")
             feet = state["player"]["feet"]
+            if on_tank:
+                point = tank_point(state["tank"], local)
             remaining = distance(feet, point)
             if remaining <= tolerance:
                 return
@@ -284,17 +292,15 @@ def board_tank(client):
     boarding = tank_point(tank, [0.0, 1.016, 2.5])
     client.input(120, aim=[boarding[0], client.state()["player"]["eye"][1], boarding[2]],
                  label="Inspect the tank boarding route")
-    client.send({"op": "input", "ticks": 14, "held": ["jump"], "look": [0, 0],
-                 "aim": None, "aim_entity": None}, wait=False, label="Jump upward at the rear tank lip")
-    client.input(24, ("forward", "jump"), label="Move over the tank lip while airborne")
+    client.send([
+        {"op": "input", "ticks": 14, "held": ["jump"], "look": [0, 0], "aim": None, "aim_entity": None},
+        {"op": "input", "ticks": 24, "held": ["forward", "jump"], "look": [0, 0], "aim": None, "aim_entity": None},
+    ], label="Jump upward, then move over the rear tank lip")
     client.input(24)
-    # The native lower deck, tread and upper tread are separate walking surfaces.
+    # Jump onto the ordinary rear tread, then walk along its inner edge to the switch.
     walk_to(client, tank_point(tank, [0.75, 1.016, 2.8]), tolerance=0.1)
-    jump_to(client, tank_point(tank, [1.75, 1.6256, 2.8]), "Climb onto the rear tread")
-    jump_to(client, tank_point(tank, [2.34, 2.1676, 2.0]), "Climb onto the raised rear tread")
-    walk_to(client, tank_point(tank, [2.34, 2.1676, 0.1]), tolerance=0.1)
-    jump_to(client, tank_point(tank, [2.34, 2.8448, -1.2]), "Climb onto the upper forward tread")
-    walk_to(client, tank_point(tank, [2.34, 2.8448, -3.5]), tolerance=0.25, seconds=12)
+    jump_to(client, tank_point(tank, [1.5, 1.6256, 3.2]), "Climb onto the rear tread")
+    walk_to(client, tank_point(tank, [1.5, 1.6256, -3.5]), tolerance=0.2, seconds=12)
     state = client.state()
     if state["player"]["platform"] != tank["entity"]:
         raise ValidationFailure("Tank boarding did not establish platform support")
@@ -304,10 +310,11 @@ def board_tank(client):
 def jump_to(client, point, label):
     aim = [point[0], client.state()["player"]["eye"][1], point[2]]
     client.input(120, aim=aim, label=label)
-    client.send({"op": "input", "ticks": 14, "held": ["jump"], "look": [0, 0],
-                 "aim": aim, "aim_entity": None}, wait=False, label=label)
-    client.send({"op": "input", "ticks": 60, "held": ["forward", "jump"], "look": [0, 0],
-                 "aim": aim, "aim_entity": None, "arrival_radius": 0.15}, label=label)
+    client.send([
+        {"op": "input", "ticks": 14, "held": ["jump"], "look": [0, 0], "aim": aim, "aim_entity": None},
+        {"op": "input", "ticks": 60, "held": ["forward", "jump"], "look": [0, 0],
+         "aim": aim, "aim_entity": None, "arrival_radius": 0.15},
+    ], label=label)
     state = client.wait(lambda s: s["player"]["grounded"], seconds=5)
     if distance(state["player"]["feet"], point) > 0.6 or abs(state["player"]["feet"][1] - point[1]) > 0.25:
         raise ValidationFailure(f"{label}: did not land on the intended surface; {state['player']['feet']}")
@@ -321,10 +328,12 @@ def first_lightning_part(client):
     state = use_target(client, target, "Tank: purchase the ordinary trip")
     if state["tank"]["phase"] != "Moving":
         raise ValidationFailure("Tank interaction did not start its route")
+    walk_to(client, [1.5, 1.6256, 3.5], tolerance=0.3, seconds=12, on_tank=True)
+    state = client.state()
     start = state["tank"]["position"]
     deadline = state["control"]["simulation_seconds"] + 150
     supported = 0
-    while state["tank"]["position"][2] > -71.0:
+    while state["tank"]["position"][2] > -79.4:
         if state["control"]["simulation_seconds"] > deadline:
             raise ValidationFailure("Tank did not reach the first lightning jump")
         if state["player"]["platform"] != tank["entity"]:
@@ -340,11 +349,11 @@ def first_lightning_part(client):
     results["ride"] = {"supported_observations": supported}
     sequence = state["evidence"]["sequence"]
     landing = [40.5, -2.85623, -76.949554]
-    client.send({"op": "input", "ticks": 18, "held": ["forward", "sprint", "jump"],
-                 "aim": landing, "aim_entity": None, "look": [0, 0]}, wait=False,
-                label="Jump from the moving tank toward the lightning platform")
-    client.send({"op": "input", "ticks": 60, "held": ["forward", "sprint"],
-                 "aim": landing, "aim_entity": None, "look": [0, 0], "arrival_radius": 0.5})
+    client.send([
+        {"op": "input", "ticks": 8, "held": ["forward", "sprint"], "aim": landing, "aim_entity": None, "look": [0, 0]},
+        {"op": "input", "ticks": 18, "held": ["forward", "sprint", "jump"], "aim": landing, "aim_entity": None, "look": [0, 0]},
+        {"op": "input", "ticks": 60, "held": ["forward", "sprint"], "aim": landing, "aim_entity": None, "look": [0, 0], "arrival_radius": 0.5},
+    ], label="Sprint and jump from the moving rear tread toward the lightning platform")
     state = client.wait(lambda s: s["player"]["grounded"], seconds=5)
     landings = [e for e in state["evidence"]["events"] if e["sequence"] > sequence
                 and e["kind"] == "landing" and e["data"]["owner"] == state["player"]["entity"]]

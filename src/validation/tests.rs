@@ -91,6 +91,7 @@ fn input(app: &mut App, id: u64, ticks: u32, held: Vec<crate::input::Action>) {
                 look: [0., 0.],
                 aim: None,
                 aim_entity: None,
+                aim_offset: None,
                 arrival_radius: None,
             },
             label: String::new(),
@@ -144,9 +145,14 @@ fn zero_fixed_ticks_preserve_input_and_multiple_ticks_emit_one_edge() {
 #[test]
 fn batches_cross_a_multi_tick_frame_without_repeating_or_underflowing() {
     let mut app = harness();
-    input(&mut app, 1, 1, vec![crate::input::Action::Fire]);
-    input(&mut app, 2, 1, vec![]);
-    input(&mut app, 3, 1, vec![crate::input::Action::Fire]);
+    let requests = json!([
+        {"session":1,"id":1,"action":{"op":"input","ticks":1,"held":["fire"]}},
+        {"session":1,"id":2,"action":{"op":"input","ticks":1,"held":[]}},
+        {"session":1,"id":3,"action":{"op":"input","ticks":1,"held":["fire"]}}
+    ]);
+    remote_input_batch(In(Some(requests.clone())), app.world_mut()).unwrap();
+    remote_input_batch(In(Some(requests)), app.world_mut()).unwrap();
+    assert_eq!(app.world().resource::<Controller>().queue.len(), 3);
     frame(&mut app, 3);
     assert_eq!(
         app.world()
@@ -160,6 +166,18 @@ fn batches_cross_a_multi_tick_frame_without_repeating_or_underflowing() {
     assert!([1, 2, 3].iter().all(
         |id| app.world().resource::<Controller>().receipts[&(1, *id)].phase == Phase::Executed
     ));
+    let invalid = json!([
+        {"session":1,"id":4,"action":{"op":"input","ticks":1,"held":["fire"]}},
+        {"session":1,"id":5,"action":{"op":"input","ticks":0,"held":[]}}
+    ]);
+    assert!(remote_input_batch(In(Some(invalid)), app.world_mut()).is_err());
+    assert!(app.world().resource::<Controller>().queue.is_empty());
+    assert!(
+        !app.world()
+            .resource::<Controller>()
+            .receipts
+            .contains_key(&(1, 4))
+    );
 }
 #[test]
 fn paused_step_advances_one_fixed_tick_and_post_update_physics() {
@@ -321,6 +339,7 @@ fn scripted_look_runs_once_per_fixed_tick_before_movement_and_never_in_zero_tick
             look: [6., 0.],
             aim: None,
             aim_entity: None,
+            aim_offset: None,
             arrival_radius: None,
         },
         label: String::new(),
@@ -356,6 +375,7 @@ fn command_retry_has_one_queue_entry_and_conflicting_retry_fails() {
             look: [0., 0.],
             aim: None,
             aim_entity: None,
+            aim_offset: None,
             arrival_radius: None,
         },
         label: String::new(),
@@ -411,6 +431,7 @@ fn waypoint_arrival_releases_forward_without_waiting_for_the_runner() {
         look: [0., 0.],
         aim: Some([10., 1.62, 0.]),
         aim_entity: None,
+        aim_offset: None,
         arrival_radius: Some(0.25),
     };
     assert!(action.validate().is_ok());
@@ -433,6 +454,45 @@ fn waypoint_arrival_releases_forward_without_waiting_for_the_runner() {
         Phase::Executed
     );
     assert!(app.world().resource::<Controller>().active.is_none());
+    let platform = app
+        .world_mut()
+        .spawn(
+            Transform::from_xyz(10., 0., 4.)
+                .with_rotation(Quat::from_rotation_y(std::f32::consts::FRAC_PI_2)),
+        )
+        .id();
+    command(
+        &mut app,
+        2,
+        Command::Input {
+            ticks: 1800,
+            held: vec![crate::input::Action::Forward],
+            look: [0., 0.],
+            aim: None,
+            aim_entity: Some(platform.to_bits()),
+            aim_offset: Some([4., 1.62, 0.]),
+            arrival_radius: Some(0.25),
+        },
+    );
+    app.world_mut()
+        .get_mut::<Transform>(platform)
+        .unwrap()
+        .translation
+        .z += 5.;
+    frame(&mut app, 1);
+    assert_ne!(
+        app.world().resource::<Trace>().0.last().unwrap().3,
+        Vec2::ZERO
+    );
+    app.world_mut()
+        .get_mut::<Transform>(player)
+        .unwrap()
+        .translation = Vec3::new(10., 0., 5.);
+    frame(&mut app, 3);
+    assert_eq!(
+        app.world().resource::<Controller>().receipts[&(1, 2)].phase,
+        Phase::Executed
+    );
     assert!(
         Command::Input {
             ticks: 1,
@@ -440,6 +500,7 @@ fn waypoint_arrival_releases_forward_without_waiting_for_the_runner() {
             look: [0., 0.],
             aim: None,
             aim_entity: None,
+            aim_offset: None,
             arrival_radius: Some(0.25)
         }
         .validate()

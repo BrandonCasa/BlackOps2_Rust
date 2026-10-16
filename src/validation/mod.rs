@@ -14,7 +14,7 @@ use bevy::{
 use protocol::{Command, Phase, Receipt, Request};
 use serde_json::{Value, json};
 use std::{
-    collections::{BTreeMap, VecDeque},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     path::PathBuf,
     time::{Duration, Instant},
 };
@@ -131,6 +131,7 @@ pub(crate) fn install(app: &mut App) {
         RemotePlugin::default()
             .with_method_main("origins/validator/state", remote_state)
             .with_method_main("origins/validator/command", remote_command)
+            .with_method_main("origins/validator/input_batch", remote_input_batch)
             .with_method_main("origins/validator/receipt", remote_receipt)
             .with_method_main("origins/validator/heartbeat", remote_heartbeat),
         RemoteHttpPlugin::default()
@@ -294,6 +295,56 @@ fn remote_command(In(params): In<Option<Value>>, world: &mut World) -> BrpResult
 }
 
 fn submit(world: &mut World, request: Request) -> Result<Value, String> {
+    if let Some(receipt) = validate_request(world, &request)? {
+        return Ok(receipt);
+    }
+    let key = (request.session, request.id);
+    let c = world.resource::<Controller>();
+    let receipt = Receipt {
+        request: request.clone(),
+        phase: Phase::Accepted,
+        accepted_tick: c.tick,
+        executed_tick: None,
+        resulting_session: None,
+        error: None,
+        after: Value::Null,
+    };
+    let result = serde_json::to_value(&receipt).unwrap();
+    let mut c = world.resource_mut::<Controller>();
+    c.receipts.insert(key, receipt);
+    if matches!(request.action, Command::Input { .. }) {
+        c.queue.push_back(request);
+    } else {
+        c.controls.push_back(request);
+    }
+    Ok(result)
+}
+
+fn remote_input_batch(In(params): In<Option<Value>>, world: &mut World) -> BrpResult {
+    let requests: Vec<Request> =
+        serde_json::from_value(params.ok_or_else(|| error("Missing inputs"))?)
+            .map_err(|e| error(e.to_string()))?;
+    if !(1..=64).contains(&requests.len()) {
+        return Err(error("Input batch must contain 1..64 commands"));
+    }
+    let mut ids = BTreeSet::new();
+    for request in &requests {
+        if !matches!(request.action, Command::Input { .. }) || !ids.insert(request.id) {
+            return Err(error(
+                "Input batches require distinct IDs and ordinary input commands",
+            ));
+        }
+        validate_request(world, request).map_err(error)?;
+    }
+    requests
+        .into_iter()
+        .map(|request| submit(world, request))
+        .collect::<Result<Vec<_>, _>>()
+        .map(Value::Array)
+        .map_err(error)
+}
+
+fn validate_request(world: &World, request: &Request) -> Result<Option<Value>, String> {
     let key = (request.session, request.id);
     if request.id == 0 {
         return Err("Command ID zero is reserved for local controls".into());
@@ -304,7 +355,7 @@ fn submit(world: &mut World, request: Request) -> Result<Value, String> {
         {
             return Err("Command ID reused with different arguments".into());
         }
-        return Ok(serde_json::to_value(receipt).unwrap());
+        return Ok(Some(serde_json::to_value(receipt).unwrap()));
     }
     if world.resource::<SessionId>().0 != request.session {
         return Err("Stale command session".into());
@@ -327,24 +378,7 @@ fn submit(world: &mut World, request: Request) -> Result<Value, String> {
     {
         return Err("Run has failed or was aborted".into());
     }
-    let receipt = Receipt {
-        request: request.clone(),
-        phase: Phase::Accepted,
-        accepted_tick: c.tick,
-        executed_tick: None,
-        resulting_session: None,
-        error: None,
-        after: Value::Null,
-    };
-    let result = serde_json::to_value(&receipt).unwrap();
-    let mut c = world.resource_mut::<Controller>();
-    c.receipts.insert(key, receipt);
-    if matches!(request.action, Command::Input { .. }) {
-        c.queue.push_back(request);
-    } else {
-        c.controls.push_back(request);
-    }
-    Ok(result)
+    Ok(None)
 }
 
 fn control(world: &mut World) {
@@ -442,32 +476,30 @@ fn tick_input(world: &mut World) {
             look,
             aim,
             aim_entity,
+            aim_offset,
             arrival_radius,
             ..
         } = &request.action
         else {
             unreachable!()
         };
-        if arrival_radius.zip(*aim).is_some_and(|(radius, target)| {
+        let target = aim.map(Vec3::from_array).or_else(|| {
+            aim_entity.and_then(Entity::try_from_bits).and_then(|e| {
+                world.get::<Transform>(e).map(|t| {
+                    t.transform_point(aim_offset.map(Vec3::from_array).unwrap_or(Vec3::ZERO))
+                })
+            })
+        });
+        if arrival_radius.zip(target).is_some_and(|(radius, target)| {
             world
                 .query_filtered::<&Transform, With<crate::player::Player>>()
                 .single(world)
-                .is_ok_and(|pose| {
-                    pose.translation
-                        .xz()
-                        .distance(Vec3::from_array(target).xz())
-                        <= radius
-                })
+                .is_ok_and(|pose| pose.translation.xz().distance(target.xz()) <= radius)
         }) {
             crate::input::scripted_tick(world, &[], Vec2::ZERO);
             *remaining = 0;
             return;
         }
-        let target = aim.map(Vec3::from_array).or_else(|| {
-            aim_entity
-                .and_then(Entity::try_from_bits)
-                .and_then(|e| world.get::<Transform>(e).map(|t| t.translation))
-        });
         let look = target.map_or_else(
             || Vec2::from_array(*look),
             |target| actions::look_delta(world, target),

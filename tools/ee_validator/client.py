@@ -56,15 +56,25 @@ class Client:
         raise ValidationFailure(f"Wait timed out after {seconds}s; last state: {last}")
 
     def send(self, action, *, label="", wait=True, allow_failure=False):
-        request = {"session": self.session, "id": self.next_id, "action": action, "label": label}
-        self.next_id += 1
+        batch = isinstance(action, list)
+        actions = action if batch else [action]
+        requests = [{"session": self.session, "id": self.next_id + index, "action": step, "label": label}
+                    for index, step in enumerate(actions)]
+        self.next_id += len(requests)
+        params = requests if batch else requests[0]
         for attempt in range(3):
             try:
-                receipt = self.rpc("origins/validator/command", request)
+                response = self.rpc("origins/validator/input_batch" if batch else "origins/validator/command", params)
                 break
             except (OSError, urllib.error.URLError):
                 if attempt == 2:
                     raise
+        request, action = requests[-1], actions[-1]
+        receipt = response[-1] if batch else response
+        if self.report and batch:
+            with (self.report / "commands.jsonl").open("a", encoding="utf-8") as log:
+                for accepted in response[:-1]:
+                    log.write(json.dumps(accepted) + "\n")
         if wait:
             def complete(state):
                 nonlocal receipt
