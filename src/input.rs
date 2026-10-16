@@ -227,7 +227,19 @@ pub(crate) fn collect(
     settings: Res<ControlSettings>,
     mut actions: ResMut<Actions>,
     mut input: ResMut<GameInput>,
+    #[cfg(feature = "dev-tools")] validator: Option<Res<crate::validation::Controller>>,
 ) {
+    #[cfg(feature = "dev-tools")]
+    if validator
+        .as_ref()
+        .is_some_and(|controller| controller.owns_input())
+    {
+        key_events.clear();
+        mouse_events.clear();
+        motion.clear();
+        wheel.clear();
+        return;
+    }
     let active =
         **state == GameState::Playing && windows.single().is_ok_and(|window| window.focused);
     let mappings_changed = settings.bindings != actions.settings.bindings
@@ -281,12 +293,19 @@ pub(crate) fn collect(
         actions.event(binding, false);
     }
     actions.suppressed.retain(|b| b.held(&keys, &mouse));
-    use Action::*;
     let dual = inventories.single().is_ok_and(|inventory| {
         inventory
             .active()
             .is_some_and(|weapon| weapon.left_magazine.is_some())
     });
+    write_actions(&mut actions, &mut input, dual);
+    for event in motion.read() {
+        input.look += event.delta;
+    }
+}
+
+fn write_actions(actions: &mut Actions, input: &mut GameInput, dual: bool) {
+    use Action::*;
     if dual {
         actions.states[Aim as usize].toggled = false;
     }
@@ -317,12 +336,51 @@ pub(crate) fn collect(
             input.weapon_slot = Some(slot);
         }
     }
-    for event in motion.read() {
-        input.look += event.delta;
-    }
 }
 
-fn finish_tick(mut actions: ResMut<Actions>, mut input: ResMut<GameInput>) {
+/// Development input uses the same transitions, toggles, and edge projection as physical input.
+#[cfg(feature = "dev-tools")]
+pub(crate) fn scripted_tick(world: &mut World, held: &[Action], look: Vec2) {
+    let dual = world
+        .query_filtered::<&crate::weapons::WeaponInventory, With<crate::player::Player>>()
+        .single(world)
+        .is_ok_and(|inventory| {
+            inventory
+                .active()
+                .is_some_and(|weapon| weapon.left_magazine.is_some())
+        });
+    world.resource_scope(|world, mut actions: Mut<Actions>| {
+        for action in Action::ALL {
+            actions.transition(action, held.contains(&action));
+        }
+        let mut input = world.resource_mut::<GameInput>();
+        write_actions(&mut actions, &mut input, dual);
+        input.look = look;
+    });
+}
+
+#[cfg(feature = "dev-tools")]
+#[derive(Clone)]
+pub(crate) struct SuspendedActions([ActionState; Action::ALL.len()]);
+
+#[cfg(feature = "dev-tools")]
+pub(crate) fn suspend_script(world: &mut World) -> SuspendedActions {
+    let mut saved = world.resource::<Actions>().states;
+    for state in &mut saved {
+        state.pressed = false;
+        state.released = false;
+    }
+    reset(world);
+    world.insert_resource(crate::player::TickActions::default());
+    SuspendedActions(saved)
+}
+
+#[cfg(feature = "dev-tools")]
+pub(crate) fn resume_script(world: &mut World, saved: SuspendedActions) {
+    world.resource_mut::<Actions>().states = saved.0;
+}
+
+pub(crate) fn finish_tick(mut actions: ResMut<Actions>, mut input: ResMut<GameInput>) {
     input.buildable = false;
     input.drone = false;
     input.staff_secondary = false;
@@ -365,7 +423,21 @@ pub(crate) fn pause_and_restart(
     settings: Res<ControlSettings>,
     menu: Res<menu::ControlMenu>,
     mut restart: MessageReader<RestartGame>,
+    #[cfg(feature = "dev-tools")] mut validator: Option<ResMut<crate::validation::Controller>>,
 ) {
+    #[cfg(feature = "dev-tools")]
+    if let Some(ref mut validator) = validator
+        && validator.owns_input()
+    {
+        if keys.just_pressed(KeyCode::Escape) {
+            validator.request_pause_toggle();
+        }
+        if keys.just_pressed(KeyCode::F12) {
+            validator.request_abort();
+        }
+        // The controller owns pause transitions; physical gameplay input cannot resume a failed run.
+        return;
+    }
     let requested = restart.read().count() > 0;
     if menu.capturing.is_none()
         && !menu.handled_input

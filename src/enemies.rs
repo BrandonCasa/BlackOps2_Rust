@@ -2142,8 +2142,14 @@ fn admit_ready(
     }
 }
 fn animate(
+    time: Res<Time>,
+    state: Res<State<GameState>>,
     definition: Option<Res<GameDefinition>>,
-    enemies: Query<&Zombie>,
+    enemies: Query<(
+        &Zombie,
+        &crate::combat_effects::Wounds,
+        Has<ragdoll::PhysicalRagdoll>,
+    )>,
     panzers: Query<&crate::panzer::Panzer>,
     mut assets: crate::animation::ClipAssets,
     mut rigs: Query<(
@@ -2158,9 +2164,14 @@ fn animate(
         if !rig.ready || !rig.attached {
             continue;
         }
-        let Ok(zombie) = enemies.get(rig.owner) else {
+        let Ok((zombie, wounds, physical)) = enemies.get(rig.owner) else {
             continue;
         };
+        // The physics bodies were seeded after propagation from this exact
+        // sample. Keep it for nonphysical joints and stop advancing its blend.
+        if physical {
+            continue;
+        }
         let Some(enemy) = definition
             .content
             .enemies
@@ -2186,12 +2197,7 @@ fn animate(
             .or_else(|| selected.and_then(|clip| clip.id.0.rsplit('.').next()));
         let Some(name) = name else { continue };
         let path = match crate::animation::clip_binding(&definition, &rig.source, name) {
-            Some(Some(path)) => path,
-            Some(None) => {
-                player.stop_all();
-                clips.retain([], &graph, &mut assets);
-                continue;
-            }
+            Some(path) => path,
             None => {
                 assert!(
                     !rig.primary,
@@ -2206,7 +2212,36 @@ fn animate(
             |panzer| panzer.animation().1,
         );
         let elapsed = panzer.map_or(zombie.elapsed, |panzer| panzer.animation_elapsed);
-        clips.sample(path, elapsed, looping, &mut player, &mut graph, &mut assets);
+        // Native ASD playback (00491a80) clears the previous state and sets the
+        // new state with 0.2 / animation rate. Launching the claw is an explicit
+        // zero-time SetAnim in _zm_ai_mechz_claw::claw_grapple.
+        let rate = if panzer.is_some() {
+            1.
+        } else {
+            wounds.movement_scale()
+        };
+        let blend = if rig.presentation.0 == "actor.c_zom_mech_claw"
+            && name == "ai_zombie_mech_grapple_arm_open_idle"
+        {
+            crate::animation::ClipBlend::CUT
+        } else {
+            crate::animation::ClipBlend::crossfade(0.2 / rate)
+        };
+        clips.sample_transition(
+            path,
+            elapsed,
+            looping,
+            blend,
+            rate,
+            if **state == GameState::Playing {
+                time.delta_secs()
+            } else {
+                0.
+            },
+            &mut player,
+            &mut graph,
+            &mut assets,
+        );
     }
 }
 

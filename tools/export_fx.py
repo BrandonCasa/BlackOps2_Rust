@@ -41,6 +41,14 @@ def export(research: Path, checkout: Path):
         })
     assert len(placements) == 585, "Original Origins CreateFX placement count changed"
     required = set(catalog["effects"]) | {p["name"] for p in placements}
+    weapons = json.loads((checkout / "target/assets/source-weapons.json").read_text())
+    for weapon in weapons.values():
+        required.update(
+            weapon["info"][key].lstrip(",")
+            for key in ("viewFlashEffect", "viewShellEjectEffect", "viewLastShotEjectEffect",
+                        "meleeImpactEffect", "meleeImpactNoBloodEffect")
+            if weapon["info"].get(key)
+        )
     for script in scripts.rglob("*.csc"):
         # Precache-only reference stubs need no emitter. Require every actual
         # placement and runtime request below, including their child effects.
@@ -54,6 +62,19 @@ def export(research: Path, checkout: Path):
             elif "{" not in name and not name.endswith("_") and "/fx_" in name:
                 missing.append((str(source.relative_to(checkout)), name))
     assert not missing, f"Runtime FX definitions missing: {missing}"
+
+    def ensure_material(material):
+        material = material.lstrip(",")
+        destination = checkout / "target/assets/materials" / (material.replace("*", "_") + ".json")
+        if not destination.is_file():
+            definitions = [research / "evidence/rendering-20261012/source/all" / zone / "materials" / (material + ".json")
+                           for zone in ("code_post_gfx_zm", "common_zm", "patch_zm", "zm_tomb", "zm_tomb_patch")]
+            source_material = next((p for p in reversed(definitions) if p.is_file()), None)
+            assert source_material, material
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source_material, destination)
+        catalog["materials"].setdefault(material, {})
+
     added = []
     pending = list(required)
     visited = set()
@@ -75,16 +96,9 @@ def export(research: Path, checkout: Path):
                 if visual.get("effect"):
                     pending.append(visual["effect"])
                 for material in ([visual["material"]] if visual.get("material") else visual.get("decal_materials") or []):
-                    material = material.lstrip(",")
-                    destination = checkout / "target/assets/materials" / (material.replace("*", "_") + ".json")
-                    if not destination.is_file():
-                        definitions = [research / "evidence/rendering-20261012/source/all" / zone / "materials" / (material + ".json")
-                                       for zone in ("code_post_gfx_zm", "common_zm", "patch_zm", "zm_tomb", "zm_tomb_patch")]
-                        source_material = next((p for p in reversed(definitions) if p.is_file()), None)
-                        assert source_material, material
-                        destination.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copyfile(source_material, destination)
-                    catalog["materials"].setdefault(material, {})
+                    ensure_material(material)
+    for tracer in json.loads((checkout / "gameplay/origins/tracers.json").read_text()).values():
+        ensure_material(tracer["material"])
     catalog["map_effects"] = placements
     catalog["effects"] = dict(sorted(catalog["effects"].items()))
     catalog["materials"] = dict(sorted(catalog["materials"].items()))

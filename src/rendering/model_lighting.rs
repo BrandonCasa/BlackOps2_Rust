@@ -5,7 +5,10 @@
 //! 004577f0 assigns/touches static handles, and 00457b70 permits reuse only
 //! after more than three untouched frames. 00457c30 builds newly assigned
 //! blocks. Region uploads use Bevy's RenderQueue instead of D3D staging copies.
-use super::lighting::{LightingCoefficients, grid_coordinates};
+use super::{
+    light_grid::GridSample,
+    lighting::{LightingCoefficients, grid_coordinates},
+};
 use bevy::{
     platform::collections::HashMap,
     prelude::*,
@@ -240,11 +243,23 @@ impl ModelLightingAtlas {
                 .expect("resident dynamic light slot");
             if resident.origin == origin {
                 self.dynamic_usage.touch(slot);
-                return Some((resident.lighting, resident.primary_light));
+                return Some((resident.lighting, resident.sample.primary_light));
             }
         }
-        let slot = self.dynamic_usage.allocate()?;
         let sample = self.grid.sample(origin);
+        if let Some(&slot) = self.dynamic_handles.get(&owner) {
+            let resident = self.dynamic_slots[usize::from(slot)]
+                .as_mut()
+                .expect("resident dynamic light slot");
+            if resident.sample == sample {
+                resident.origin = origin;
+                self.dynamic_usage.touch(slot);
+                return Some((resident.lighting, sample.primary_light));
+            }
+        }
+        // Changed samples still need a fresh block: previous frames may be
+        // reading the owner's old allocation.
+        let slot = self.dynamic_usage.allocate()?;
         let lighting = self
             .coefficients
             .grid_lighting(&sample.coefficients[..sample.count]);
@@ -266,7 +281,7 @@ impl ModelLightingAtlas {
             owner,
             origin,
             lighting,
-            primary_light: sample.primary_light,
+            sample,
         });
         self.dynamic_handles.insert(owner, slot);
         Some((lighting, sample.primary_light))
@@ -391,7 +406,7 @@ struct DynamicSlot {
     owner: MainEntity,
     origin: Vec3,
     lighting: ModelLighting,
-    primary_light: u8,
+    sample: GridSample,
 }
 
 #[cfg(test)]

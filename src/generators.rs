@@ -205,9 +205,7 @@ pub struct GeneratorVisual {
     source: Handle<Gltf>,
     nodes: Option<[Option<AnimationNodeIndex>; 8]>,
     fluid_joints: Vec<(Entity, Vec3)>,
-    blend_from: [f32; 8],
-    blend_target: [f32; 8],
-    blend_elapsed: [f32; 8],
+    weights: [crate::animation::GoalWeight; 8],
     sound_state: Option<GeneratorState>,
     sound_clip: usize,
     sound_time: f32,
@@ -710,9 +708,7 @@ fn assemble(
                     .load(scene.split('#').next().unwrap_or(scene).to_owned()),
                 nodes: None,
                 fluid_joints: Vec::new(),
-                blend_from: [0.; 8],
-                blend_target: [0.; 8],
-                blend_elapsed: [0.; 8],
+                weights: default(),
                 sound_state: None,
                 sound_clip: usize::MAX,
                 sound_time: -0.001,
@@ -1122,22 +1118,12 @@ fn presentation(
         }
         for (index, node) in nodes.into_iter().enumerate() {
             let target = samples[index].map_or(0., |(_, weight)| weight);
-            let current = visual.blend_from[index].lerp(
-                visual.blend_target[index],
-                (visual.blend_elapsed[index] / 0.2).min(1.),
-            );
             if fresh {
-                visual.blend_from[index] = target;
-                visual.blend_target[index] = target;
-                visual.blend_elapsed[index] = 0.2;
-            } else if target != visual.blend_target[index] {
-                visual.blend_from[index] = current;
-                visual.blend_target[index] = target;
-                visual.blend_elapsed[index] = 0.;
+                visual.weights[index].set(target, 0.);
+            } else if target != visual.weights[index].target {
+                visual.weights[index].set(target, 0.2);
             }
-            visual.blend_elapsed[index] += time.delta_secs();
-            let fraction = (visual.blend_elapsed[index] / 0.2).min(1.);
-            let weight = visual.blend_from[index].lerp(target, fraction);
+            let weight = visual.weights[index].advance(time.delta_secs());
             // A source pose with no channels contributes its bind frame below.
             let Some(node) = node else { continue };
             if player.animation(node).is_none() && samples[index].is_some() {
@@ -1155,7 +1141,7 @@ fn presentation(
                 .set_weight(weight);
             if let Some((seconds, _)) = samples[index] {
                 active.set_seek_time(seconds).pause();
-            } else if fraction < 1. {
+            } else if weight > 0. {
                 active.resume();
             } else {
                 player.stop(node);
@@ -1172,10 +1158,7 @@ fn fluid_bind_pose(
 ) {
     for (visual, player) in &visuals {
         let Some(nodes) = visual.nodes else { continue };
-        let bind_weight = visual.blend_from[5].lerp(
-            visual.blend_target[5],
-            (visual.blend_elapsed[5] / 0.2).min(1.),
-        );
+        let bind_weight = visual.weights[5].weight;
         let animated_weight: f32 = [4, 6, 7]
             .into_iter()
             .filter_map(|index| player.animation(nodes[index]?))

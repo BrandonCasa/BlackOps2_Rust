@@ -320,6 +320,9 @@ fn launch(
                     AngularInertia::new(inertia),
                     CenterOfMass(center),
                     ColliderDensity(0.),
+                    NoAutoMass,
+                    NoAutoAngularInertia,
+                    NoAutoCenterOfMass,
                 ),
                 (
                     Friction::new(physics.friction),
@@ -362,6 +365,9 @@ fn launch(
     }
 }
 fn bullets(
+    mut commands: Commands,
+    game: Res<GameDefinition>,
+    effects: Res<crate::native_fx::Catalog>,
     mut events: MessageReader<super::RagdollBullet>,
     query: SpatialQuery,
     mut bodies: Query<(Forces, &GibBody, &ComputedCenterOfMass)>,
@@ -385,6 +391,19 @@ fn bullets(
             continue;
         };
         let point = event.origin + direction.as_vec3() * hit.distance;
+        if let Some(effect) = game
+            .content
+            .weapons
+            .iter()
+            .find(|weapon| weapon.id == event.weapon)
+            .and_then(|weapon| effects.impact(weapon.mechanics.impact_type, 7, 0))
+        {
+            crate::native_fx::emit(
+                &mut commands,
+                effect,
+                effects.explosion_pose(point, hit.normal),
+            );
+        }
         let center = body.position() + body.rotation() * center.0;
         let force = (direction.as_vec3() + Vec3::Y * 0.5).normalize_or_zero()
             * (0.8 * piece.bullet_force_scale * 0.0254);
@@ -394,55 +413,23 @@ fn bullets(
 fn explosions(
     mut events: MessageReader<super::RagdollExplosion>,
     mut random: ResMut<GibCounter>,
-    mut bodies: Query<(Entity, Forces, &GibBody, &Collider, &ComputedCenterOfMass)>,
+    query: SpatialQuery,
+    actors: Query<(), With<crate::life::Vitality>>,
+    mut bodies: Query<(Forces, &GibBody, &ComputedCenterOfMass)>,
 ) {
     for event in events.read() {
-        if event.radius <= 0. || !event.radius.is_finite() {
-            continue;
-        }
-        let mut nearest = bodies
-            .iter()
-            .filter_map(|(entity, body, _, shape, _)| {
-                let bounds = shape.aabb(body.position(), body.rotation(), 0.);
-                let point = event.center.clamp(bounds.min, bounds.max);
-                let delta = if event.inward {
-                    (point - event.center).with_y(0.)
-                } else {
-                    point - event.center
-                };
-                let distance = delta.length();
-                (distance < event.radius).then_some((entity, distance))
-            })
-            .collect::<Vec<_>>();
-        nearest.sort_by(|a, b| a.1.total_cmp(&b.1));
-        for (entity, distance) in nearest.into_iter().take(20) {
-            let Ok((_, mut body, piece, _, center)) = bodies.get_mut(entity) else {
-                continue;
-            };
-            let attenuation = if distance > event.inner_radius && event.inner_radius < event.radius
+        for (mut body, piece, center) in &mut bodies {
+            let center = body.position() + body.rotation() * center.0;
+            let impulse = event.impulse(center, 12. * piece.explosive_force_scale);
+            if impulse == Vec3::ZERO
+                || !super::ragdoll::blast_visible(&query, &actors, event.center, center)
             {
-                (event.radius - distance) / (event.radius - event.inner_radius)
-            } else {
-                1.
-            };
-            let magnitude = 12. * piece.explosive_force_scale * event.magnitude * attenuation;
-            if magnitude <= 0.01 {
                 continue;
             }
-            let direction = if event.direction == Vec3::ZERO {
-                let mut direction = body.position() - event.center;
-                if event.inward {
-                    direction.y = 0.;
-                }
-                (direction.normalize_or_zero() + Vec3::Y * 0.5).normalize_or_zero()
-            } else {
-                event.direction
-            };
             let jitter = (Vec3::new(random.random(), random.random(), random.random()) * 2.
                 - Vec3::ONE)
                 * (4. * 0.0254);
-            let point = body.position() + body.rotation() * center.0 + jitter;
-            body.apply_force_at_point(direction * (magnitude * 0.0254), point);
+            body.apply_linear_impulse_at_point(impulse, center + jitter);
         }
     }
 }

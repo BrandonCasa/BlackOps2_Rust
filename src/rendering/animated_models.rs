@@ -1,7 +1,7 @@
 //! On-demand source geometry shared by animated model instances.
 use super::material::MaterialDefinition;
 use bevy::{
-    asset::{AssetLoader, LoadContext, io::Reader},
+    asset::{AsAssetId, AssetLoader, LoadContext, asset_changed::AssetChanged, io::Reader},
     camera::{
         primitives::Aabb,
         visibility::{NoFrustumCulling, RenderLayers},
@@ -441,10 +441,19 @@ mod tests {
     }
 
     #[test]
-    fn hidden_native_palette_does_not_invert_zero_scale_mesh() {
+    fn collapsed_native_mesh_keeps_palette_and_refreshes_when_restored() {
         let mut app = App::new();
         app.insert_resource(Assets::<SkinnedMeshInverseBindposes>::default())
             .add_systems(Update, update_native_palettes);
+        let bind = app
+            .world_mut()
+            .resource_mut::<Assets<SkinnedMeshInverseBindposes>>()
+            .add(SkinnedMeshInverseBindposes::from(vec![Mat4::IDENTITY]));
+        let joint_pose = Mat4::from_translation(Vec3::new(2., 3., 4.));
+        let joint = app
+            .world_mut()
+            .spawn(GlobalTransform::from(Transform::from_matrix(joint_pose)))
+            .id();
         let mesh = app
             .world_mut()
             .spawn(GlobalTransform::from(Transform::from_scale(Vec3::ZERO)))
@@ -454,13 +463,13 @@ mod tests {
             .spawn((
                 NativeBoneBinding {
                     mesh,
-                    joints: vec![],
-                    inverse_bindposes: Handle::default(),
+                    joints: vec![joint],
+                    inverse_bindposes: bind,
                     bounds_meshes: vec![],
                     bounds: Aabb::default(),
                 },
                 NativeSkinPalette(vec![Mat4::IDENTITY]),
-                InheritedVisibility::HIDDEN,
+                InheritedVisibility::VISIBLE,
                 AnimatedModelInstance {
                     model: Handle::default(),
                     lod: Some(0),
@@ -471,6 +480,18 @@ mod tests {
         assert_eq!(
             app.world().get::<NativeSkinPalette>(instance).unwrap().0,
             vec![Mat4::IDENTITY]
+        );
+        app.world_mut()
+            .entity_mut(mesh)
+            .insert(GlobalTransform::IDENTITY);
+        app.update();
+        assert_eq!(
+            app.world().get::<NativeSkinPalette>(instance).unwrap().0,
+            [source_skin_matrix(
+                Mat4::IDENTITY,
+                joint_pose,
+                Mat4::IDENTITY
+            )]
         );
     }
 
@@ -720,6 +741,14 @@ pub(crate) struct AnimatedModelInstance {
     pub lod: Option<usize>,
 }
 
+impl AsAssetId for AnimatedModelInstance {
+    type Asset = AnimatedModel;
+
+    fn as_asset_id(&self) -> AssetId<AnimatedModel> {
+        self.model.id()
+    }
+}
+
 #[derive(Component)]
 struct NativeBoneBinding {
     mesh: Entity,
@@ -957,6 +986,11 @@ fn update_native_palettes(
             continue;
         }
         let mesh = transforms.get(binding.mesh).expect("bound native mesh");
+        // Attachment hiding collapses mesh groups without hiding the instance.
+        // Keep its palette until the mesh has an invertible pose again.
+        if mesh.affine().matrix3.determinant() == 0. {
+            continue;
+        }
         if !palette.is_added()
             && !visibility.is_changed()
             && !instance.is_changed()
@@ -1027,6 +1061,7 @@ impl Plugin for AnimatedModelPlugin {
                 PostUpdate,
                 bind_animated_draws
                     .in_set(AnimatedModelSystems::BindDraws)
+                    .after(bevy::asset::AssetEventSystems)
                     .after(bevy::transform::TransformSystems::Propagate)
                     .after(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate)
                     .before(bevy::camera::visibility::VisibilitySystems::CheckVisibility)
@@ -1107,11 +1142,19 @@ struct AnimatedDraws {
     lod: usize,
     probe: usize,
     surfaces: Vec<Entity>,
+    materials: BTreeMap<
+        String,
+        (
+            Handle<super::native_model::NativeModelMaterial>,
+            super::native::NativeWorldState,
+        ),
+    >,
 }
 
 fn bind_animated_draws(
     mut commands: Commands,
     models: Res<Assets<AnimatedModel>>,
+    changed_models: Query<(), AssetChanged<AnimatedModelInstance>>,
     probes: Option<Res<super::reflection::ReflectionWorld>>,
     server: Res<AssetServer>,
     mut materials: ResMut<Assets<super::native_model::NativeModelMaterial>>,
@@ -1121,7 +1164,7 @@ fn bind_animated_draws(
         Ref<NativeBoneBinding>,
         &GlobalTransform,
         &InheritedVisibility,
-        Option<&AnimatedDraws>,
+        Option<&mut AnimatedDraws>,
         Option<&mut DynamicLightingOrigin>,
     )>,
     sonar_actors: Query<&super::native_sonar::NativeSonarActor>,
@@ -1138,14 +1181,14 @@ fn bind_animated_draws(
     };
     let source_frame = super::world::source_frame().inverse();
     let axes = Transform::from_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2));
-    for (entity, instance, binding, root_transform, visibility, draws, lighting_origin) in
+    for (entity, instance, binding, root_transform, visibility, mut draws, lighting_origin) in
         &mut instances
     {
         if !visibility.get() {
             continue;
         }
         let Some(lod) = instance.lod else {
-            if let Some(draws) = draws {
+            if let Some(draws) = draws.as_ref() {
                 for &surface in &draws.surfaces {
                     commands.entity(surface).try_despawn();
                 }
@@ -1156,7 +1199,8 @@ fn bind_animated_draws(
         let Some(model) = models.get(&instance.model) else {
             continue;
         };
-        let Ok((mesh_transform, mesh_visibility, layers, no_culling)) = meshes.get(binding.mesh) else {
+        let Ok((mesh_transform, mesh_visibility, layers, no_culling)) = meshes.get(binding.mesh)
+        else {
             continue;
         };
         let origin = source_frame.transform_point3(root_transform.translation());
@@ -1173,10 +1217,11 @@ fn bind_animated_draws(
             }
         }
         let probe = draws
+            .as_ref()
             .filter(|_| !origin_changed && !probes.is_changed())
             .map_or_else(|| probes.select(origin), |draws| draws.probe);
         if binding.is_changed()
-            && let Some(draws) = draws
+            && let Some(draws) = draws.as_ref()
         {
             for &surface in &draws.surfaces {
                 draw_bounds
@@ -1185,17 +1230,30 @@ fn bind_animated_draws(
                     .set_if_neq(binding.bounds);
             }
         }
-        if draws.is_some_and(|d| d.model == instance.model.id() && d.lod == lod && d.probe == probe)
-            && !models.is_changed()
+        if draws.as_ref().is_some_and(|d| d.model == instance.model.id() && d.lod == lod && d.probe == probe)
+            // Loading another model must not replace this instance's draws and
+            // materials while their replacements wait for GPU preparation.
+            && !changed_models.contains(entity)
             && !probes.is_changed()
         {
             continue;
         }
-        if let Some(draws) = draws {
+        if let Some(draws) = draws.as_ref() {
             for &surface in &draws.surfaces {
                 commands.entity(surface).try_despawn();
             }
         }
+        // LODs share source materials. Retain their GPU assets until the model
+        // or reflection data changes, including materials used by earlier LODs.
+        let mut draw_materials = draws
+            .as_mut()
+            .filter(|d| {
+                d.model == instance.model.id()
+                    && d.probe == probe
+                    && !changed_models.contains(entity)
+                    && !probes.is_changed()
+            })
+            .map_or_else(BTreeMap::new, |d| std::mem::take(&mut d.materials));
         let source_probe = &probes.probes[probe];
         let probe_image = super::material::image(&server, &source_probe.reflection_image);
         let sh =
@@ -1206,16 +1264,20 @@ fn bind_animated_draws(
             if !source.has_camera_pass() {
                 continue;
             }
-            let (material, state) =
-                source
-                    .model(&server, probe_image.clone())
-                    .unwrap_or_else(|e| {
-                        panic!(
-                            "Animated model {:?} surface {}: {e}",
-                            instance.model.id(),
-                            surface.material
-                        )
-                    });
+            let (material, state) = draw_materials
+                .entry(surface.material_file.clone())
+                .or_insert_with(|| {
+                    let (material, state) = source
+                        .model(&server, probe_image.clone())
+                        .unwrap_or_else(|e| {
+                            panic!(
+                                "Animated model {:?} surface {}: {e}",
+                                instance.model.id(),
+                                surface.material
+                            )
+                        });
+                    (materials.add(material), state)
+                });
             let mut draw = commands.spawn((
                 ChildOf(binding.mesh),
                 axes,
@@ -1235,8 +1297,8 @@ fn bind_animated_draws(
                         lod,
                         surface: index,
                     },
-                    material: materials.add(material),
-                    state,
+                    material: material.clone(),
+                    state: *state,
                     primary_byte_offset: 0,
                     first_index: surface.first_index,
                     index_count: surface.tri_count * 3,
@@ -1258,6 +1320,7 @@ fn bind_animated_draws(
             lod,
             probe,
             surfaces,
+            materials: draw_materials,
         });
     }
 }

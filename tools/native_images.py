@@ -89,7 +89,11 @@ def _sources(walks, assets):
             destination = assets / "images" / (asset.name.replace("*", "_") + ".dds")
             selected[asset.name] = None
             unavailable.pop(asset.name, None)
-            if fmt != 28 and (not streamed or destination.is_file()):
+            # Legacy sky exports can have reordered/flipped cube faces and no
+            # mip chain. Restore compressed cubes from the source too; an
+            # existing DDS does not establish their face layout is correct.
+            cubemap = head is not None and bool(head[1] & CUBEMAP)
+            if fmt != 28 and not cubemap and (not streamed or destination.is_file()):
                 continue
             item = {"name": asset.name, "source_zone": str(walk.path), "format": fmt,
                     "width": record["width"], "height": record["height"]}

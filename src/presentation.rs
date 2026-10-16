@@ -79,8 +79,7 @@ pub(crate) struct Rig {
     audio_scale: f32,
     source_sample: Option<f32>,
     selection_sequence: u64,
-    ads_from: [f32; 2],
-    ads_elapsed: f32,
+    ads_weights: [crate::animation::GoalWeight; 2],
     ads_requested: Option<bool>,
 }
 impl Rig {
@@ -355,8 +354,7 @@ fn spawn_viewmodels(
                             audio_scale: 1.,
                             source_sample: None,
                             selection_sequence: 0,
-                            ads_from: [0.; 2],
-                            ads_elapsed: 0.,
+                            ads_weights: default(),
                             ads_requested: None,
                         },
                         Transform::default(),
@@ -895,19 +893,16 @@ fn camera_pose(
     }
 }
 fn build_graphs(
-    mut commands: Commands,
     mut rigs: Query<(
-        Entity,
         &mut Rig,
         &mut crate::animation::SceneClips,
         &mut AnimationGraphHandle,
-        Has<AnimationTransitions>,
     )>,
     mut assets: crate::animation::ClipAssets,
     definition: Option<Res<GameDefinition>>,
 ) {
     let Some(definition) = definition else { return };
-    for (entity, mut rig, mut loaded, mut graph, transitions) in &mut rigs {
+    for (mut rig, mut loaded, mut graph) in &mut rigs {
         if rig.prefetched {
             continue;
         }
@@ -943,12 +938,6 @@ fn build_graphs(
             }
         }
         rig.prefetched = complete;
-        if !transitions
-            && !(rig.arms && weapon.mechanics.native_ads_pitch.is_some())
-            && !rig.nodes.is_empty()
-        {
-            commands.entity(entity).insert(AnimationTransitions::new());
-        }
     }
 }
 
@@ -1057,7 +1046,6 @@ fn animate(
         &mut Rig,
         &mut Visibility,
         &mut AnimationPlayer,
-        Option<&mut AnimationTransitions>,
         &mut crate::animation::SceneClips,
         &mut AnimationGraphHandle,
     )>,
@@ -1066,7 +1054,7 @@ fn animate(
     let Some(definition) = definition else {
         return;
     };
-    for (mut rig, mut visibility, mut player, mut transitions, mut loaded, mut graph) in &mut rigs {
+    for (mut rig, mut visibility, mut player, mut loaded, mut graph) in &mut rigs {
         let Ok((inventory, lethal, tactical, mines, drinking, buildables)) =
             inventories.get(rig.owner)
         else {
@@ -1333,11 +1321,7 @@ fn animate(
             if let Some(previous) = rig.ads_action_node.take() {
                 player.stop(previous);
             }
-            if let Some(transitions) = transitions.as_mut() {
-                transitions.play(&mut player, node, std::time::Duration::ZERO);
-            } else {
-                player.start(node);
-            }
+            player.start(node);
             rig.main_node = Some(node);
         }
         let active = player.play(node);
@@ -1365,8 +1349,8 @@ fn animate(
             .and_then(|id| id.0.rsplit('.').next())
             .and_then(|name| crate::animation::clip_path(&definition, &rig.source, name))
             .and_then(|path| loaded.node(path, &mut graph, &mut assets));
-        if let Some((aim_node, aim_duration)) =
-            paired.filter(|(aim_node, _)| *aim_node != node && clip_duration > 0.)
+        if let Some((aim_node, aim_duration)) = paired
+            .filter(|(aim_node, _)| *aim_node != node && clip_duration > 0. && source_duration > 0.)
         {
             let sample = source_sample
                 .unwrap_or_else(|| player.animation(node).unwrap().elapsed() * rig.pose_scale);
@@ -1384,23 +1368,18 @@ fn animate(
             let requested = inventory.native_ads_requested();
             let actions = [WeaponAnimation::AdsEnter, WeaponAnimation::AdsLeave];
             if rig.ads_requested != Some(requested) {
-                for (index, action) in actions.iter().enumerate() {
-                    rig.ads_from[index] = weapon
-                        .animation_actions
-                        .get(action)
-                        .and_then(|id| id.0.rsplit('.').next())
-                        .and_then(|name| rig.nodes.get(name))
-                        .and_then(|node| player.animation(*node))
-                        .map_or(0., |active| active.weight());
+                for (index, weight) in rig.ads_weights.iter_mut().enumerate() {
+                    weight.set(if requested == (index == 0) { 1. } else { 0. }, 0.1);
                 }
                 rig.ads_requested = Some(requested);
-                rig.ads_elapsed = 0.;
             }
-            if **state == GameState::Playing {
-                rig.ads_elapsed += time.delta_secs();
-            }
-            let blend = (rig.ads_elapsed / 0.1).min(1.);
+            let dt = if **state == GameState::Playing {
+                time.delta_secs()
+            } else {
+                0.
+            };
             for (index, action) in actions.iter().enumerate() {
+                let weight = rig.ads_weights[index].advance(dt);
                 let Some(name) = weapon
                     .animation_actions
                     .get(action)
@@ -1419,10 +1398,9 @@ fn animate(
                 } else {
                     1. - inventory.ads
                 };
-                let weight = if requested == (index == 0) { 1. } else { 0. };
                 player
                     .play(node)
-                    .set_weight(rig.ads_from[index].lerp(weight, blend))
+                    .set_weight(weight)
                     .set_seek_time(fraction * duration)
                     .pause();
             }
@@ -1624,8 +1602,7 @@ mod tests {
             audio_scale: 1.,
             source_sample: None,
             selection_sequence: 0,
-            ads_from: [0.; 2],
-            ads_elapsed: 0.,
+            ads_weights: default(),
             ads_requested: None,
         };
         let mut arms_rig = make_rig();

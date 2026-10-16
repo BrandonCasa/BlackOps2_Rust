@@ -343,7 +343,22 @@ fn tick(
             });
         let path = crate::animation::clip_path(&game, &chest.source, clip)
             .expect("Challenge chest source clip binding");
-        clips.sample(path, seconds, false, &mut player, &mut graph, &mut assets);
+        // zm_tomb_challenges clears the old clip immediately, then SetAnim
+        // uses its native default 0.2-second incoming goal time.
+        clips.sample_transition(
+            Some(path),
+            seconds,
+            false,
+            crate::animation::ClipBlend {
+                incoming: 0.2,
+                outgoing: 0.,
+            },
+            1.,
+            dt,
+            &mut player,
+            &mut graph,
+            &mut assets,
+        );
     }
 }
 fn collect(

@@ -84,6 +84,8 @@ fn initialize(world: &mut World) {
         ..default()
     };
     session.seed = std::collections::hash_map::RandomState::new().hash_one(std::process::id());
+    #[cfg(feature = "dev-tools")]
+    crate::validation::initialize(world, &mut session);
     session.character = (session.seed % 4) as usize;
     world.insert_resource(session);
     world.insert_resource(crate::quests::MainQuest::reset(

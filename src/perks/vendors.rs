@@ -444,14 +444,19 @@ fn machine_presentation(
             };
             let path = crate::animation::clip_path(&game, source, clip_name)
                 .expect("Wunderfizz machine clip exported");
-            scene_clips.sample(
-                path,
+            // _zm_perk_random::update_animation clears root and sets the new
+            // action with matching 0.2-second goal times.
+            scene_clips.sample_transition(
+                Some(path),
                 if looping {
                     visual.age % duration
                 } else {
                     visual.age.min(duration)
                 },
                 looping,
+                crate::animation::ClipBlend::crossfade(0.2),
+                1.,
+                dt,
                 &mut player,
                 &mut graph,
                 &mut clips,

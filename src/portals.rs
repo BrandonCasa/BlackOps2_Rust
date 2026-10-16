@@ -694,6 +694,7 @@ fn crystals(
 
 fn presentation(
     mut commands: Commands,
+    time: Res<Time<Fixed>>,
     portals: Res<Portals>,
     game: Res<GameDefinition>,
     mut assets: crate::animation::ClipAssets,
@@ -775,6 +776,17 @@ fn presentation(
         };
         let path = crate::animation::clip_path(&game, &frame.source, clip)
             .expect("Portal source clip binding");
-        clips.sample(path, seconds, false, &mut player, &mut graph, &mut assets);
+        // zm_tomb_teleporter uses a 0.1-second SetAnim goal time.
+        clips.sample_transition(
+            Some(path),
+            seconds,
+            false,
+            crate::animation::ClipBlend::crossfade(0.1),
+            1.,
+            time.delta_secs(),
+            &mut player,
+            &mut graph,
+            &mut assets,
+        );
     }
 }

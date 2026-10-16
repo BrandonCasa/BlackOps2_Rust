@@ -6,6 +6,7 @@ mod impact;
 pub(crate) mod lighting;
 mod map;
 mod material;
+pub(crate) mod shooting;
 #[cfg(test)]
 mod tests;
 mod visuals;
@@ -207,6 +208,7 @@ struct Particle {
 pub(crate) struct NativeFxPlugin;
 impl Plugin for NativeFxPlugin {
     fn build(&self, app: &mut App) {
+        shooting::install(app);
         app.add_systems(
             OnEnter(GameState::Loading),
             load_catalog.after(crate::assets::begin_load),
@@ -245,9 +247,15 @@ fn load_catalog(
     let catalog: Catalog = crate::origins::read(&options.asset_root.join("fx_catalog.json"));
     catalog.impacts.validate();
     commands.insert_resource(decal::Materials::load(&options.asset_root, &catalog));
+    let names = catalog
+        .materials
+        .keys()
+        .cloned()
+        .chain(shooting::materials().cloned())
+        .collect::<std::collections::BTreeSet<_>>();
     commands.insert_resource(material::Materials::load(
         &options.asset_root,
-        catalog.materials.keys(),
+        names.iter(),
         &server,
         &mut materials,
     ));
@@ -1416,7 +1424,7 @@ fn object_constants(
         (
             Entity,
             Ref<GlobalTransform>,
-            &Particle,
+            Option<&Particle>,
             &NativeEffectDraw,
             Option<&mut NativeEffectTransform>,
             Option<&mut NativeCloudObject>,
@@ -1435,7 +1443,7 @@ fn object_constants(
     let source_from_bevy = crate::rendering::world::source_frame().inverse();
     let to_eye = source_from_bevy * Mat4::from_translation(-eye);
     for (entity, transform, particle, draw, constants, cloud_constants) in &mut particles {
-        if let Some(state) = &particle.cloud {
+        if let Some(state) = particle.and_then(|particle| particle.cloud.as_ref()) {
             let updated = cloud::constants(&transform, &camera, outdoor.as_deref(), state);
             if let Some(mut constants) = cloud_constants {
                 *constants = updated;

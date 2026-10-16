@@ -46,7 +46,9 @@ impl Plugin for NativeSkinningPlugin {
             .add_systems(ExtractSchedule, extract_instances)
             .add_systems(
                 Render,
-                prepare_instances.in_set(RenderSystems::PrepareBindGroups),
+                // Queueing needs the current LOD's buffers, including newly
+                // spawned instances and LOD switches in this extraction.
+                prepare_instances.in_set(RenderSystems::PrepareMeshes),
             )
             .add_systems(RenderGraph, skin.before(camera_driver));
     }
@@ -94,9 +96,7 @@ pub(crate) struct PreparedSkin {
     pub previous_pose_valid: bool,
     last_frame: Option<u32>,
     pub ready: bool,
-    matrices: Buffer,
-    matrix_count: usize,
-    palette_bytes: Vec<u8>,
+    matrices: StorageBuffer<Vec<Mat4>>,
     group: BindGroup,
     dispatches: Vec<(u32, u32)>,
     geometry_key: (BufferId, usize),
@@ -115,18 +115,21 @@ impl PreparedSkin {
         source: &Buffer,
         blends: &Buffer,
         ranges: &[SkinRange],
-        matrix_count: usize,
+        palette: &[Mat4],
         vertex_count: u32,
         lod: usize,
         motion_history: bool,
     ) -> Self {
+        let matrix_count = palette.len();
         assert!(matrix_count > 0 && vertex_count > 0 && !ranges.is_empty());
-        let matrices = device.create_buffer(&BufferDescriptor {
-            label: Some("native instance bone palette"),
-            size: matrix_count as u64 * 64,
-            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        assert!(
+            palette.iter().all(|matrix| matrix.is_finite()),
+            "native skin bone palette must be finite"
+        );
+        // ShaderType preserves array<mat4x4<f32>>'s 64-byte column-major stride.
+        let mut matrices = StorageBuffer::from(palette.to_vec());
+        matrices.set_label(Some("native instance bone palette"));
+        matrices.write_buffer(device, queue);
         let vertices = device.create_buffer(&BufferDescriptor {
             label: Some("native instance skinned PACKED32"),
             size: u64::from(vertex_count) * 32,
@@ -163,7 +166,7 @@ impl PreparedSkin {
             &BindGroupEntries::sequential((
                 source.as_entire_binding(),
                 blends.as_entire_binding(),
-                matrices.as_entire_binding(),
+                matrices.binding().unwrap(),
                 vertices.as_entire_binding(),
                 uniforms.binding().unwrap(),
             )),
@@ -183,27 +186,25 @@ impl PreparedSkin {
             last_frame: None,
             ready: false,
             matrices,
-            matrix_count,
-            palette_bytes: Vec::with_capacity(matrix_count * 64),
             group,
             dispatches,
         }
     }
 
     /// The animation extractor updates this only when the instance pose changes.
-    pub(crate) fn set_palette(&mut self, matrices: &[Mat4], queue: &RenderQueue) {
-        assert_eq!(matrices.len(), self.matrix_count);
-        self.palette_bytes.clear();
-        for matrix in matrices {
-            assert!(
-                matrix.is_finite(),
-                "native skin bone palette must be finite"
-            );
-            for value in matrix.to_cols_array() {
-                self.palette_bytes.extend_from_slice(&value.to_le_bytes());
-            }
-        }
-        queue.write_buffer(&self.matrices, 0, &self.palette_bytes);
+    pub(crate) fn set_palette(
+        &mut self,
+        matrices: &[Mat4],
+        device: &RenderDevice,
+        queue: &RenderQueue,
+    ) {
+        assert_eq!(matrices.len(), self.matrices.get().len());
+        assert!(
+            matrices.iter().all(|matrix| matrix.is_finite()),
+            "native skin bone palette must be finite"
+        );
+        self.matrices.get_mut().clone_from_slice(matrices);
+        self.matrices.write_buffer(device, queue);
         self.ready = false;
     }
 }
@@ -220,11 +221,12 @@ fn skin(
     };
     // Preserve only a pose that will actually change. Unchanged animation uses
     // the current vertex buffer for both frames, without a redundant GPU copy.
+    let mut needs_skinning = false;
     for (input, mut instance) in &mut instances {
         instance.previous_pose_valid = false;
-        if input.visible
-            && !instance.ready
-            && !instance.palette_bytes.is_empty()
+        let needs_update = input.visible && !instance.ready;
+        needs_skinning |= needs_update;
+        if needs_update
             && instance.last_frame == Some(frame.0.wrapping_sub(1))
             && let Some(previous) = &instance.previous_vertices
         {
@@ -241,9 +243,7 @@ fn skin(
             instance.last_frame = Some(frame.0);
         }
     }
-    if instances.iter().all(|(input, instance)| {
-        !input.visible || instance.ready || instance.palette_bytes.is_empty()
-    }) {
+    if !needs_skinning {
         return;
     }
     let mut pass = context
@@ -251,7 +251,7 @@ fn skin(
         .begin_compute_pass(&ComputePassDescriptor::default());
     pass.set_pipeline(pipeline);
     for (input, mut instance) in &mut instances {
-        if !input.visible || instance.ready || instance.palette_bytes.is_empty() {
+        if !input.visible || instance.ready {
             continue;
         }
         for &(offset, workgroups) in &instance.dispatches {
@@ -476,10 +476,11 @@ fn prepare_instances(
             prepared.filter(|p| p.geometry_key == (model.vertices.id(), input.lod))
         {
             if input.is_changed() {
-                prepared.set_palette(&input.palette, &queue);
+                prepared.set_palette(&input.palette, &device, &queue);
             }
         } else {
-            let mut prepared = PreparedSkin::new(
+            assert_eq!(input.palette.len(), model.bones);
+            let prepared = PreparedSkin::new(
                 &device,
                 &queue,
                 &cache,
@@ -487,13 +488,35 @@ fn prepare_instances(
                 &model.vertices,
                 &model.blends,
                 &lod.ranges,
-                model.bones,
+                &input.palette,
                 lod.vertex_count,
                 input.lod,
                 !dlss.is_empty(),
             );
-            prepared.set_palette(&input.palette, &queue);
             commands.entity(entity).insert(prepared);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn typed_palette_preserves_native_matrix_bytes() {
+        let palette: Vec<Mat4> = (0..2)
+            .map(|bone| {
+                Mat4::from_cols_array(&std::array::from_fn(|i| (bone * 16 + i) as f32 * 0.25 - 3.))
+            })
+            .collect();
+        let mut encoded = encase::StorageBuffer::new(Vec::<u8>::new());
+        encoded.write(&palette).unwrap();
+        let expected: Vec<u8> = palette
+            .iter()
+            .flat_map(|matrix| matrix.to_cols_array())
+            .flat_map(f32::to_le_bytes)
+            .collect();
+        assert_eq!(encoded.as_ref().len(), palette.len() * 64);
+        assert_eq!(encoded.as_ref(), &expected);
     }
 }

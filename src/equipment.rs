@@ -23,6 +23,10 @@ pub struct ThrowableDefinition {
     pub fuse_seconds: f32,
     pub speed: f32,
     pub up_speed: f32,
+    #[serde(default)]
+    pub relative_up_speed: f32,
+    #[serde(default)]
+    pub rotating: bool,
     pub radius: f32,
     pub inner_radius: f32,
     pub inner_damage: u32,
@@ -67,12 +71,15 @@ fn native_launch_velocity(
     player_velocity: Vec3,
 ) -> Vec3 {
     let Some(native) = &tuning.native_launch else {
-        return rotation * Vec3::NEG_Z * tuning.speed + Vec3::Y * tuning.up_speed + player_velocity;
+        return rotation * (Vec3::NEG_Z * tuning.speed + Vec3::Y * tuning.relative_up_speed)
+            + Vec3::Y * tuning.up_speed
+            + player_velocity;
     };
     let forward = rotation * Vec3::NEG_Z;
     let initial = forward * (tuning.speed / 0.0254).round()
         + rotation * Vec3::X * (native.right_speed / 0.0254).round()
         + Vec3::Y * (tuning.up_speed / 0.0254).round()
+        + rotation * Vec3::Y * (tuning.relative_up_speed / 0.0254).round()
         + forward.with_y(0.).normalize_or_zero() * (native.horizontal_speed / 0.0254).round();
     let direction = initial.normalize_or_zero();
     let snapped = Vec3::from_array(initial.to_array().map(f32::trunc)) * 0.0254;
@@ -280,6 +287,29 @@ pub struct Grenade {
     pub lure_active: bool,
 }
 impl Grenade {
+    fn advance_time(&mut self, dt: f32, native: bool) -> f32 {
+        let dt = if self.fresh {
+            self.fresh = false;
+            0.
+        } else {
+            dt
+        };
+        let live_dt = dt.min(self.remaining.max(0.));
+        self.remaining -= dt;
+        self.elapsed += dt;
+        if !native {
+            return live_dt;
+        }
+        self.step_age += live_dt;
+        if self.step_age + 0.000001 >= 0.05 || self.remaining <= 0. {
+            let step = self.step_age.min(0.05);
+            self.step_age = (self.step_age - step).max(0.);
+            step
+        } else {
+            0.
+        }
+    }
+
     pub fn settled(&self) -> bool {
         matches!(
             self.motion,
@@ -880,14 +910,12 @@ fn grenade_spin(
         (-velocity.z).atan2(velocity.x),
         0.,
     );
-    let Some(native) = &tuning.native_launch else {
-        return (Vec3::ZERO, Vec3::ZERO);
-    };
-    if !native.rotating || !thrown {
+    let rotating = tuning.native_launch.as_ref().map_or(tuning.rotating, |native| native.rotating);
+    if !rotating || !thrown {
         return (angles, Vec3::ZERO);
     }
     angles.x -= 120_f32.to_radians();
-    let spin = if native.rotation_mode == 1 {
+    let spin = if tuning.native_launch.as_ref().is_some_and(|native| native.rotation_mode == 1) {
         Vec3::new(1500_f32.to_radians(), 0., 0.)
     } else {
         let signed = |offset: u64, low: f32, high: f32| {
@@ -1065,25 +1093,7 @@ pub(crate) fn flight(
         let Some(tuning) = weapon.throwable.as_ref() else {
             continue;
         };
-        let dt = if grenade.fresh {
-            grenade.fresh = false;
-            0.
-        } else {
-            time.delta_secs()
-        };
-        grenade.remaining -= dt;
-        grenade.elapsed += dt;
-        let motion_dt = if tuning.native_launch.is_some() {
-            grenade.step_age += dt;
-            if grenade.step_age + 0.000001 >= 0.05 {
-                grenade.step_age = (grenade.step_age - 0.05).max(0.);
-                0.05
-            } else {
-                0.
-            }
-        } else {
-            dt
-        };
+        let motion_dt = grenade.advance_time(time.delta_secs(), tuning.native_launch.is_some());
         if let GrenadeMotion::Attached {
             target,
             offset,
@@ -1105,7 +1115,6 @@ pub(crate) fn flight(
             }
         }
         if let GrenadeMotion::Flying(mut velocity) = grenade.motion
-            && grenade.remaining > 0.
             && motion_dt > 0.
         {
             let before = velocity;
@@ -1113,9 +1122,7 @@ pub(crate) fn flight(
             let before_angles = grenade.angles;
             let angular_velocity = grenade.angular_velocity;
             grenade.angles += angular_velocity * motion_dt;
-            if tuning.native_launch.is_some() {
-                transform.rotation = source_rotation(grenade.angles);
-            }
+            transform.rotation = source_rotation(grenade.angles);
             let gravity_step = definition.tuning.gravity * motion_dt;
             let delta = (velocity - Vec3::Y * gravity_step * 0.5) * motion_dt;
             velocity.y -= gravity_step;
@@ -1707,14 +1714,17 @@ pub(crate) fn resolve_blasts(
                 normal,
             );
         }
-        if blast.definition.0 == "weapon.frag_grenade_zm" {
+        if matches!(
+            blast.category.unwrap_or(DamageCategory::Explosive),
+            DamageCategory::Explosive
+        ) && blast.inner_damage.max(blast.outer_damage) > 0
+        {
             ragdoll_explosions.write(crate::enemies::RagdollExplosion {
                 center,
-                inner_radius: 0.,
+                inner_radius: blast.inner_radius,
                 radius: blast.radius,
-                direction: Vec3::ZERO,
+                direction: blast.direction,
                 magnitude: 1.,
-                inward: false,
             });
         }
         for (target, shape, pose, state, trigger) in &environmental {

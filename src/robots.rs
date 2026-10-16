@@ -701,10 +701,14 @@ fn tick(
         let Ok((mut clips, mut player, mut graph)) = animated.get_mut(robot_entity) else {
             continue;
         };
-        if !clips.sample(
-            &animation.path,
+        // The robot's scripted ASD actions use the native 0.2-second blend.
+        if !clips.sample_transition(
+            Some(&animation.path),
             (p.clock + dt).min(end),
             false,
+            crate::animation::ClipBlend::crossfade(0.2),
+            1.,
+            dt,
             &mut player,
             &mut graph,
             &mut assets,
@@ -1175,14 +1179,22 @@ fn foot_presentation(
         let animation = &game.content.animations[foot.clips[clip]];
         {
             if let Ok((mut clips, mut player, mut graph)) = animated.get_mut(entity) {
-                clips.sample(
-                    &animation.path,
+                // giant_robot_foot_waittill_sole_shot / close_head_entrance:
+                // SetAnim blends in for 0.2s, ClearAnim blends out for 1s.
+                clips.sample_transition(
+                    Some(&animation.path),
                     if clip == 1 {
                         age - opening.seconds
                     } else {
                         age.min(animation.seconds)
                     },
                     clip == 1,
+                    crate::animation::ClipBlend {
+                        incoming: 0.2,
+                        outgoing: 1.,
+                    },
+                    1.,
+                    time.delta_secs(),
                     &mut player,
                     &mut graph,
                     &mut assets,
@@ -1190,7 +1202,6 @@ fn foot_presentation(
             }
         }
         foot.phase = phase;
-        let _ = time;
     }
 }
 fn prone(

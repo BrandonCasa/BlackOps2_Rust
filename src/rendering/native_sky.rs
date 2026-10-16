@@ -379,7 +379,8 @@ fn sky_sampler() -> SamplerDescriptor<'static> {
         min_filter: FilterMode::Linear,
         mipmap_filter: MipmapFilterMode::Nearest,
         lod_min_clamp: 0.,
-        lod_max_clamp: f32::MAX,
+        // The authored sky sampler disables mip sampling.
+        lod_max_clamp: 0.,
         anisotropy_clamp: 1,
         ..default()
     }

@@ -16,7 +16,7 @@ fn packed_half(value: f32) -> u16 {
     (narrowed as u16 & 0x3fff) | ((bits >> 16) as u16 & 0xc000)
 }
 
-fn vertex(bytes: &mut Vec<u8>, position: Vec3, color: [u8; 4], uv: Vec2, normal: u32) {
+pub(super) fn vertex(bytes: &mut Vec<u8>, position: Vec3, color: [u8; 4], uv: Vec2, normal: u32) {
     for value in [position.x, position.y, position.z, -1.] {
         bytes.extend_from_slice(&value.to_le_bytes());
     }

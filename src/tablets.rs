@@ -146,6 +146,8 @@ fn setup(
             fuse_seconds: 10.,
             speed: 20.32,
             up_speed: 2.54,
+            relative_up_speed: 0.,
+            rotating: false,
             radius: 2.54,
             inner_radius: 0.,
             inner_damage: 5000,

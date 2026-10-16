@@ -126,6 +126,7 @@ fn additional(
         Has<crate::robots::RobotTransit>,
         Has<crate::tank::TankRescue>,
     )>,
+    mut shot_effects: MessageWriter<crate::native_fx::shooting::Shot>,
 ) {
     for (entity, mut sequence) in &mut sequences {
         let Ok((
@@ -170,6 +171,20 @@ fn additional(
             let rotation = Quat::from_rotation_y(player.yaw + (-15. + random * 30.).to_radians())
                 * Quat::from_rotation_x(player.pitch - (5. * sequence.index as f32).to_radians());
             let origin = pose.translation + Vec3::Y * (player.eye_height - player.height * 0.5);
+            shot_effects.write(crate::native_fx::shooting::Shot {
+                owner: sequence.owner,
+                weapon: sequence.weapon.clone(),
+                view_weapon: inventory
+                    .active()
+                    .expect("active staff sequence")
+                    .definition
+                    .clone(),
+                left: false,
+                origin,
+                end: None,
+                muzzle: true,
+                last: false,
+            });
             spawn_one(
                 &mut commands,
                 sequence.owner,
@@ -189,7 +204,7 @@ fn additional(
 pub(crate) fn flight(
     mut commands: Commands,
     time: Res<Time<Fixed>>,
-    game: Res<GameDefinition>,
+    (game, effects): (Res<GameDefinition>, Res<crate::native_fx::Catalog>),
     session: Res<crate::session::SessionId>,
     mut projectiles: Query<
         (Entity, &mut WeaponProjectile, &mut Transform),
@@ -200,7 +215,11 @@ pub(crate) fn flight(
     >,
     targets: crate::hit_regions::RayTargets,
     zombies: Query<(), With<crate::enemies::Zombie>>,
-    query: SpatialQuery,
+    (query, surfaces, armor): (
+        SpatialQuery,
+        Query<&crate::movement::physics::SurfaceFlags>,
+        Query<&crate::combat_effects::Armor>,
+    ),
     mut damage: ResMut<crate::damage::DamageQueue>,
     mut blasts: ResMut<crate::equipment::BlastQueue>,
     (environmental, trigger_targets): (
@@ -406,11 +425,41 @@ pub(crate) fn flight(
             weapon: projectile.weapon.clone(),
             point: center,
         });
+        let actor_impact = actor.is_some()
+            && actor_distance <= solid_distance
+            && actor_distance <= environment_distance;
+        let normal = if actor_impact {
+            -*direction
+        } else {
+            solid.map_or(-*direction, |hit| hit.normal1)
+        };
+        let surface = if actor_impact {
+            if actor.is_some_and(|hit| {
+                armor
+                    .get(hit.target)
+                    .is_ok_and(|armor| !hit.hit.region.head() || !armor.broken)
+            }) {
+                13
+            } else {
+                7
+            }
+        } else {
+            solid
+                .and_then(|hit| surfaces.get(hit.entity).ok())
+                .map_or(0, |flags| ((flags.0 >> 20) & 0x3f) as u8)
+        };
+        if let Some(effect) = effects.impact(weapon.mechanics.impact_type, surface, 0) {
+            crate::native_fx::emit(
+                &mut commands,
+                effect,
+                effects.explosion_pose(center, normal),
+            );
+        }
         if let Some(effect) = &weapon.mechanics.projectile_effect {
             crate::native_fx::emit(
                 &mut commands,
                 effect.clone(),
-                Transform::from_translation(center),
+                effects.explosion_pose(center, normal),
             );
         }
         if environment_distance <= solid_distance && environment_distance <= actor_distance {

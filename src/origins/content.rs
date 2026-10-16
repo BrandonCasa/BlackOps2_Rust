@@ -74,6 +74,8 @@ pub struct WeaponDefinition {
     #[serde(default)]
     pub mechanics: WeaponMechanics,
     #[serde(default)]
+    pub effects: WeaponEffects,
+    #[serde(default)]
     pub attachments: BTreeMap<String, AttachmentDefinition>,
     #[serde(default)]
     pub throwable: Option<crate::equipment::ThrowableDefinition>,
@@ -81,6 +83,20 @@ pub struct WeaponDefinition {
     pub mine: Option<crate::mines::MineDefinition>,
     #[serde(default)]
     pub lure: Option<crate::lures::LureDefinition>,
+}
+
+#[derive(Clone, Default, Deserialize)]
+pub struct WeaponEffects {
+    pub flash: Option<String>,
+    pub shell: Option<String>,
+    pub last_shell: Option<String>,
+    pub flash_offset: [f32; 3],
+    pub shell_offset: [f32; 3],
+    pub shell_rotation: [f32; 3],
+    pub alternate_flash: bool,
+    pub tracer: Option<String>,
+    pub melee: Option<String>,
+    pub melee_no_blood: Option<String>,
 }
 
 #[derive(Clone, Deserialize)]

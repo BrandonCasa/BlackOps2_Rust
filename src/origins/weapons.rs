@@ -165,6 +165,36 @@ pub(crate) fn bind(game: &mut GameDefinition, root: &Path) -> Result<(), String>
                 .parse::<f32>()
                 .map_err(|_| format!("Weapon {name} has invalid {key}"))
         };
+        if let Some(throwable) = &mut weapon.throwable {
+            throwable.speed = number("projectileSpeed")? * crate::assets::SOURCE_UNIT_METERS;
+            throwable.up_speed = number("projectileSpeedUp")? * crate::assets::SOURCE_UNIT_METERS;
+            throwable.relative_up_speed = number("projectileSpeedRelativeUp")? * crate::assets::SOURCE_UNIT_METERS;
+            throwable.rotating = text("rotate") == Some("1");
+        }
+        weapon.effects = super::content::WeaponEffects {
+            flash: text("viewFlashEffect").map(str::to_owned),
+            shell: text("viewShellEjectEffect").map(str::to_owned),
+            last_shell: text("viewLastShotEjectEffect").map(str::to_owned),
+            flash_offset: [
+                number("viewFlashOffsetF")?,
+                number("viewFlashOffsetR")?,
+                number("viewFlashOffsetU")?,
+            ],
+            shell_offset: [
+                number("viewShellEjectOffsetF")?,
+                number("viewShellEjectOffsetR")?,
+                number("viewShellEjectOffsetU")?,
+            ],
+            shell_rotation: [
+                number("viewShellEjectRotationP")?,
+                number("viewShellEjectRotationY")?,
+                number("viewShellEjectRotationR")?,
+            ],
+            alternate_flash: text("useAltTagFlash") == Some("1"),
+            tracer: text("tracerType").map(str::to_owned),
+            melee: text("meleeImpactEffect").map(str::to_owned),
+            melee_no_blood: text("meleeImpactNoBloodEffect").map(str::to_owned),
+        };
         let Some(id) = &weapon.presentation else {
             continue;
         };
@@ -369,6 +399,22 @@ mod source_catalog_tests {
             if weapon.presentation.is_none() {
                 continue;
             }
+            assert_eq!(
+                weapon.effects.flash.as_deref(),
+                source
+                    .info
+                    .get("viewFlashEffect")
+                    .filter(|value| !value.is_empty())
+                    .map(String::as_str)
+            );
+            assert_eq!(
+                weapon.effects.tracer.as_deref(),
+                source
+                    .info
+                    .get("tracerType")
+                    .filter(|value| !value.is_empty())
+                    .map(String::as_str)
+            );
             for part in &weapon.model_parts {
                 let scene = part.scene.split('#').next().unwrap();
                 assert!(root.join(scene).is_file(), "{scene}");

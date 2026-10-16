@@ -75,6 +75,8 @@ pub mod staff_upgrades;
 pub mod stations;
 pub mod tablets;
 pub mod tank;
+#[cfg(feature = "dev-tools")]
+mod validation;
 pub mod weapons;
 
 use bevy::prelude::*;
@@ -225,5 +227,7 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
         cinematics::CinematicPlugin,
     ));
 
+    #[cfg(feature = "dev-tools")]
+    validation::install(&mut app);
     app
 }

@@ -157,11 +157,16 @@ pub(crate) fn combat(
         Has<crate::robots::RobotTransit>,
         Has<crate::tank::TankRescue>,
     )>,
-    (enemies, zombies): (
+    (enemies, zombies, armor): (
         crate::hit_regions::RayTargets,
         Query<(), With<crate::enemies::Zombie>>,
+        Query<&crate::combat_effects::Armor>,
     ),
-    mut impacts: ResMut<crate::damage::DamageQueue>,
+    (mut impacts, mut shot_effects, effects): (
+        ResMut<crate::damage::DamageQueue>,
+        MessageWriter<crate::native_fx::shooting::Shot>,
+        Res<crate::native_fx::Catalog>,
+    ),
     query: SpatialQuery,
     mut hit_evidence: ResMut<crate::hit_regions::HitEvidence>,
     mut firing_evidence: ResMut<crate::perks::FiringEvidence>,
@@ -457,24 +462,45 @@ pub(crate) fn combat(
                 && let Some(weapon) = weapon
                 && weapon.mechanics.delivery == crate::origins::content::WeaponDelivery::Projectile
             {
+                if ray == 0 {
+                    shot_effects.write(crate::native_fx::shooting::Shot {
+                        owner: entity,
+                        weapon: weapon_id.clone(),
+                        origin,
+                        end: None,
+                        view_weapon: inventory
+                            .active()
+                            .expect("emitted shot has an active weapon")
+                            .definition
+                            .clone(),
+                        left: inventory.active().is_some_and(|held| {
+                            held.left_magazine.is_some() && held.definition != weapon_id
+                        }),
+                        muzzle: true,
+                        last: inventory.active().is_some_and(|held| held.magazine == 0),
+                    });
+                }
                 crate::projectiles::spawn(&mut commands, entity, weapon, origin, direction);
                 continue;
             }
-            let actor_hits = if melee {
-                crate::hit_regions::melee(
-                    &enemies,
-                    &query,
-                    entity,
-                    origin,
-                    rotation,
-                    range,
-                    weapon.map_or([10. * 0.0254; 2], |w| w.mechanics.melee_extent),
+            let (actor_hits, bullet_trace) = if melee {
+                (
+                    crate::hit_regions::melee(
+                        &enemies,
+                        &query,
+                        entity,
+                        origin,
+                        rotation,
+                        range,
+                        weapon.map_or([10. * 0.0254; 2], |w| w.mechanics.melee_extent),
+                    )
+                    .into_iter()
+                    .map(|h| (h, 1.))
+                    .collect::<Vec<_>>(),
+                    None,
                 )
-                .into_iter()
-                .map(|h| (h, 1.))
-                .collect::<Vec<_>>()
             } else {
-                crate::hit_regions::penetrating(
+                let trace = crate::hit_regions::penetrating(
                     &enemies,
                     &surfaces,
                     &query,
@@ -483,8 +509,69 @@ pub(crate) fn combat(
                     direction,
                     range,
                     weapon.and_then(|w| w.mechanics.penetration.as_ref()),
-                )
+                );
+                (trace.hits, Some((trace.impacts, trace.distance)))
             };
+            let environmental_hit = crate::environment::support::cast(
+                &environmental,
+                &query,
+                entity,
+                origin,
+                direction,
+                range,
+            );
+            if let Some((impact_points, distance)) = bullet_trace {
+                let distance =
+                    distance.min(environmental_hit.map_or(range, |(_, distance)| distance));
+                for impact in impact_points {
+                    if origin.distance(impact.point) > distance + 0.001 {
+                        continue;
+                    }
+                    let surface = if impact.target.is_some_and(|target| {
+                        armor
+                            .get(target)
+                            .is_ok_and(|armor| !impact.region.head() || !armor.broken)
+                    }) {
+                        13
+                    } else {
+                        impact.surface
+                    };
+                    let flags = u32::from(impact.exit) * 4
+                        | u32::from(impact.region.head())
+                        | u32::from(surface == 20) * 8;
+                    if let Some(effect) = weapon.and_then(|weapon| {
+                        effects.impact(weapon.mechanics.impact_type, surface, flags)
+                    }) {
+                        crate::native_fx::emit(
+                            &mut commands,
+                            effect,
+                            effects.explosion_pose(impact.point, impact.normal),
+                        );
+                    }
+                }
+                shot_effects.write(crate::native_fx::shooting::Shot {
+                    owner: entity,
+                    weapon: weapon_id.clone(),
+                    origin,
+                    view_weapon: inventory
+                        .active()
+                        .expect("emitted shot has an active weapon")
+                        .definition
+                        .clone(),
+                    left: inventory.active().is_some_and(|held| {
+                        held.left_magazine.is_some() && held.definition != weapon_id
+                    }),
+                    end: Some(origin + *direction * distance),
+                    muzzle: ray == 0,
+                    last: inventory.active().is_some_and(|held| {
+                        if held.definition == weapon_id {
+                            held.magazine == 0
+                        } else {
+                            held.left_magazine == Some(0)
+                        }
+                    }),
+                });
+            }
             let category = if melee {
                 crate::origins::DamageCategory::Melee
             } else {
@@ -505,17 +592,11 @@ pub(crate) fn combat(
                 ) {
                     distance = distance.min(blocker.distance);
                 }
-                if let Some((_, hit)) = crate::environment::support::cast(
-                    &environmental,
-                    &query,
-                    entity,
-                    origin,
-                    direction,
-                    distance,
-                ) {
+                if let Some((_, hit)) = environmental_hit.filter(|(_, hit)| *hit <= distance) {
                     distance = distance.min(hit);
                 }
                 ragdoll_hits.write(crate::enemies::RagdollBullet {
+                    weapon: weapon_id.clone(),
                     origin,
                     end: origin + *direction * distance,
                 });
@@ -535,16 +616,10 @@ pub(crate) fn combat(
                     .first()
                     .map_or(range, |(hit, _)| hit.hit.distance),
             );
-            if let Some((target, distance)) = crate::environment::support::cast(
-                &environmental,
-                &query,
-                entity,
-                origin,
-                direction,
-                range,
-            ) && actor_hits
-                .first()
-                .is_none_or(|(hit, _)| distance < hit.hit.distance)
+            if let Some((target, distance)) = environmental_hit
+                && actor_hits
+                    .first()
+                    .is_none_or(|(hit, _)| distance < hit.hit.distance)
             {
                 environment_hits.write(crate::environment::support::EnvironmentalHit {
                     target,
@@ -566,6 +641,22 @@ pub(crate) fn combat(
             }
             for (hit, attenuation) in actor_hits {
                 let region = hit.hit.region;
+                if melee {
+                    let effect = weapon.and_then(|weapon| {
+                        if armor.contains(hit.target) {
+                            weapon.effects.melee_no_blood.as_deref()
+                        } else {
+                            weapon.effects.melee.as_deref()
+                        }
+                    });
+                    if let Some(effect) = effect {
+                        crate::native_fx::emit(
+                            &mut commands,
+                            effect,
+                            effects.explosion_pose(hit.hit.point, -*direction),
+                        );
+                    }
+                }
                 if hit_evidence.hits.len() < 128 {
                     hit_evidence.hits.push(serde_json::json!({"target":hit.target.to_bits(),"region":format!("{region:?}"),
                         "distance":hit.hit.distance,"point":hit.hit.point.to_array(),"melee":melee}));

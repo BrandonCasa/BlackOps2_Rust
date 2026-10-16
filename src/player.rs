@@ -59,6 +59,9 @@ pub struct TickActions {
 pub struct PlayerPlugin;
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
+        let look_system = look.after(crate::input::collect);
+        #[cfg(feature = "dev-tools")]
+        let look_system = look_system.run_if(crate::validation::physical_look);
         app.add_plugins(crate::movement::platforms::PlatformPlugin);
         app.init_resource::<TickActions>()
             .add_message::<crate::movement::Landing>()
@@ -66,7 +69,7 @@ impl Plugin for PlayerPlugin {
                 OnEnter(GameState::StartingSession),
                 spawn_player.in_set(crate::session::SessionSetup::Player),
             )
-            .add_systems(PreUpdate, look.after(crate::input::collect))
+            .add_systems(PreUpdate, look_system)
             .add_systems(
                 FixedUpdate,
                 remember_translation

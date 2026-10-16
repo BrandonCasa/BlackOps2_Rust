@@ -391,6 +391,19 @@ pub type PenetrationSurfaces<'w, 's> = Query<
         &'static crate::movement::physics::SurfaceFlags,
     ),
 >;
+pub struct BulletImpact {
+    pub point: Vec3,
+    pub normal: Vec3,
+    pub surface: u8,
+    pub target: Option<Entity>,
+    pub region: HitRegion,
+    pub exit: bool,
+}
+pub struct BulletTrace {
+    pub hits: Vec<(ActorHit, f32)>,
+    pub impacts: Vec<BulletImpact>,
+    pub distance: f32,
+}
 pub fn penetrating(
     targets: &RayTargets,
     surfaces: &PenetrationSurfaces,
@@ -400,7 +413,7 @@ pub fn penetrating(
     direction: Dir3,
     range: f32,
     depths: Option<&[f32; 32]>,
-) -> Vec<(ActorHit, f32)> {
+) -> BulletTrace {
     let mut actors: Vec<_> = targets
         .iter()
         .filter(|(_, health, _, _)| health.state() == LifeState::ActorAlive)
@@ -411,22 +424,48 @@ pub fn penetrating(
         })
         .collect();
     actors.sort_by(|a, b| a.hit.distance.total_cmp(&b.hit.distance));
-    let mut result = Vec::new();
+    let mut result = BulletTrace {
+        hits: Vec::new(),
+        impacts: Vec::new(),
+        distance: range,
+    };
     let mut distance = 0.;
     let mut penetrations = 0;
     let mut energy = 1.;
-    for actor in actors {
-        while distance < actor.hit.distance {
+    // The final interval includes a shot into bare terrain, or the wall after
+    // the last penetrated actor. Visuals and damage share the same trace.
+    for actor in actors.into_iter().map(Some).chain(std::iter::once(None)) {
+        let limit = actor.map_or(range, |actor| actor.hit.distance);
+        while distance < limit {
             let Some(blocker) = world.cast_ray_predicate(
                 origin + *direction * distance,
                 direction,
-                actor.hit.distance - distance,
+                limit - distance,
                 true,
                 &crate::environment::solids([shooter]),
                 &|entity| !targets.contains(entity),
             ) else {
                 break;
             };
+            let entry = distance + blocker.distance;
+            let surface = surfaces
+                .get(blocker.entity)
+                .map_or(0, |(_, _, flags)| ((flags.0 >> 20) & 0x3f) as u8);
+            result.distance = entry;
+            // SURF_NOIMPACT suppresses both the entry mark and its particles.
+            let no_impact = surfaces
+                .get(blocker.entity)
+                .is_ok_and(|(_, _, flags)| flags.0 & 0x100 != 0);
+            if !no_impact {
+                result.impacts.push(BulletImpact {
+                    point: origin + *direction * entry,
+                    normal: blocker.normal,
+                    surface,
+                    target: None,
+                    region: HitRegion::None,
+                    exit: false,
+                });
+            }
             let Some(depths) = depths else {
                 return result;
             };
@@ -449,10 +488,9 @@ pub fn penetrating(
             if incidence < 0.125 {
                 return result;
             }
-            let entry = distance + blocker.distance;
             let step = 0.135 * 0.0254 / incidence;
             let pose = pose.compute_transform();
-            let Some((exit, _)) = shape.cast_ray(
+            let Some((exit, normal)) = shape.cast_ray(
                 pose.translation,
                 pose.rotation,
                 origin + *direction * (entry + step),
@@ -467,14 +505,35 @@ pub fn penetrating(
             if energy <= 0. {
                 return result;
             }
+            if !no_impact {
+                result.impacts.push(BulletImpact {
+                    point: origin + *direction * (entry + thickness),
+                    normal,
+                    surface: surface as u8,
+                    target: None,
+                    region: HitRegion::None,
+                    exit: true,
+                });
+            }
+            result.distance = range;
             penetrations += 1;
             distance = entry + thickness + 0.01 * 0.0254;
         }
+        let Some(actor) = actor else { break };
         if actor.hit.distance < distance {
             continue;
         }
-        result.push((actor, energy));
+        result.hits.push((actor, energy));
+        result.impacts.push(BulletImpact {
+            point: actor.hit.point,
+            normal: -*direction,
+            surface: 7,
+            target: Some(actor.target),
+            region: actor.hit.region,
+            exit: false,
+        });
         if depths.is_none() || penetrations >= 5 {
+            result.distance = actor.hit.distance;
             break;
         }
         let Ok((_, _, pose, boxes)) = targets.get(actor.target) else {
@@ -486,7 +545,18 @@ pub fn penetrating(
             / (100. * 0.0254);
         penetrations += 1;
         if energy <= 0. {
+            result.distance = actor.hit.distance;
             break;
+        }
+        if let Some(exit) = boxes.cast(pose, origin + *direction * range, -direction, range) {
+            result.impacts.push(BulletImpact {
+                point: exit.point,
+                normal: *direction,
+                surface: 7,
+                target: Some(actor.target),
+                region: exit.region,
+                exit: true,
+            });
         }
     }
     result
@@ -529,7 +599,8 @@ fn capture(
                 continue;
             };
             // Bounds are Y-up metres; OAT joint-local axes remain CoD inches.
-            let bone = inverse * joint.affine()
+            let bone = inverse
+                * joint.affine()
                 * bevy::math::Affine3A::from_scale_rotation_translation(
                     Vec3::splat(1. / crate::assets::SOURCE_UNIT_METERS),
                     Quat::from_rotation_x(std::f32::consts::FRAC_PI_2),
@@ -646,6 +717,7 @@ mod tests {
                 10.,
                 None
             )
+            .hits
             .len(),
             1
         );
@@ -660,8 +732,12 @@ mod tests {
             10.,
             Some(&depths),
         );
-        assert_eq!(hits.len(), 6);
-        for (index, (_, energy)) in hits.into_iter().enumerate() {
+        assert_eq!(hits.hits.len(), 6);
+        assert_eq!(hits.impacts.len(), 11);
+        assert_eq!(hits.impacts.iter().filter(|impact| impact.exit).count(), 5);
+        assert!(hits.impacts.iter().all(|impact| impact.surface == 7));
+        assert!(hits.distance < 6.);
+        for (index, (_, energy)) in hits.hits.into_iter().enumerate() {
             assert!((energy - (1. - index as f32 * 0.01)).abs() < 0.00001);
         }
     }
