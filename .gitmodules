@@ -1,3 +1,4 @@
 [submodule "vendor/bevy"]
 	path = vendor/bevy
-	url = https://github.com/bevyengine/bevy.git
+	url = https://github.com/BrandonCasa/bevy.git
+	branch = release-0.20.0
