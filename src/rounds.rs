@@ -338,18 +338,8 @@ pub(crate) fn advance(
             return None;
         }
         let shape = crate::enemies::body_shape(source_enemy, false);
-        if !query
-            .shape_intersections(
-                &shape,
-                position,
-                Quat::IDENTITY,
-                &crate::environment::actor_solids([]),
-            )
-            .is_empty()
-        {
-            evidence.last_rejection = "spawn collision";
-            return None;
-        }
+        evidence.last_rejection = "spawn collision";
+        let position = supported_spawn(&query, &shape, position, &definition.tuning)?;
         evidence.last_rejection = "health";
         let amount = profile.health(session.round);
         let health = Vitality::ordinary_actor(
@@ -491,6 +481,40 @@ pub(crate) fn advance(
     }
 }
 
+fn supported_spawn(
+    query: &SpatialQuery,
+    shape: &Collider,
+    position: Vec3,
+    tuning: &crate::origins::Tuning,
+) -> Option<Vec3> {
+    let filter = crate::environment::actor_solids([]);
+    if query
+        .shape_intersections(shape, position, Quat::IDENTITY, &filter)
+        .is_empty()
+    {
+        return Some(position);
+    }
+    // Source spawn origins can sit just inside uneven terrain. Resolve support
+    // with the complete actor hull, keeping the authored horizontal position.
+    let lift = tuning.step_height + tuning.physics.ground_probe;
+    let hit = query.cast_shape(
+        shape,
+        position + Vec3::Y * lift,
+        Quat::IDENTITY,
+        Dir3::NEG_Y,
+        &ShapeCastConfig::from_max_distance(lift),
+        &filter,
+    )?;
+    if hit.normal1.y < 0.5 {
+        return None;
+    }
+    let supported = position + Vec3::Y * (lift - hit.distance + tuning.physics.ground_probe);
+    query
+        .shape_intersections(shape, supported, Quat::IDENTITY, &filter)
+        .is_empty()
+        .then_some(supported)
+}
+
 impl Session {
     pub fn admitted_spawn(&mut self) -> bool {
         if self.pending == 0 {
@@ -502,4 +526,54 @@ impl Session {
     pub fn round_complete(&self, living: usize) -> bool {
         self.pending == 0 && living == 0
     }
+}
+
+#[cfg(test)]
+#[test]
+fn native_spawn_support_repairs_shallow_floor_overlap_and_rejects_walls() {
+    use bevy::ecs::system::RunSystemOnce;
+    let mut app = App::new();
+    app.add_plugins((
+        MinimalPlugins,
+        TransformPlugin,
+        AssetPlugin::default(),
+        PhysicsPlugins::new(Update),
+    ))
+    .init_asset::<Mesh>();
+    app.world_mut()
+        .spawn((Collider::cuboid(20., 0.4, 20.), Transform::default()));
+    app.world_mut().spawn((
+        Collider::cuboid(1., 5., 1.),
+        Transform::from_xyz(3., 2., 0.),
+    ));
+    app.finish();
+    app.cleanup();
+    app.update();
+    let inspect = |query: SpatialQuery| {
+        let game: GameDefinition =
+            serde_json::from_str(include_str!("../gameplay/origins/game.json")).unwrap();
+        let shape = crate::player::capsule(0.3, 1.7);
+        let native = Vec3::new(0., 0.85, 0.);
+        assert!(
+            !query
+                .shape_intersections(
+                    &shape,
+                    native,
+                    Quat::IDENTITY,
+                    &crate::environment::actor_solids([])
+                )
+                .is_empty()
+        );
+        let supported = supported_spawn(&query, &shape, native, &game.tuning).unwrap();
+        assert_eq!(supported.xz(), native.xz());
+        assert!(supported.y > 1.05 && supported.y < 1.1);
+        let clear = Vec3::new(0., 1.35, 0.);
+        assert_eq!(
+            supported_spawn(&query, &shape, clear, &game.tuning),
+            Some(clear)
+        );
+        assert!(supported_spawn(&query, &shape, Vec3::new(3., 0.85, 0.), &game.tuning).is_none());
+        assert!(supported_spawn(&query, &shape, Vec3::ZERO, &game.tuning).is_none());
+    };
+    app.world_mut().run_system_once(inspect).unwrap();
 }
