@@ -969,6 +969,106 @@ fn waypoint_arrival_releases_forward_without_waiting_for_the_runner() {
 }
 
 #[test]
+fn walking_releases_forward_before_coasting_past_the_waypoint_at_each_speed() {
+    fn ground_motion(
+        input: Res<crate::input::GameInput>,
+        time: Res<Time<Fixed>>,
+        game: Res<crate::assets::GameDefinition>,
+        mut players: Query<(&mut crate::player::Player, &mut Transform)>,
+    ) {
+        for (mut player, mut pose) in &mut players {
+            player.velocity = game.tuning.physics.velocity(
+                player.velocity,
+                Vec3::NEG_Z * input.movement.y * game.tuning.walk_speed,
+                Some(Vec3::Y),
+                false,
+                false,
+                false,
+                false,
+                time.delta_secs(),
+            );
+            pose.translation += player.velocity * time.delta_secs();
+        }
+    }
+    for speed in [1, 2, 10] {
+        let mut app = harness();
+        let game: crate::assets::GameDefinition = serde_json::from_slice(
+            &std::fs::read(
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("gameplay/origins/game.json"),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        app.insert_resource(game)
+            .add_systems(FixedUpdate, ground_motion.after(sample_tick));
+        let player = app
+            .world_mut()
+            .spawn((
+                crate::player::Player {
+                    yaw: 0.,
+                    pitch: 0.,
+                    velocity: Vec3::ZERO,
+                    height: 1.8,
+                    grounded: true,
+                    crouched: false,
+                    prone: false,
+                    eye_height: 1.62,
+                },
+                Transform::from_xyz(0., 0.9, 0.),
+                crate::weapons::WeaponInventory::default(),
+            ))
+            .id();
+        command(
+            &mut app,
+            1,
+            Command::Input {
+                ticks: 1800,
+                held: vec![crate::input::Action::Forward],
+                look: [0., 0.],
+                aim: Some([0., 1.62, -6.]),
+                aim_entity: None,
+                aim_offset: None,
+                arrival_point: None,
+                arrival_entity: None,
+                arrival_radius: Some(0.2),
+            },
+        );
+        for _ in 0..(300 / speed) {
+            frame(&mut app, speed);
+        }
+        assert_eq!(
+            app.world().resource::<Controller>().receipts[&(1, 1)].phase,
+            Phase::Executed
+        );
+        let pose = app.world().get::<Transform>(player).unwrap();
+        assert!(
+            (pose.translation.z + 6.).abs() <= 0.2,
+            "{speed}x final position: {pose:?}"
+        );
+        assert!(
+            app.world()
+                .get::<crate::player::Player>(player)
+                .unwrap()
+                .velocity
+                .length()
+                < 0.05
+        );
+        let held: Vec<_> = app
+            .world()
+            .resource::<Trace>()
+            .0
+            .iter()
+            .map(|t| t.3 != Vec2::ZERO)
+            .collect();
+        assert_eq!(
+            held.windows(2).filter(|w| w[0] != w[1]).count(),
+            1,
+            "Walking must hold forward continuously and release it once"
+        );
+    }
+}
+
+#[test]
 fn stale_commands_are_rejected_before_world_access() {
     let mut app = App::new();
     app.insert_resource(Controller::new(2818, std::env::temp_dir()))

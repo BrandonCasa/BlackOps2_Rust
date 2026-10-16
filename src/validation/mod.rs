@@ -549,10 +549,39 @@ fn tick_input(world: &mut World) {
                         .map(|pose| pose.translation)
                 } else {
                     world
-                        .query_filtered::<&Transform, With<crate::player::Player>>()
+                        .query::<(&Transform, &crate::player::Player)>()
                         .single(world)
                         .ok()
-                        .map(|pose| pose.translation)
+                        .map(|(pose, player)| {
+                            let mut position = pose.translation;
+                            if held.as_slice() == [crate::input::Action::Forward]
+                                && player.grounded
+                                && let Some(game) =
+                                    world.get_resource::<crate::assets::GameDefinition>()
+                            {
+                                let dt = world.resource::<Time<Fixed>>().timestep().as_secs_f32();
+                                let mut velocity = player.velocity.with_y(0.);
+                                // Release input before the waypoint; ordinary ground friction
+                                // still owns the player's remaining travel and stopping.
+                                for _ in 0..120 {
+                                    velocity = game.tuning.physics.velocity(
+                                        velocity,
+                                        Vec3::ZERO,
+                                        Some(Vec3::Y),
+                                        player.prone,
+                                        player.crouched,
+                                        false,
+                                        false,
+                                        dt,
+                                    );
+                                    position += velocity * dt;
+                                    if velocity.xz().length_squared() < 0.0254_f32.powi(2) {
+                                        break;
+                                    }
+                                }
+                            }
+                            position
+                        })
                 };
                 position.is_some_and(|position| position.xz().distance(target.xz()) <= radius)
             })

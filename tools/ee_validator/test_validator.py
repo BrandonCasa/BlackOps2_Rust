@@ -80,28 +80,34 @@ class RunnerTests(unittest.TestCase):
         client.send.assert_called_once()
         self.assertEqual(sum("fire" in step["held"] for step in client.send.call_args.args[0]), 4)
 
-    def walking_client(self, samples):
+    def walking_client(self, samples, *, completed=False):
         from unittest.mock import Mock
         client = Mock()
-        client.state.side_effect = [
+        states = [
             {"control": {"simulation_seconds": seconds, "failure": None, "aborted": False, "active": {"id": 42}, "queued": 0},
-             "player": {"feet": [0, 0, z], "eye": [0, 1.6, z], "yaw": 0}}
+             "player": {"feet": [0, 0, z], "eye": [0, 1.6, z], "yaw": 0, "velocity": [0,0,0]}}
             for seconds, z in samples
         ]
+        if completed:
+            states[-1]["control"]["active"] = None
+        client.state.side_effect = states
+        client.wait.return_value = states[-1]
         client.send.return_value = {"request": {"id": 42}}
-        client.receipt.return_value = {"phase": "accepted"}
+        client.receipt.return_value = {"phase": "executed" if completed else "accepted"}
         return client
 
     def test_walking_holds_forward_until_arrival_including_across_pause(self):
-        client = self.walking_client([(0, 0), (0.5, -2), (0.5, -2), (0.5, -2), (1, -4), (1.5, -5.5)])
+        client = self.walking_client([(0, 0), (0.5, -2), (0.5, -2), (0.5, -2), (1, -4), (1.5, -5.5)], completed=True)
         with patch("routes.time.sleep"):
             walk_to(client, [0, 0, -6])
         client.input.assert_not_called()
         actions = [call.args[0] for call in client.send.call_args_list]
-        self.assertEqual(len(actions), 2)
+        self.assertEqual(len(actions), 1)
         self.assertEqual(actions[0]["held"], ["forward"])
         self.assertFalse(client.send.call_args_list[0].kwargs["wait"])
-        self.assertEqual(actions[1], {"op": "cancel", "command": 42})
+        stopped = client.wait.call_args.args[0]
+        self.assertFalse(stopped({"player":{"velocity":[0,0,-3]}}))
+        self.assertTrue(stopped({"player":{"velocity":[0,0,0]}}))
 
     def test_portal_transit_releases_walking_before_testing_the_new_world_position(self):
         from unittest.mock import Mock
@@ -140,7 +146,9 @@ class RunnerTests(unittest.TestCase):
              "tank":{"entity":77,"position":[11,0,0],"rotation":[0,0,0,1]}},
         ]
         client.send.return_value = {"request":{"id":42}}
-        client.receipt.return_value = {"phase":"accepted"}
+        client.receipt.return_value = {"phase":"executed"}
+        client.wait.return_value = {"control":control,"player":{"feet":[13,2,0],"velocity":[0,0,0]},
+                                    "tank":{"entity":77,"position":[11,0,0],"rotation":[0,0,0,1]}}
         walk_to(client,[2,2,0],on_tank=True)
         preface = client.send.call_args_list[0].args[0]
         self.assertEqual(preface["aim_entity"],77)

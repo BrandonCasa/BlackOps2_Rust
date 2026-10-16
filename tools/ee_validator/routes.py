@@ -68,12 +68,18 @@ def walk_to(client, point, tolerance=0.8, seconds=30, *, on_tank=False, through_
             if on_tank:
                 point = tank_point(state["tank"], local)
             remaining = distance(feet, point)
-            if remaining <= tolerance and not through_portal:
-                return
             if control["active"] is None and not control["queued"]:
                 if client.receipt(command)["phase"] == "executed":
                     if through_portal:
-                        raise ValidationFailure(f"Portal approach ended without transit near {feet}")
+                        client.wait(lambda s: s["portals"]["trips"] > trips, seconds=5)
+                        return
+                    state = client.wait(lambda s: math.hypot(s["player"]["velocity"][0],
+                                                            s["player"]["velocity"][2]) < 0.05,
+                                        seconds=3)
+                    feet = state["player"]["feet"]
+                    if on_tank:
+                        point = tank_point(state["tank"], local)
+                    remaining = distance(feet, point)
                     if remaining > tolerance + 0.2:
                         raise ValidationFailure(f"Walking stopped before arrival near {feet}; target {point}")
                     return
