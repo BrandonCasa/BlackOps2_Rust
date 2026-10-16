@@ -58,5 +58,9 @@ python tools/ee_validator/probe_jumps.py --output reports/ee-validator/jump-prob
 ```
 
 The query reuses the player's movement collision routine against the frozen
-world and excludes the tank. It selects candidates for a real input run;
+world and excludes the tank by default. Individual BRP candidates can include
+`include_tank: true` and `runup_ticks` to inspect ground contact and native sprint
+acceleration before jumping from the current vehicle pose. The result contains
+each run-up tick and the accepted takeoff, if any. The vehicle remains frozen.
+It selects candidates for a real input run;
 probe landings cannot complete a milestone or collect a part.

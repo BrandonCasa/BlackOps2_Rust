@@ -172,6 +172,39 @@ fn raised_platform_floor_is_queryable_before_the_next_physics_frame() {
         Some(platform),
         "A rider supported by the edge of their bounds must still be carried"
     );
+    app.world_mut().entity_mut(player).insert(
+        Vitality::human(
+            100,
+            100,
+            30,
+            crate::life::PlayerLethalPolicy::SoloOrLastEligiblePlayer,
+        )
+        .unwrap(),
+    );
+    app.insert_resource(crate::input::GameInput {
+        jump: true,
+        ..default()
+    });
+    app.world_mut()
+        .resource_mut::<Time<Fixed>>()
+        .advance_by(std::time::Duration::from_secs_f64(1. / 60.));
+    let before = app.world().get::<Transform>(player).unwrap().translation;
+    app.world_mut()
+        .get_mut::<Transform>(platform)
+        .unwrap()
+        .translation
+        .x += 0.1;
+    app.world_mut().run_system_cached(sync).unwrap();
+    app.world_mut().run_system_once(carry).unwrap();
+    let after = app.world().get::<Transform>(player).unwrap().translation;
+    assert!(
+        (after.x - before.x - 0.1).abs() < 1e-5,
+        "Carry must reach the current platform pose before testing a jump's ground contact"
+    );
+    assert_eq!(
+        app.world().get::<PlatformSupport>(player).unwrap().entity,
+        Some(platform)
+    );
     app.world_mut().get_mut::<Player>(player).unwrap().grounded = false;
     app.world_mut().run_system_once(track).unwrap();
     assert!(
@@ -185,7 +218,6 @@ fn raised_platform_floor_is_queryable_before_the_next_physics_frame() {
 
 pub(crate) fn carry(
     time: Res<Time<Fixed>>,
-    input: Res<crate::input::GameInput>,
     platforms: Query<&Transform, (With<MovingPlatform>, Without<Player>)>,
     mut players: Query<(
         Entity,
@@ -198,10 +230,7 @@ pub(crate) fn carry(
     slide: MoveAndSlide,
 ) {
     for (entity, player, health, collider, mut pose, mut support) in &mut players {
-        if input.jump
-            || !player.grounded
-            || !matches!(health.state(), LifeState::Standing | LifeState::Downed)
-        {
+        if !player.grounded || !matches!(health.state(), LifeState::Standing | LifeState::Downed) {
             support.entity = None;
             continue;
         }
