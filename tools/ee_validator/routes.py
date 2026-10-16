@@ -331,15 +331,26 @@ def generators_tank(client):
 
 def board_tank(client):
 
-    tank = client.state()["tank"]
-    if tank["phase"] != "Ready" or tank["station"] != 0:
-        raise ValidationFailure("Tank must begin at its ordinary church station")
-    client.send({"op": "teleport", "feet": [3.0, 1.05, 67.0]}, label="Inspect the native church tank placement")
-    client.input(120, aim=[11.19886, 2.4, 67.925188])
-    capture(client, "tank-placement")
+    state = client.state()
+    tank = state["tank"]
+    if tank["phase"] != "Ready":
+        raise ValidationFailure("Tank must be ready at one of its ordinary stations")
+    name = "tank-boarded" if tank["trips"] == 0 else f"tank-boarded-{tank['trips']}"
+    if state["player"]["platform"] == tank["entity"]:
+        return capture(client, name)
+    if tank["trips"] == 0:
+        client.send({"op": "teleport", "feet": [3.0, 1.05, 67.0]}, label="Inspect the native church tank placement")
+        client.input(120, aim=[11.19886, 2.4, 67.925188])
+        capture(client, "tank-placement")
     # Stage beside the rear hull. Boarding and the staff jump use movement only.
-    client.send({"op": "teleport", "feet": tank_point(tank, [1.5, 0.35, 4.8])},
-                label="Stage beside the tank at the church")
+    rear = tank_point(tank, [1.5, 0.35, 4.8])
+    if tank["station"] == 1:
+        floor = client.rpc("origins/validator/jump_probes", [{"feet": rear, "velocity": [0,0,0],
+                           "aim": rear, "include_tank": True}])["results"][0]
+        if floor["landed"] in (None, tank["entity"]) or not floor["clear"] or not floor["playable"]:
+            raise ValidationFailure("No inspected ground outside the tank's rear boarding lip")
+        rear = floor["staging_feet"]
+    client.send({"op": "teleport", "feet": rear}, label=f"Stage beside the tank at station {tank['station']}")
     client.input(12)
     walk_to(client, tank_point(tank, [1.5, 0.35, 4.2]), tolerance=0.2)
     boarding = tank_point(tank, [1.5, 1.0, 3.5])
@@ -363,7 +374,7 @@ def board_tank(client):
     state = client.state()
     if state["player"]["platform"] != tank["entity"]:
         raise ValidationFailure("Tank boarding did not establish platform support")
-    return capture(client, "tank-boarded")
+    return capture(client, name)
 
 
 def first_lightning_part(client):

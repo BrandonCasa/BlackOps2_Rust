@@ -34,6 +34,40 @@ pub struct EnemyGoal {
     pub radius: f32,
 }
 
+pub(crate) fn resolve_floor_overlap(
+    query: &SpatialQuery,
+    shape: &Collider,
+    position: Vec3,
+    filter: &SpatialQueryFilter,
+    tuning: &crate::origins::Tuning,
+) -> Option<Vec3> {
+    if query
+        .shape_intersections(shape, position, Quat::IDENTITY, filter)
+        .is_empty()
+    {
+        return Some(position);
+    }
+    // Source spawn origins can sit just inside uneven terrain. Resolve support
+    // with the complete actor hull, keeping the authored horizontal position.
+    let lift = tuning.step_height + tuning.physics.ground_probe;
+    let hit = query.cast_shape(
+        shape,
+        position + Vec3::Y * lift,
+        Quat::IDENTITY,
+        Dir3::NEG_Y,
+        &ShapeCastConfig::from_max_distance(lift),
+        filter,
+    )?;
+    if hit.normal1.y < 0.5 {
+        return None;
+    }
+    let supported = position + Vec3::Y * (lift - hit.distance + tuning.physics.ground_probe);
+    query
+        .shape_intersections(shape, supported, Quat::IDENTITY, filter)
+        .is_empty()
+        .then_some(supported)
+}
+
 pub(crate) fn body_center(enemy: &EnemyDefinition, crawler: bool) -> Vec3 {
     enemy
         .physics
@@ -216,10 +250,12 @@ impl Zombie {
         clips[(seed as usize) % clips.len()].0.rsplit('.').next()
     }
     pub fn reserves(&self, position: Vec3) -> bool {
-        self.traversal.as_ref().is_some_and(|m| {
-            let delta = m.end - position;
+        let near = |point: Vec3| {
+            let delta = point - position;
             delta.xz().length_squared() < 0.5625 && delta.y.abs() < 1.
-        })
+        };
+        self.spawn_anchor.as_ref().is_some_and(|a| near(a.end))
+            || self.traversal.as_ref().is_some_and(|m| near(m.end))
     }
     pub fn rising(mut self, profile: &crate::origins::content::EnemyTraversalDefinition) -> Self {
         self.eye_spawn = eyes::EyeSpawn::Ground;
@@ -1035,30 +1071,36 @@ pub(crate) fn lifecycle(
                             && (point.y - p.y).abs() < 1.
                     })
                 };
-                let landing =
-                    if motion.alias == "rise" && matches!(zombie.eye_spawn, eyes::EyeSpawn::Dug) {
-                        Some(motion.end)
-                    } else if !occupied(motion.end)
-                        && query
-                            .shape_intersections(shape, motion.end, Quat::IDENTITY, &filter)
-                            .is_empty()
-                    {
-                        Some(motion.end)
-                    } else if zombie.elapsed > profile.seconds + 0.3 {
-                        nearby_landing(
-                            &query,
-                            shape,
-                            motion.end,
-                            half_height,
-                            &filter,
-                            &crate::environment::actor_solids([entity, player_entity]),
-                            &navigation,
-                            &access,
-                            &occupied,
-                        )
-                    } else {
-                        None
-                    };
+                let dug = motion.alias == "rise" && matches!(zombie.eye_spawn, eyes::EyeSpawn::Dug);
+                let supported = if dug {
+                    Some(motion.end)
+                } else if motion.alias == "rise" {
+                    resolve_floor_overlap(&query, shape, motion.end, &filter, &definition.tuning)
+                } else {
+                    query
+                        .shape_intersections(shape, motion.end, Quat::IDENTITY, &filter)
+                        .is_empty()
+                        .then_some(motion.end)
+                };
+                let landing = if dug {
+                    supported
+                } else if let Some(end) = supported.filter(|end| !occupied(*end)) {
+                    Some(end)
+                } else if zombie.elapsed > profile.seconds + 0.3 {
+                    nearby_landing(
+                        &query,
+                        shape,
+                        motion.end,
+                        half_height,
+                        &filter,
+                        &crate::environment::actor_solids([entity, player_entity]),
+                        &navigation,
+                        &access,
+                        &occupied,
+                    )
+                } else {
+                    None
+                };
                 if let Some(landing) = landing {
                     transform.translation = landing;
                     if let Some((_, point)) = positions.iter_mut().find(|(e, _)| *e == entity) {
@@ -1662,52 +1704,52 @@ fn nearby_landing(
         for index in 0..16 {
             let angle = index as f32 * std::f32::consts::TAU / 16.;
             let probe = end + Vec3::new(angle.cos() * radius, 0., angle.sin() * radius);
-            let Some(floor) =
-                query.cast_ray(probe - Vec3::Y * 0.35, Dir3::NEG_Y, 1., false, filter)
-            else {
+            let Some(floor) = query.cast_shape(
+                shape,
+                probe + Vec3::Y * 0.45,
+                Quat::IDENTITY,
+                Dir3::NEG_Y,
+                &ShapeCastConfig::from_max_distance(0.9),
+                filter,
+            ) else {
                 continue;
             };
-            if floor.normal.y < 0.65 {
+            if floor.normal1.y < 0.65 {
                 continue;
             }
-            let base = probe + Vec3::Y * (0.5 - floor.distance + 0.03);
-            if (base.y - end.y).abs() > 0.45 {
+            let candidate = probe + Vec3::Y * (0.45 - floor.distance + 0.03);
+            if (candidate.y - end.y).abs() > 0.45
+                || occupied(candidate)
+                || !navigation.direct_allowed(
+                    end - Vec3::Y * half_height,
+                    candidate - Vec3::Y * half_height,
+                    access,
+                )
+                || !query
+                    .shape_intersections(shape, candidate, Quat::IDENTITY, filter)
+                    .is_empty()
+            {
                 continue;
             }
-            for lift in 0..=6 {
-                let candidate = base + Vec3::Y * (lift as f32 * 0.05);
-                if occupied(candidate)
-                    || !navigation.direct_allowed(
-                        end - Vec3::Y * half_height,
-                        candidate - Vec3::Y * half_height,
-                        access,
-                    )
-                    || !query
-                        .shape_intersections(shape, candidate, Quat::IDENTITY, filter)
-                        .is_empty()
-                {
-                    continue;
-                }
-                let delta = candidate - end;
-                let Ok(dir) = Dir3::new(delta) else {
-                    continue;
-                };
-                if query
-                    .cast_shape(
-                        shape,
-                        end,
-                        Quat::IDENTITY,
-                        dir,
-                        &ShapeCastConfig {
-                            ignore_origin_penetration: true,
-                            ..ShapeCastConfig::from_max_distance(delta.length())
-                        },
-                        route_filter,
-                    )
-                    .is_none()
-                {
-                    return Some(candidate);
-                }
+            let delta = candidate - end;
+            let Ok(dir) = Dir3::new(delta) else {
+                continue;
+            };
+            if query
+                .cast_shape(
+                    shape,
+                    end,
+                    Quat::IDENTITY,
+                    dir,
+                    &ShapeCastConfig {
+                        ignore_origin_penetration: true,
+                        ..ShapeCastConfig::from_max_distance(delta.length())
+                    },
+                    route_filter,
+                )
+                .is_none()
+            {
+                return Some(candidate);
             }
         }
     }
@@ -2574,6 +2616,31 @@ fn wounded_joints(
 #[cfg(test)]
 mod native_motion_tests {
     use super::*;
+
+    #[test]
+    fn spawn_warmup_reserves_its_destination_before_the_model_reaches_it() {
+        let end = Vec3::new(10., 1., 10.);
+        let mut zombie = Zombie::new(
+            end,
+            ContentId("enemy.zombie".into()),
+            crate::rounds::Gait::Walk,
+        );
+        zombie.spawn_anchor = Some(SpawnAnchor {
+            start: Vec3::new(-100., 1., -100.),
+            end,
+            rotation: Quat::IDENTITY,
+            target_rotation: None,
+            elapsed: 0.,
+            rise: Some(0),
+            rise_rotation: Quat::IDENTITY,
+        });
+        assert!(zombie.reserves(end));
+        assert!(zombie.reserves(end + Vec3::X * 0.7));
+        assert!(!zombie.reserves(end + Vec3::X * 0.8));
+        assert!(!zombie.reserves(zombie.spawn_anchor.as_ref().unwrap().start));
+        zombie.spawn_anchor = None;
+        assert!(!zombie.reserves(end));
+    }
 
     #[test]
     fn window_goal_keeps_source_radius_without_stalling_on_ground_clearance() {

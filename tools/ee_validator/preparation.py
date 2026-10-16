@@ -214,7 +214,7 @@ def clear_round(client):
         if planes:
             shoot_at(client, planes[0]["entity"], shots=2, label="Shoot the glowing fire-part plane normally")
         else:
-            live = [e for e in state["enemies"] if e["life"] == "ActorAlive" and e["emerged"]
+            live = [e for e in state["enemies"] if e["life"] == "ActorAlive" and e["visible"] and e["head"] is not None
                     and e["generator"] is None]
             if live:
                 enemy = min(live, key=lambda e: distance(e["position"], state["player"]["feet"]))

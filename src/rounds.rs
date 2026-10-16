@@ -339,7 +339,13 @@ pub(crate) fn advance(
         }
         let shape = crate::enemies::body_shape(source_enemy, false);
         evidence.last_rejection = "spawn collision";
-        let position = supported_spawn(&query, &shape, position, &definition.tuning)?;
+        let position = crate::enemies::resolve_floor_overlap(
+            &query,
+            &shape,
+            position,
+            &crate::environment::actor_solids([]),
+            &definition.tuning,
+        )?;
         evidence.last_rejection = "health";
         let amount = profile.health(session.round);
         let health = Vitality::ordinary_actor(
@@ -481,40 +487,6 @@ pub(crate) fn advance(
     }
 }
 
-fn supported_spawn(
-    query: &SpatialQuery,
-    shape: &Collider,
-    position: Vec3,
-    tuning: &crate::origins::Tuning,
-) -> Option<Vec3> {
-    let filter = crate::environment::actor_solids([]);
-    if query
-        .shape_intersections(shape, position, Quat::IDENTITY, &filter)
-        .is_empty()
-    {
-        return Some(position);
-    }
-    // Source spawn origins can sit just inside uneven terrain. Resolve support
-    // with the complete actor hull, keeping the authored horizontal position.
-    let lift = tuning.step_height + tuning.physics.ground_probe;
-    let hit = query.cast_shape(
-        shape,
-        position + Vec3::Y * lift,
-        Quat::IDENTITY,
-        Dir3::NEG_Y,
-        &ShapeCastConfig::from_max_distance(lift),
-        &filter,
-    )?;
-    if hit.normal1.y < 0.5 {
-        return None;
-    }
-    let supported = position + Vec3::Y * (lift - hit.distance + tuning.physics.ground_probe);
-    query
-        .shape_intersections(shape, supported, Quat::IDENTITY, &filter)
-        .is_empty()
-        .then_some(supported)
-}
-
 impl Session {
     pub fn admitted_spawn(&mut self) -> bool {
         if self.pending == 0 {
@@ -552,8 +524,8 @@ fn native_spawn_support_repairs_shallow_floor_overlap_and_rejects_walls() {
     let inspect = |query: SpatialQuery| {
         let game: GameDefinition =
             serde_json::from_str(include_str!("../gameplay/origins/game.json")).unwrap();
-        let shape = crate::player::capsule(0.3, 1.7);
-        let native = Vec3::new(0., 0.85, 0.);
+        let shape = Collider::cuboid(0.762, 1.8288, 0.762);
+        let native = Vec3::new(0., 0.9144, 0.);
         assert!(
             !query
                 .shape_intersections(
@@ -564,16 +536,47 @@ fn native_spawn_support_repairs_shallow_floor_overlap_and_rejects_walls() {
                 )
                 .is_empty()
         );
-        let supported = supported_spawn(&query, &shape, native, &game.tuning).unwrap();
+        let supported = crate::enemies::resolve_floor_overlap(
+            &query,
+            &shape,
+            native,
+            &crate::environment::actor_solids([]),
+            &game.tuning,
+        )
+        .unwrap();
         assert_eq!(supported.xz(), native.xz());
-        assert!(supported.y > 1.05 && supported.y < 1.1);
+        assert!(supported.y > 1.1144 && supported.y < 1.16);
         let clear = Vec3::new(0., 1.35, 0.);
         assert_eq!(
-            supported_spawn(&query, &shape, clear, &game.tuning),
+            crate::enemies::resolve_floor_overlap(
+                &query,
+                &shape,
+                clear,
+                &crate::environment::actor_solids([]),
+                &game.tuning
+            ),
             Some(clear)
         );
-        assert!(supported_spawn(&query, &shape, Vec3::new(3., 0.85, 0.), &game.tuning).is_none());
-        assert!(supported_spawn(&query, &shape, Vec3::ZERO, &game.tuning).is_none());
+        assert!(
+            crate::enemies::resolve_floor_overlap(
+                &query,
+                &shape,
+                Vec3::new(3., 0.85, 0.),
+                &crate::environment::actor_solids([]),
+                &game.tuning
+            )
+            .is_none()
+        );
+        assert!(
+            crate::enemies::resolve_floor_overlap(
+                &query,
+                &shape,
+                Vec3::ZERO,
+                &crate::environment::actor_solids([]),
+                &game.tuning
+            )
+            .is_none()
+        );
     };
     app.world_mut().run_system_once(inspect).unwrap();
 }
