@@ -150,6 +150,7 @@ pub(crate) struct Reward {
     kind: RewardKind,
 }
 impl Reward {
+    #[cfg(feature = "dev-tools")]
     pub(crate) fn part(&self) -> Option<(&'static str, Vec3)> {
         (self.kind == RewardKind::Church).then_some((FIRE_PART, Vec3::from_array(CHURCH_BOX)))
     }

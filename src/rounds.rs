@@ -159,6 +159,7 @@ pub struct RoundEvidence {
     pub replacement_admissions: u64,
     pub attempts: u64,
     pub failed_admissions: u64,
+    pub last_rejection: &'static str,
     pub budget_consumed_on_failure: u64,
     pub peak_ordinary: usize,
     pub cap_waits: u64,
@@ -306,9 +307,12 @@ pub(crate) fn advance(
         .iter()
         .min_by_key(|(_, health)| health.sequence);
     let candidate = (|| {
+        evidence.last_rejection = "player";
         players.single().ok()?;
+        evidence.last_rejection = "active spawn opportunity";
         let admission = navigation.choose_spawn(&mut session)?.clone();
         let base = admission.position;
+        evidence.last_rejection = "supporting floor";
         let floor = query.cast_ray(
             base + Vec3::Y * 0.1,
             Dir3::NEG_Y,
@@ -317,9 +321,11 @@ pub(crate) fn advance(
             &crate::environment::actor_solids([]),
         )?;
         if floor.normal.y < 0.5 {
+            evidence.last_rejection = "floor slope";
             return None;
         }
 
+        evidence.last_rejection = "ordinary enemy definitions";
         let source_enemy = variants.first()?;
         let position = base + crate::enemies::body_center(source_enemy, false);
         if enemies.iter().any(|(_, health, _, body, zombie)| {
@@ -328,6 +334,7 @@ pub(crate) fn advance(
                 && ((delta.xz().length_squared() < 0.5625 && delta.y.abs() < 1.)
                     || zombie.is_some_and(|z| z.reserves(position)))
         }) {
+            evidence.last_rejection = "occupied spawn";
             return None;
         }
         let shape = crate::enemies::body_shape(source_enemy, false);
@@ -340,8 +347,10 @@ pub(crate) fn advance(
             )
             .is_empty()
         {
+            evidence.last_rejection = "spawn collision";
             return None;
         }
+        evidence.last_rejection = "health";
         let amount = profile.health(session.round);
         let health = Vitality::ordinary_actor(
             replacement.map_or(amount, |(_, health)| health.current),
@@ -352,6 +361,7 @@ pub(crate) fn advance(
             .iter()
             .map(|enemy| enemy.archetype.as_str())
             .collect();
+        evidence.last_rejection = "archetype";
         let archetype = *archetypes
             .iter()
             .nth(session.random() as usize % archetypes.len().max(1))?;
@@ -375,6 +385,7 @@ pub(crate) fn advance(
                 enemy.archetype == archetype && enemy.character_index == Some(index as u8)
             })
             .collect();
+        evidence.last_rejection = "character variant";
         let enemy = choices.get(session.random() as usize % choices.len().max(1))?;
         let spawners: Vec<_> = definition
             .access
@@ -382,7 +393,9 @@ pub(crate) fn advance(
             .iter()
             .filter(|spawner| spawner.archetype == enemy.archetype)
             .collect();
+        evidence.last_rejection = "native spawner";
         let spawner = *spawners.get(session.random() as usize % spawners.len().max(1))?;
+        evidence.last_rejection = "open entrance route";
         let entrance = if admission.find_flesh {
             None
         } else {
@@ -391,6 +404,7 @@ pub(crate) fn advance(
         let gait = session
             .difficulty
             .gait(profile, session.round, session.random());
+        evidence.last_rejection = "none";
         Some((
             position,
             shape,

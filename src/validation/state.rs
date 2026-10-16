@@ -159,6 +159,16 @@ pub(super) fn snapshot(world: &mut World) -> Value {
     let mut result = json!({"session":world.resource::<crate::session::SessionId>().0,"seed":c.seed,"game_state":format!("{:?}",world.resource::<State<GameState>>().get()),"ready":matches!(world.resource::<State<GameState>>().get(),GameState::Playing|GameState::Paused)&&player.is_some(),"control":{"owned":c.owns_input(),"paused":c.paused,"aborted":c.aborted,"failure":c.failure,"tick":c.tick,"simulation_seconds":c.simulation_seconds,"label":c.label,"queued":c.queue.len(),"active":c.active.as_ref().map(|(r,n)|json!({"id":r.id,"remaining":n})),"god":c.god},"player":player,"round":{"number":session.round,"pending":session.pending,"points":session.points},"interaction":{"target":focus.target.map(Entity::to_bits),"accepted":focus.accepted,"prompt":focus.prompt,"rejection":focus.rejection.map(|r|format!("{r:?}"))},"enemies":enemies,"targets":targets,"evidence":c.evidence});
     result["process_id"] = json!(std::process::id());
     result["firing"] = firing.unwrap_or(Value::Null);
+    if let Some(spawning) = world.get_resource::<crate::rounds::RoundEvidence>() {
+        result["spawning"] = json!({"attempts":spawning.attempts,"failed":spawning.failed_admissions,
+            "last_rejection":spawning.last_rejection,"cap_waits":spawning.cap_waits,
+            "retired":spawning.retired,"requeued":spawning.requeued,
+            "admitted":spawning.admitted.iter().rev().take(8).collect::<Vec<_>>()});
+    }
+    if let Some(access) = world.get_resource::<crate::access::ZoneAccess>() {
+        result["access"] =
+            json!({"flags":access.flags,"active":access.active,"occupied":access.occupied});
+    }
     result["buildables"] = world
         .query_filtered::<&crate::crafting::BuildableInventory, With<Player>>()
         .single(world)

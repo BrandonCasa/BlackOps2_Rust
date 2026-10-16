@@ -618,6 +618,7 @@ fn craft_audio(
             }
         }
     } else if let Some(sound) = crafting.sound.take() {
-        commands.entity(sound).despawn();
+        // Audio admission and native voice limits may already have retired it.
+        commands.entity(sound).try_despawn();
     }
 }

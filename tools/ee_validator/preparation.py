@@ -46,6 +46,11 @@ def opportunity_rejections(client):
 def stage_near(client, target, label, *, focus=False, radii=(1.4,), view=None):
     """Inspect nearby floors before requesting the collision-checked staging cheat."""
     x, y, z = target["position"]
+    if view is None and target.get("target"):
+        kind = target["target"]["kind"]
+        offset = {"craft_part": 0.35, "bench": 0.35, "capture_reward": 0.8128,
+                  "mound": 0.508, "hidden": 0.508, "generator": 1.6256}.get(kind, 0)
+        view = [x, y + offset, z]
     points = [[x + radius * math.cos(i * math.pi / 4), y + height,
                z + radius * math.sin(i * math.pi / 4)] for radius in radii
               for height in (-1.3, -0.2, 0.8) for i in range(8)]
@@ -64,7 +69,7 @@ def stage_near(client, target, label, *, focus=False, radii=(1.4,), view=None):
         client.input(12)
         if not focus:
             return
-        client.input(120, aim=target["position"], label=f"Inspect the ordinary interaction for {label}")
+        client.input(120, aim=view or target["position"], label=f"Inspect the ordinary interaction for {label}")
         if client.state()["interaction"]["target"] == target["entity"]:
             return
     raise ValidationFailure(f"No inspected floor gives ordinary interaction access to {label}")
@@ -182,7 +187,7 @@ def dig_snow_parts(client):
         if not mounds:
             return
         mound = min(mounds, key=lambda t: distance(t["position"], state["player"]["feet"]))
-        stage_near(client, mound, f"snow dig in {mound['zone']}")
+        stage_near(client, mound, f"snow dig in {mound['zone']}", focus=True)
         x, y, z = mound["position"]
         use_target(client, mound, "Dig the ordinary snow mound", aim=[x, y + 0.508, z])
         client.input(60, label="Let the normal dig reward rise")
@@ -210,8 +215,12 @@ def clear_round(client):
             if live:
                 enemy = min(live, key=lambda e: distance(e["position"], state["player"]["feet"]))
                 # Staging stays on native floors; every kill still uses the equipped weapon.
-                if distance(enemy["position"], state["player"]["feet"]) > 25 or state["control"]["simulation_seconds"] - last_progress > 20:
-                    stage_near(client, enemy, "ordinary combat approach", radii=(1.4, 3, 5, 8), view=enemy["aim"])
+                if distance(enemy["position"], state["player"]["feet"]) > 25:
+                    client.input(120, label="Let native distant-actor replacement and ordinary approach finish")
+                    state = client.state()
+                    continue
+                if state["control"]["simulation_seconds"] - last_progress > 20:
+                    stage_near(client, enemy, "ordinary combat approach", radii=(1.4, 3, 5, 8, 12, 20), view=enemy["aim"])
                     last_progress = client.state()["control"]["simulation_seconds"]
                 client.send({"op": "assist", "god": True, "points": state["round"]["points"], "ammo": True, "doors": False})
                 shoot_at(client, enemy["entity"], shots=8, head=enemy["definition"] == "enemy.panzer",

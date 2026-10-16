@@ -189,12 +189,12 @@ pub(super) fn execute(world: &mut World, request: &Request) -> Result<bool, Stri
                 });
             }
             if *doors {
-                let doors: Vec<_> = world
+                let connections: Vec<_> = world
                     .query::<&crate::interactions::Usable>()
                     .iter(world)
                     .filter_map(|u| match &u.source.action {
                         crate::origins::content::InteractionAction::Door { connection, .. } => {
-                            Some((connection.clone(), u.source.source_trigger.clone()))
+                            Some(connection.clone())
                         }
                         _ => None,
                     })
@@ -203,21 +203,16 @@ pub(super) fn execute(world: &mut World, request: &Request) -> Result<bool, Stri
                     world.resource_scope(|world, game: Mut<crate::assets::GameDefinition>| {
                         let mut access = world.resource_mut::<crate::access::ZoneAccess>();
                         let mut activated = Vec::new();
-                        for (connection, source) in doors {
+                        for connection in connections {
                             if access.unlock(&game, &connection).is_ok() {
-                                for flag in game
-                                    .environment
-                                    .triggers
+                                for link in game
+                                    .access
+                                    .flag_links
                                     .iter()
-                                    .find(|t| Some(&t.id) == source.as_ref())
-                                    .and_then(|t| t.source.get("script_flag"))
-                                    .into_iter()
-                                    .flat_map(|s| s.split(','))
-                                    .map(str::trim)
-                                    .filter(|s| !s.is_empty())
+                                    .filter(|link| link.connections.contains(&connection))
                                 {
-                                    access.set_flag(&game.content, &game.access, flag);
-                                    activated.push(flag.to_owned());
+                                    access.set_flag(&game.content, &game.access, &link.flag);
+                                    activated.push(link.flag.clone());
                                 }
                             }
                         }
