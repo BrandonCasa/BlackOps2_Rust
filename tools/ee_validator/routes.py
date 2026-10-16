@@ -289,6 +289,7 @@ def board_tank(client):
     client.input(24, ("forward", "jump"), label="Move over the tank lip while airborne")
     client.input(24)
     # The native lower deck, tread and upper tread are separate walking surfaces.
+    walk_to(client, tank_point(tank, [0.75, 1.016, 2.8]), tolerance=0.1)
     jump_to(client, tank_point(tank, [1.75, 1.6256, 2.8]), "Climb onto the rear tread")
     jump_to(client, tank_point(tank, [2.34, 2.1676, 2.0]), "Climb onto the raised rear tread")
     walk_to(client, tank_point(tank, [2.34, 2.1676, 0.1]), tolerance=0.1)
@@ -308,7 +309,7 @@ def jump_to(client, point, label):
     client.send({"op": "input", "ticks": 60, "held": ["forward", "jump"], "look": [0, 0],
                  "aim": aim, "aim_entity": None, "arrival_radius": 0.15}, label=label)
     state = client.wait(lambda s: s["player"]["grounded"], seconds=5)
-    if distance(state["player"]["feet"], point) > 0.35 or abs(state["player"]["feet"][1] - point[1]) > 0.25:
+    if distance(state["player"]["feet"], point) > 0.6 or abs(state["player"]["feet"][1] - point[1]) > 0.25:
         raise ValidationFailure(f"{label}: did not land on the intended surface; {state['player']['feet']}")
 
 

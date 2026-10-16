@@ -156,7 +156,18 @@ pub(super) fn snapshot(world: &mut World) -> Value {
     }
     if let Some(tank) = world.get_resource::<crate::tank::Tank>() {
         let pose = tank.entity.and_then(|e| world.get::<Transform>(e));
-        result["tank"] = json!({"entity":tank.entity.map(Entity::to_bits),"phase":format!("{:?}",tank.phase),"station":tank.station,"trips":tank.trips,"timer":tank.timer,"position":pose.map(|p|p.translation.to_array()),"rotation":pose.map(|p|p.rotation.to_array())});
+        let model_scale = tank
+            .entity
+            .and_then(|e| world.get::<Children>(e))
+            .and_then(|children| {
+                children.iter().find_map(|child| {
+                    world.get::<WorldAssetRoot>(child)?;
+                    world
+                        .get::<Transform>(child)
+                        .map(|pose| pose.scale.to_array())
+                })
+            });
+        result["tank"] = json!({"entity":tank.entity.map(Entity::to_bits),"phase":format!("{:?}",tank.phase),"station":tank.station,"trips":tank.trips,"timer":tank.timer,"position":pose.map(|p|p.translation.to_array()),"rotation":pose.map(|p|p.rotation.to_array()),"model_scale":model_scale});
     }
     result
 }

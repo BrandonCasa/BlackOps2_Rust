@@ -389,6 +389,13 @@ mod trigger_tests {
         );
         let yaw = 14.2_f32.to_radians();
         let forward = Vec3::new(yaw.cos(), 0., -yaw.sin());
+        let scene = body.mul_transform(
+            model_offset().with_scale(Vec3::splat(crate::assets::SOURCE_UNIT_METERS)),
+        );
+        assert!(
+            (scene.transform_point(Vec3::X * 100.) - scene.translation)
+                .abs_diff_eq(forward * 2.54, 1e-5)
+        );
         assert!((model.rotation * Vec3::X).abs_diff_eq(forward, 1e-6));
         assert!((body.rotation * Vec3::NEG_Z).abs_diff_eq(forward, 1e-6));
     }
@@ -456,7 +463,10 @@ fn setup(
     }
     if let Some(scene) = crate::assets::native_scene(&game, "veh_t6_dlc_mkiv_tank") {
         commands.entity(entity).with_children(|parent| {
-            parent.spawn((WorldAssetRoot(server.load(scene.clone())), model_offset()));
+            parent.spawn((
+                WorldAssetRoot(server.load(scene.clone())),
+                model_offset().with_scale(Vec3::splat(crate::assets::SOURCE_UNIT_METERS)),
+            ));
         });
     }
     for (piece, position) in [
