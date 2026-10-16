@@ -221,7 +221,10 @@ def clear_round(client):
                 # Staging stays on native floors; every kill still uses the equipped weapon.
                 if (distance(enemy["position"], state["player"]["feet"]) > 38.608
                         and enemy["zone"] is not None and enemy["definition"] != "enemy.panzer"):
-                    client.input(120, label="Let native distant-actor replacement and ordinary approach finish")
+                    eye = state["player"]["eye"]
+                    away = [2 * eye[0] - enemy["position"][0], eye[1],
+                            2 * eye[2] - enemy["position"][2]]
+                    client.input(120, aim=away, label="Look away while the native distant-actor owner checks its ordinary opportunity")
                     state = client.state()
                     continue
                 if (distance(enemy["position"], state["player"]["feet"]) > 25
