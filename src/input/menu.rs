@@ -1,6 +1,5 @@
 use super::{Action, Binding, ControlSettings, PressMode, settings::SettingsStore};
 use crate::GameState;
-use crate::hud::native::{Canvas, NativeText, rect};
 use bevy::{
     input::{
         InputSystems,
@@ -9,10 +8,30 @@ use bevy::{
     },
     picking::{events::PointerPress, hover::Hovered, pointer::PointerButton},
     prelude::*,
+    text::LineHeight,
     ui_widgets::Button as UiButton,
 };
 
 const PAGE_SIZE: usize = 8;
+#[derive(Resource)]
+struct MenuFont(Handle<Font>);
+
+// Layout and font sizes share the 720p reference, so Bevy rasterizes the
+// outlines at the actual viewport resolution instead of scaling a text image.
+fn units(value: f32) -> Val {
+    vh(value / 7.2)
+}
+
+fn menu_text(value: impl Into<String>, size: f32, font: &MenuFont) -> impl Bundle {
+    (
+        Text::new(value),
+        TextFont::from_font_size(FontSize::Vh(size / 7.2)).with_font(font.0.clone()),
+        TextLayout::new(Justify::Left, LineBreak::WordBoundary),
+        LineHeight::RelativeToFont(1.),
+        Pickable::IGNORE,
+    )
+}
+
 #[derive(Resource, Default)]
 pub(crate) struct ControlMenu {
     pub capturing: Option<Action>,
@@ -166,7 +185,14 @@ fn label(choice: Choice, settings: &ControlSettings) -> String {
     }
 }
 pub(super) fn install(app: &mut App) {
-    app.init_resource::<ControlMenu>();
+    let font = app
+        .world_mut()
+        .resource_mut::<Assets<Font>>()
+        .add(Font::from_bytes(
+            include_bytes!("fonts/Rajdhani-SemiBold.ttf").to_vec(),
+        ));
+    app.insert_resource(MenuFont(font))
+        .init_resource::<ControlMenu>();
     app.add_observer(pointer_activate)
         .add_systems(OnEnter(GameState::Paused), open)
         .add_systems(OnExit(GameState::Paused), close)
@@ -216,6 +242,7 @@ fn close(
 fn rebuild(
     mut commands: Commands,
     menu: Res<ControlMenu>,
+    font: Res<MenuFont>,
     settings: Res<ControlSettings>,
     roots: Query<Entity, With<MenuRoot>>,
     cameras: Query<Entity, With<crate::rendering::display::GameUiCamera>>,
@@ -234,20 +261,31 @@ fn rebuild(
     commands
         .spawn((
             MenuRoot,
-            Canvas,
-            UiTransform::default(),
             UiTargetCamera(camera),
             GlobalZIndex(100),
-            rect(0., 0., 1280., 720.),
+            Node {
+                position_type: PositionType::Absolute,
+                width: percent(100.),
+                height: percent(100.),
+                ..default()
+            },
             BackgroundColor(Color::linear_rgba(0., 0., 0., 0.62)),
         ))
         .with_children(|parent| {
             parent
-                .spawn(Node {
-                    flex_direction: FlexDirection::Column,
-                    row_gap: px(2.),
-                    ..rect(110., 100., 550., 580.)
-                })
+                .spawn((
+                    Node {
+                        position_type: PositionType::Absolute,
+                        left: percent(50.),
+                        top: units(100.),
+                        width: units(550.),
+                        height: units(580.),
+                        flex_direction: FlexDirection::Column,
+                        row_gap: units(2.),
+                        ..default()
+                    },
+                    UiTransform::from_translation(Val2::new(units(-530.), px(0.))),
+                ))
                 .with_children(|parent| {
                     let title =
                         menu.page
@@ -259,19 +297,21 @@ fn rebuild(
                                 )
                             });
                     parent.spawn((
-                        NativeText::new(title, 42.),
+                        menu_text(title, 54., &font),
                         Node {
-                            width: px(550.),
-                            height: px(58.),
+                            width: units(550.),
+                            height: units(58.),
+                            flex_shrink: 0.,
                             ..default()
                         },
                     ));
                     parent.spawn((
-                        NativeText::new("Origins - Excavation Site 64", 24.)
-                            .color(Color::linear_rgb(0.7, 0.7, 0.7)),
+                        menu_text("Origins - Excavation Site 64", 30., &font),
+                        TextColor(Color::linear_rgb(0.7, 0.7, 0.7)),
                         Node {
-                            width: px(550.),
-                            height: px(38.),
+                            width: units(550.),
+                            height: units(38.),
+                            flex_shrink: 0.,
                             ..default()
                         },
                     ));
@@ -282,44 +322,58 @@ fn rebuild(
                                 Hovered::default(),
                                 MenuRow { index, choice },
                                 Node {
-                                    min_height: px(if menu.page.is_some() { 23. } else { 32. }),
-                                    height: px(if menu.page.is_some() { 23. } else { 32. }),
-                                    padding: UiRect::axes(px(8.), px(0.)),
+                                    height: units(if menu.page.is_some() { 23. } else { 32. }),
+                                    flex_shrink: 0.,
+                                    align_items: AlignItems::Center,
+                                    padding: UiRect::axes(units(8.), px(0.)),
                                     ..default()
                                 },
                                 BackgroundColor(Color::NONE),
                             ))
                             .with_children(|row| {
                                 row.spawn((
-                                    NativeText::new(
+                                    menu_text(
                                         label(choice, &settings),
-                                        if menu.page.is_some() { 20. } else { 25. },
+                                        if menu.page.is_some() { 23. } else { 32. },
+                                        &font,
                                     ),
                                     RowText(choice),
                                     Node {
-                                        width: px(525.),
-                                        height: px(27.),
+                                        width: units(525.),
+                                        height: units(if menu.page.is_some() { 23. } else { 32. }),
+                                        flex_shrink: 0.,
                                         ..default()
                                     },
                                 ));
                             });
                     }
                     parent.spawn((
-                        NativeText::new("", 18.).color(Color::linear_rgb(1., 0.65, 0.25)),
+                        menu_text("", 22., &font),
+                        TextColor(Color::linear_rgb(1., 0.65, 0.25)),
                         MenuNotice,
                         Node {
-                            width: px(550.),
-                            height: px(60.),
+                            width: units(550.),
+                            min_height: units(60.),
+                            flex_shrink: 0.,
                             ..default()
                         },
                     ));
                 });
             parent.spawn((
-                NativeText::new(
+                menu_text(
                     "ENTER  Select       ESC  Back       Arrow Keys  Navigate",
-                    18.,
+                    22.,
+                    &font,
                 ),
-                rect(110., 680., 900., 30.),
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: percent(50.),
+                    top: units(680.),
+                    width: units(900.),
+                    height: units(30.),
+                    ..default()
+                },
+                UiTransform::from_translation(Val2::new(units(-530.), px(0.))),
             ));
         });
 }
@@ -583,8 +637,8 @@ fn labels(
     settings: Res<ControlSettings>,
     store: Res<SettingsStore>,
     mut rows: Query<(&MenuRow, &mut BackgroundColor)>,
-    mut texts: Query<(&RowText, &mut NativeText), Without<MenuNotice>>,
-    mut notices: Query<&mut NativeText, With<MenuNotice>>,
+    mut texts: Query<(&RowText, &mut Text), Without<MenuNotice>>,
+    mut notices: Query<&mut Text, With<MenuNotice>>,
 ) {
     for (row, mut background) in &mut rows {
         let color = if row.index == menu.selected {
@@ -598,7 +652,7 @@ fn labels(
     }
     if settings.is_changed() {
         for (row, mut text) in &mut texts {
-            text.value = label(row.0, &settings);
+            text.0 = label(row.0, &settings);
         }
     }
     for mut text in &mut notices {
@@ -611,8 +665,8 @@ fn labels(
         } else {
             store.error.clone().unwrap_or_else(|| menu.notice.clone())
         };
-        if text.value != value {
-            text.value = value;
+        if text.0 != value {
+            text.0 = value;
         }
     }
 }
