@@ -424,3 +424,13 @@ fn automatic_session_initialization_claims_input_and_seeds_before_world_setup() 
     assert_eq!(app.world().resource::<Controller>().session, Some(1));
     assert!(app.world().resource::<Controller>().queue.is_empty());
 }
+
+#[test]
+fn startup_observation_does_not_require_the_unloaded_game_definition() {
+    let mut app = harness();
+    app.insert_state(GameState::Loading);
+    let snapshot = state::snapshot(app.world_mut());
+    assert_eq!(snapshot["game_state"], "Loading");
+    assert_eq!(snapshot["ready"], false);
+    assert!(snapshot["targets"].as_array().unwrap().is_empty());
+}

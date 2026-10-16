@@ -92,16 +92,19 @@ pub(super) fn snapshot(world: &mut World) -> Value {
         Some(json!({"entity":e.to_bits(),"target":{"kind":"generator","value":generator.0},"position":t.translation.to_array()}))
     }));
     let tank_uses: std::collections::BTreeMap<_, _> = world
-        .resource::<crate::assets::GameDefinition>()
-        .environment
-        .triggers
-        .iter()
-        .filter_map(|t| {
-            let name = t.source.get("targetname")?;
-            matches!(name.as_str(), "trig_use_tank" | "trig_tank_station_call")
-                .then(|| (t.id.clone(), name.clone()))
+        .get_resource::<crate::assets::GameDefinition>()
+        .map(|game| {
+            game.environment
+                .triggers
+                .iter()
+                .filter_map(|t| {
+                    let name = t.source.get("targetname")?;
+                    matches!(name.as_str(), "trig_use_tank" | "trig_tank_station_call")
+                        .then(|| (t.id.clone(), name.clone()))
+                })
+                .collect()
         })
-        .collect();
+        .unwrap_or_default();
     targets.extend(world.query::<(Entity,&crate::environment::triggers::MapTrigger,&Transform,&avian3d::prelude::Collider)>().iter(world).filter_map(|(e,t,pose,shape)| {
         let name=tank_uses.get(&t.0)?;
         let bounds=shape.aabb(pose.translation,pose.rotation,0.);
