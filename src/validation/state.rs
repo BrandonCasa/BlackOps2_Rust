@@ -88,8 +88,12 @@ pub(super) fn snapshot(world: &mut World) -> Value {
             }),
     );
     targets.extend(world.query::<(Entity,&crate::interactions::Usable,&Transform)>().iter(world).filter_map(|(e,u,t)| {
-        let crate::origins::content::InteractionAction::Generator { generator }=&u.source.action else { return None; };
-        Some(json!({"entity":e.to_bits(),"target":{"kind":"generator","value":generator.0},"position":t.translation.to_array()}))
+        let target = match &u.source.action {
+            crate::origins::content::InteractionAction::Generator { generator } => json!({"kind":"generator","value":generator.0}),
+            crate::origins::content::InteractionAction::Weapon { weapon, .. } => json!({"kind":"wall_weapon","value":weapon.0}),
+            _ => return None,
+        };
+        Some(json!({"entity":e.to_bits(),"target":target,"position":t.translation.to_array()}))
     }));
     let tank_uses: std::collections::BTreeMap<_, _> = world
         .get_resource::<crate::assets::GameDefinition>()

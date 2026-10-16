@@ -212,6 +212,12 @@ def generators_tank(client):
     client.send({"op": "assist", "god": True, "points": 100000, "ammo": True, "doors": True},
                 label="Generator and tank: open routes and replenish equipment")
     client.input(120 * int(client.state()["speed"]), label="Activate and defend generator one, then ride the tank")
+    walk_to(client, [63.0, -9.34, -135.3], tolerance=0.5)
+    rifle = target_of(client.state(), "wall_weapon", "weapon.m14_zm")
+    state = use_target(client, rifle, "Buy the starting-room M14 through its ordinary wall interaction")
+    if not any(w["id"] == "weapon.m14_zm" for w in state["player"]["inventory"]):
+        raise ValidationFailure("The M14 wall purchase did not grant the weapon")
+    client.input(120, label="Equip the purchased rifle before defending the generator")
     generator = "generator.generator_start_bunker"
     client.send({"op": "teleport", "feet": [57.25, -7.3914, -122.9]},
                 label="Stage on the floor beside generator one")
