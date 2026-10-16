@@ -205,7 +205,11 @@ fn raised_platform_floor_is_queryable_before_the_next_physics_frame() {
         app.world().get::<PlatformSupport>(player).unwrap().entity,
         Some(platform)
     );
-    app.world_mut().get_mut::<Player>(player).unwrap().grounded = false;
+    {
+        let mut jumping = app.world_mut().get_mut::<Player>(player).unwrap();
+        jumping.grounded = false;
+        jumping.velocity.y = 6.344918;
+    }
     app.world_mut().run_system_once(track).unwrap();
     assert!(
         app.world()
@@ -214,23 +218,80 @@ fn raised_platform_floor_is_queryable_before_the_next_physics_frame() {
             .entity
             .is_none()
     );
+    {
+        let mut descending = app.world_mut().get_mut::<Player>(player).unwrap();
+        descending.velocity.y = -0.3386667;
+    }
+    app.world_mut().run_system_once(track).unwrap();
+    assert!(
+        app.world()
+            .get::<PlatformSupport>(player)
+            .unwrap()
+            .entity
+            .is_none(),
+        "An airborne player must not acquire platform support before landing"
+    );
+    app.world_mut().get_mut::<Player>(player).unwrap().grounded = true;
+    app.world_mut().run_system_once(track).unwrap();
+    assert_eq!(
+        app.world().get::<PlatformSupport>(player).unwrap().entity,
+        Some(platform)
+    );
+    app.world_mut().get_mut::<Player>(player).unwrap().grounded = false;
+    app.world_mut()
+        .get_mut::<Transform>(player)
+        .unwrap()
+        .translation
+        .y += 0.02;
+    app.world_mut().run_system_once(track).unwrap();
+    assert_eq!(
+        app.world().get::<PlatformSupport>(player).unwrap().entity,
+        Some(platform),
+        "A small contact gap must retain the existing hull without faking grounded state"
+    );
+    let before = app.world().get::<Transform>(player).unwrap().translation;
+    {
+        let mut pose = app.world_mut().get_mut::<Transform>(platform).unwrap();
+        pose.translation += Vec3::new(0.1, -0.04, 0.);
+    }
+    app.world_mut().run_system_cached(sync).unwrap();
+    app.world_mut().run_system_once(carry).unwrap();
+    let after = app.world().get::<Transform>(player).unwrap().translation;
+    assert!((after - before).abs_diff_eq(Vec3::new(0.1, -0.04, 0.), 1e-5));
+    assert!(!app.world().get::<Player>(player).unwrap().grounded);
+    app.world_mut()
+        .get_mut::<Transform>(player)
+        .unwrap()
+        .translation
+        .x = 10.;
+    app.world_mut().run_system_once(track).unwrap();
+    assert!(
+        app.world()
+            .get::<PlatformSupport>(player)
+            .unwrap()
+            .entity
+            .is_none(),
+        "Leaving the actual hull still releases support"
+    );
 }
 
 pub(crate) fn carry(
     time: Res<Time<Fixed>>,
     platforms: Query<&Transform, (With<MovingPlatform>, Without<Player>)>,
-    mut players: Query<(
-        Entity,
-        &Player,
-        &Vitality,
-        &Collider,
-        &mut Transform,
-        &mut PlatformSupport,
-    )>,
+    mut players: Query<
+        (
+            Entity,
+            &Vitality,
+            &Collider,
+            &mut Transform,
+            &mut PlatformSupport,
+        ),
+        With<Player>,
+    >,
     slide: MoveAndSlide,
 ) {
-    for (entity, player, health, collider, mut pose, mut support) in &mut players {
-        if !player.grounded || !matches!(health.state(), LifeState::Standing | LifeState::Downed) {
+    for (entity, health, collider, mut pose, mut support) in &mut players {
+        if !matches!(health.state(), LifeState::Standing | LifeState::Downed) {
             support.entity = None;
             continue;
         }
@@ -277,7 +338,7 @@ fn track(
     mut players: Query<(Entity, &Player, &Collider, &Transform, &mut PlatformSupport)>,
 ) {
     for (entity, player, collider, pose, mut support) in &mut players {
-        if !player.grounded {
+        if !player.grounded && (support.entity.is_none() || player.velocity.y > 1e-3) {
             if let Some(platform) = support.entity {
                 debug!(?platform, position=?pose.translation, velocity=?player.velocity,
                     "Moving platform support released while airborne");
@@ -305,6 +366,13 @@ fn track(
             support.entity = None;
             continue;
         };
+        // A descending rider can briefly miss the short movement ground probe.
+        // Keep only their existing platform while its hull remains below them;
+        // this does not grant ground contact or attach an airborne newcomer.
+        if !player.grounded && (support.entity != Some(hit.entity) || hit.normal1.y < 0.5) {
+            support.entity = None;
+            continue;
+        }
         support.entity = Some(hit.entity);
         support.local_point = platform.compute_affine().inverse().transform_point3(point);
         support.previous_point = point;
