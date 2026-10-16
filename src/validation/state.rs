@@ -162,9 +162,10 @@ pub(super) fn snapshot(world: &mut World) -> Value {
             .and_then(|children| {
                 children.iter().find_map(|child| {
                     world.get::<WorldAssetRoot>(child)?;
+                    let imported_root = *world.get::<Children>(child)?.first()?;
                     world
-                        .get::<Transform>(child)
-                        .map(|pose| pose.scale.to_array())
+                        .get::<GlobalTransform>(imported_root)
+                        .map(|pose| pose.to_scale_rotation_translation().0.to_array())
                 })
             });
         result["tank"] = json!({"entity":tank.entity.map(Entity::to_bits),"phase":format!("{:?}",tank.phase),"station":tank.station,"trips":tank.trips,"timer":tank.timer,"position":pose.map(|p|p.translation.to_array()),"rotation":pose.map(|p|p.rotation.to_array()),"model_scale":model_scale});
