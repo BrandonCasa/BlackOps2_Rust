@@ -18,12 +18,20 @@ pub enum WeatherKind {
     Snow,
 }
 
+const CLEAR_SUN_COLOR: Vec3 = Vec3::new(0.380056, 0.775788, 1.);
+const SNOW_SUN_COLOR: Vec3 = Vec3::new(0.769943, 0.894102, 1.);
+const BASE_SUN_INTENSITY: f32 = 8.;
+const SUN_STEP: f32 = 0.05;
+const SUN_COLOR_SECONDS: f32 = 10.;
+
 #[derive(Resource, Serialize)]
 pub struct Weather {
     pub kind: WeatherKind,
     pub intensity: u32,
     pub presented: WeatherKind,
     pub presented_intensity: u32,
+    /// The ordinary weather vision is independent of ice-puzzle precipitation.
+    pub vision: WeatherKind,
     pub last_snow: u32,
     pub last_rain: u32,
     pub overrides: BTreeMap<u32, WeatherKind>,
@@ -32,11 +40,13 @@ pub struct Weather {
     pub ambient_alias: String,
     pub precipitation_bursts: u64,
     pub strikes: u64,
-    pub flash: f32,
-    pub(crate) delay: f32,
-    color_blend: f32,
-    color_from: f32,
-    color_remaining: f32,
+    sun_color: Vec3,
+    sun_intensity: f32,
+    delay: f32,
+    next_vision: WeatherKind,
+    color_from: Vec3,
+    color_elapsed: f32,
+    color_clock: f32,
     client_seed: u64,
     audio_delay: f32,
     precipitation_clock: f32,
@@ -44,11 +54,92 @@ pub struct Weather {
     flashes_left: u32,
     flash_duration: f32,
     flash_peak: f32,
+    flash_elapsed: f32,
+    flash_clock: f32,
     strike_position: Vec3,
     #[serde(skip)]
     audio: Option<Entity>,
 }
 impl Weather {
+    /// zm_tomb_quest_ice changes rain/snow levels, then calls the ordinary
+    /// player callback without changing level.weather_vision. It clears both
+    /// levels after five seconds rather than restoring the preceding weather.
+    pub(crate) fn puzzle_precipitation(&mut self, kind: WeatherKind, intensity: u32) {
+        self.kind = kind;
+        self.intensity = intensity;
+        self.present_weather();
+    }
+
+    fn present_weather(&mut self) {
+        let was_raining = self.presented == WeatherKind::Rain;
+        self.presented = self.kind;
+        self.presented_intensity = self.intensity;
+        self.vision = self.next_vision;
+        self.audio_delay = 1.1;
+        self.precipitation_clock = 0.;
+        // set_player_rain only starts a new lightning thread when entering
+        // rain. An intensity update must retain an in-progress strike/burst.
+        if was_raining != (self.presented == WeatherKind::Rain) {
+            self.lightning_clock = 0.;
+            self.flashes_left = 0;
+            self.flash_duration = 0.;
+            self.sun_intensity = BASE_SUN_INTENSITY;
+        }
+        self.color_from = self.sun_color;
+        self.color_elapsed = 0.;
+        self.color_clock = 0.;
+    }
+
+    pub(crate) fn sun_diffuse(&self) -> Vec4 {
+        (self.sun_color * self.sun_intensity).extend(1.)
+    }
+
+    fn advance_sun(&mut self, dt: f32) {
+        // The client script waits 0.05 seconds before each write; retain its
+        // stepped values rather than evaluating a continuous render-frame fade.
+        if self.color_elapsed < SUN_COLOR_SECONDS {
+            let target = if self.vision == WeatherKind::Snow {
+                SNOW_SUN_COLOR
+            } else {
+                CLEAR_SUN_COLOR
+            };
+            self.color_clock += dt;
+            while self.color_clock >= SUN_STEP && self.color_elapsed < SUN_COLOR_SECONDS {
+                self.color_clock -= SUN_STEP;
+                self.color_elapsed += SUN_STEP;
+                self.sun_color = self
+                    .color_from
+                    .lerp(target, self.color_elapsed / SUN_COLOR_SECONDS);
+                if self.color_elapsed >= SUN_COLOR_SECONDS {
+                    self.sun_color = target;
+                }
+            }
+        }
+        if self.flash_elapsed < self.flash_duration {
+            self.flash_clock += dt;
+            while self.flash_clock >= SUN_STEP && self.flash_elapsed < self.flash_duration {
+                self.flash_clock -= SUN_STEP;
+                self.flash_elapsed += SUN_STEP;
+                self.sun_intensity = self.flash_peak
+                    + (BASE_SUN_INTENSITY - self.flash_peak)
+                        * (self.flash_elapsed / self.flash_duration);
+                if self.flash_elapsed >= self.flash_duration {
+                    // lerp_dvar can overshoot on its last step, then writes the
+                    // exact saved base immediately, with no intervening wait.
+                    self.sun_intensity = BASE_SUN_INTENSITY;
+                }
+            }
+        }
+    }
+
+    fn start_flash(&mut self, duration: f32, peak: f32) {
+        self.flash_duration = duration;
+        self.flash_peak = peak;
+        self.flash_elapsed = 0.;
+        self.flash_clock = 0.;
+        self.sun_intensity = peak;
+    }
+
     fn random(&mut self) -> u32 {
         self.client_seed = self
             .client_seed
@@ -64,6 +155,7 @@ impl Default for Weather {
             intensity: 0,
             presented: WeatherKind::Clear,
             presented_intensity: 0,
+            vision: WeatherKind::Clear,
             last_snow: 0,
             last_rain: 0,
             overrides: BTreeMap::new(),
@@ -72,18 +164,22 @@ impl Default for Weather {
             ambient_alias: String::new(),
             precipitation_bursts: 0,
             strikes: 0,
-            flash: 0.,
+            sun_color: CLEAR_SUN_COLOR,
+            sun_intensity: BASE_SUN_INTENSITY,
             delay: 0.,
-            color_blend: 0.,
-            color_from: 0.,
-            color_remaining: 0.,
+            next_vision: WeatherKind::Clear,
+            color_from: CLEAR_SUN_COLOR,
+            color_elapsed: SUN_COLOR_SECONDS,
+            color_clock: 0.,
             client_seed: 0xA17C5,
             audio_delay: 0.,
             precipitation_clock: 0.,
             lightning_clock: 0.,
             flashes_left: 0,
-            flash_duration: 0.2,
-            flash_peak: 1.,
+            flash_duration: 0.,
+            flash_peak: BASE_SUN_INTENSITY,
+            flash_elapsed: 0.,
+            flash_clock: 0.,
             strike_position: Vec3::ZERO,
             audio: None,
         }
@@ -148,6 +244,7 @@ fn round_weather(
                 }
             });
         weather.kind = kind;
+        weather.next_vision = kind;
         weather.intensity = if kind == WeatherKind::Clear {
             0
         } else {
@@ -183,18 +280,11 @@ pub(crate) fn tick(
         return;
     };
     let dt = time.delta_secs();
+    weather.advance_sun(dt);
     if weather.delay > 0. {
         weather.delay = (weather.delay - dt).max(0.);
         if weather.delay == 0. {
-            weather.presented = weather.kind;
-            weather.presented_intensity = weather.intensity;
-            weather.audio_delay = 1.1;
-            weather.precipitation_clock = 0.;
-            weather.lightning_clock = 0.;
-            weather.flashes_left = 0;
-            weather.flash = 0.;
-            weather.color_from = weather.color_blend;
-            weather.color_remaining = 10.;
+            weather.present_weather();
         }
     }
     let audio_before = weather.audio_delay;
@@ -286,15 +376,6 @@ pub(crate) fn tick(
             weather.audio = Some(entity);
         }
     }
-    let target = if weather.presented == WeatherKind::Snow {
-        1.
-    } else {
-        0.
-    };
-    weather.color_remaining = (weather.color_remaining - dt).max(0.);
-    weather.color_blend =
-        weather.color_from + (target - weather.color_from) * (1. - weather.color_remaining / 10.);
-    weather.flash = (weather.flash - dt * weather.flash_peak / weather.flash_duration).max(0.);
     if weather.presented == WeatherKind::Rain {
         weather.lightning_clock -= dt;
         if weather.lightning_clock <= 0. {
@@ -324,9 +405,9 @@ pub(crate) fn tick(
                     "amb_thunder_flash_zm",
                     weather.strike_position,
                 );
-                weather.flash_duration = 0.1 + (weather.random() % 10000) as f32 * 0.000025;
-                weather.flash_peak = (28. + (weather.random() % 10000) as f32 * 0.0004) / 30.;
-                weather.flash = weather.flash_peak;
+                let duration = 0.1 + (weather.random() % 10000) as f32 * 0.000025;
+                let peak = 28. + (weather.random() % 10000) as f32 * 0.0004;
+                weather.start_flash(duration, peak);
                 weather.flashes_left -= 1;
                 weather.lightning_clock = (weather.flash_duration / 0.05).ceil() * 0.05
                     + if weather.flashes_left == 0 {
@@ -336,9 +417,6 @@ pub(crate) fn tick(
                     };
             }
         }
-    } else {
-        weather.flash = 0.;
-        weather.flashes_left = 0;
     }
     if weather.presented == WeatherKind::Clear {
         return;
@@ -368,5 +446,115 @@ pub(crate) fn tick(
 fn sound(commands: &mut Commands, game: &GameDefinition, alias: &str, position: Vec3) {
     if game.audio.aliases.contains_key(alias) {
         crate::audio::emit(commands, alias, crate::audio::SoundSource::World(position));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn close(actual: Vec3, expected: Vec3) {
+        assert!(
+            actual.abs_diff_eq(expected, 0.000001),
+            "{actual} != {expected}"
+        );
+    }
+
+    #[test]
+    fn sun_color_waits_for_source_steps_and_retargets_current_color() {
+        let mut weather = Weather::default();
+        assert_eq!(weather.sun_color, CLEAR_SUN_COLOR);
+        assert_eq!(weather.sun_intensity, 8.);
+        weather.kind = WeatherKind::Snow;
+        weather.next_vision = WeatherKind::Snow;
+        weather.present_weather();
+        weather.advance_sun(0.049);
+        assert_eq!(weather.sun_color, CLEAR_SUN_COLOR);
+        weather.advance_sun(0.002);
+        close(
+            weather.sun_color,
+            CLEAR_SUN_COLOR.lerp(SNOW_SUN_COLOR, 0.005),
+        );
+
+        for _ in 0..99 {
+            weather.advance_sun(SUN_STEP);
+        }
+        close(weather.sun_color, CLEAR_SUN_COLOR.lerp(SNOW_SUN_COLOR, 0.5));
+        let interrupted = weather.sun_color;
+        weather.kind = WeatherKind::Rain;
+        weather.next_vision = WeatherKind::Rain;
+        weather.present_weather();
+        assert_eq!(weather.sun_color, interrupted);
+        weather.advance_sun(SUN_STEP);
+        close(weather.sun_color, interrupted.lerp(CLEAR_SUN_COLOR, 0.005));
+        for _ in 0..199 {
+            weather.advance_sun(SUN_STEP);
+        }
+        assert_eq!(weather.sun_color, CLEAR_SUN_COLOR);
+    }
+
+    #[test]
+    fn lightning_uses_absolute_sunlight_and_restores_exact_base_on_final_step() {
+        let mut weather = Weather::default();
+        weather.start_flash(0.12, 30.);
+        assert_eq!(weather.sun_intensity, 30.);
+        weather.advance_sun(0.049);
+        assert_eq!(weather.sun_intensity, 30.);
+        weather.advance_sun(0.002);
+        assert!((weather.sun_intensity - (30. + (8. - 30.) * (0.05 / 0.12))).abs() < 0.00001);
+        weather.advance_sun(SUN_STEP);
+        assert!(weather.sun_intensity > 8.);
+        weather.advance_sun(SUN_STEP);
+        assert_eq!(weather.sun_intensity, 8.);
+        weather.advance_sun(1.);
+        assert_eq!(weather.sun_intensity, 8.);
+        assert_eq!(weather.sun_diffuse(), (CLEAR_SUN_COLOR * 8.).extend(1.));
+    }
+
+    #[test]
+    fn rain_intensity_update_keeps_live_lightning_burst() {
+        let mut weather = Weather::default();
+        weather.kind = WeatherKind::Rain;
+        weather.next_vision = WeatherKind::Rain;
+        weather.intensity = 1;
+        weather.present_weather();
+        weather.lightning_clock = 0.175;
+        weather.flashes_left = 2;
+        weather.start_flash(0.25, 29.);
+        weather.advance_sun(0.05);
+        let current = weather.sun_intensity;
+        weather.intensity = 4;
+        weather.present_weather();
+        assert_eq!(weather.presented_intensity, 4);
+        assert_eq!(weather.lightning_clock, 0.175);
+        assert_eq!(weather.flashes_left, 2);
+        assert_eq!(weather.flash_elapsed, 0.05);
+        assert_eq!(weather.sun_intensity, current);
+        weather.kind = WeatherKind::Clear;
+        weather.next_vision = WeatherKind::Clear;
+        weather.present_weather();
+        assert_eq!(weather.sun_intensity, 8.);
+        assert_eq!(weather.flashes_left, 0);
+    }
+
+    #[test]
+    fn puzzle_snow_changes_precipitation_without_replacing_ordinary_vision() {
+        let mut weather = Weather::default();
+        weather.kind = WeatherKind::Rain;
+        weather.next_vision = WeatherKind::Rain;
+        weather.delay = 1.;
+        weather.puzzle_precipitation(WeatherKind::Snow, 5);
+        assert_eq!(weather.kind, WeatherKind::Snow);
+        assert_eq!(weather.presented, WeatherKind::Snow);
+        assert_eq!(weather.presented_intensity, 5);
+        assert_eq!(weather.vision, WeatherKind::Rain);
+        assert_eq!(weather.delay, 1.);
+        weather.advance_sun(0.1);
+        assert_eq!(weather.sun_color, CLEAR_SUN_COLOR);
+        weather.puzzle_precipitation(WeatherKind::Clear, 0);
+        assert_eq!(weather.kind, WeatherKind::Clear);
+        assert_eq!(weather.presented, WeatherKind::Clear);
+        assert_eq!(weather.vision, WeatherKind::Rain);
+        assert_eq!(weather.presented_intensity, 0);
     }
 }

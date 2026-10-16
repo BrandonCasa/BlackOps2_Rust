@@ -83,7 +83,32 @@ pub struct RobotStomp(pub Vec3);
 struct FootEvent {
     robot: usize,
     side: usize,
-    event: String,
+    action: FootAction,
+}
+#[derive(Clone, Copy)]
+enum FootAction {
+    Kill,
+    Impact,
+    OpeningImpact,
+    Sound(&'static str),
+}
+
+fn foot_action(event: &str) -> Option<(usize, FootAction)> {
+    Some(match event {
+        "kill_zombies_leftfoot_1" => (0, FootAction::Kill),
+        "kill_zombies_rightfoot_1" => (1, FootAction::Kill),
+        "footstep_left_large" => (0, FootAction::Impact),
+        "footstep_right_large" => (1, FootAction::Impact),
+        "soundfootstart_left" => (0, FootAction::Sound("zmb_robot_leg_move_left")),
+        "soundfootstart_right" => (1, FootAction::Sound("zmb_robot_leg_move_right")),
+        "soundfootwarning_left" => (0, FootAction::Sound("zmb_robot_foot_alarm")),
+        "soundfootwarning_right" => (1, FootAction::Sound("zmb_robot_foot_alarm")),
+        "soundfootdown_left" => (0, FootAction::Sound("zmb_robot_leg_whoosh")),
+        "soundfootdown_right" => (1, FootAction::Sound("zmb_robot_leg_whoosh")),
+        "soundfootalarm_left" => (0, FootAction::Sound("zmb_robot_pre_stomp_a")),
+        "soundfootalarm_right" => (1, FootAction::Sound("zmb_robot_pre_stomp_a")),
+        _ => return None,
+    })
 }
 #[derive(Component)]
 #[require(crate::animation::SceneClips)]
@@ -98,6 +123,8 @@ struct Foot {
     light: Entity,
     fx: Option<Entity>,
     phase: HatchState,
+    clips: [usize; 3],
+    impact: Entity,
 }
 #[derive(Component)]
 struct FootTarget(Entity);
@@ -112,11 +139,49 @@ pub(crate) struct Evacuation(usize);
 struct RobotBody {
     index: usize,
     feet: [Option<Entity>; 2],
+    clips: [usize; 4],
+    handles: [Handle<AnimationClip>; 4],
+    warnings: [WarningFoot; 2],
+}
+struct WarningFoot {
+    path: Vec<source::Footprint>,
+    cursor: usize,
+    effects: Vec<Entity>,
+    phase: Option<WarningPhase>,
+}
+enum WarningPhase {
+    Landed(f32),
+    Dark(f32),
+}
+impl WarningFoot {
+    fn stop(&mut self, commands: &mut Commands) {
+        for effect in self.effects.drain(..) {
+            crate::native_fx::stop(commands, effect);
+        }
+    }
+    fn show(&mut self, commands: &mut Commands) {
+        if let Some(footprint) = self.path.get(self.cursor) {
+            self.effects.extend(footprint.lights.iter().map(|pose| {
+                crate::native_fx::emit(
+                    commands,
+                    "maps/zombie_tomb/fx_tomb_foot_warning_light_red",
+                    *pose,
+                )
+            }));
+        }
+    }
 }
 #[derive(Component)]
 struct LandingReservation {
     point: Vec3,
     remaining: f32,
+}
+#[derive(Component)]
+struct RobotShake {
+    remaining: f32,
+    robot: usize,
+    origin: Vec3,
+    opening: bool,
 }
 #[derive(Component)]
 pub(crate) struct StompReaction {
@@ -146,6 +211,10 @@ pub(crate) struct RobotTransit {
     pub black: bool,
 }
 pub struct RobotPlugin;
+pub(crate) fn reset_session(world: &mut World) {
+    world.insert_resource(Robots::default());
+    world.resource_mut::<Messages<FootEvent>>().clear();
+}
 impl Plugin for RobotPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Robots>()
@@ -165,7 +234,7 @@ impl Plugin for RobotPlugin {
             )
             .add_systems(
                 FixedUpdate,
-                (tick, foot_events, foot_presentation)
+                (tick, foot_events, foot_presentation, shake)
                     .chain()
                     .in_set(GameStep::Combat)
                     .run_if(in_state(GameState::Playing)),
@@ -213,12 +282,45 @@ fn setup(
     mut access: ResMut<crate::access::ZoneAccess>,
     game: Res<GameDefinition>,
     server: Res<AssetServer>,
+    options: Res<crate::assets::LaunchOptions>,
 ) {
     *robots = default();
     let mut initial = pass(0., false);
     initial.intro = true;
     robots.passes[1] = Some(initial);
+    let bytes = std::fs::read(
+        options.asset_root.join(
+            game.entity_metadata
+                .as_ref()
+                .expect("Robot source entity metadata"),
+        ),
+    )
+    .expect("Read robot source entity metadata");
+    let paths = source::warning_paths(&bytes);
+    let mut paths = paths.into_iter();
     for i in 0..3 {
+        let warnings = paths.next().unwrap().map(|path| WarningFoot {
+            path,
+            cursor: 0,
+            effects: Vec::new(),
+            phase: None,
+        });
+        let skeleton = format!("actor.veh_t6_dlc_zm_robot_{i}");
+        let clips = std::array::from_fn(|phase| {
+            let name = if phase == 3 {
+                "ai_zombie_giant_robot_bunker_intro".to_owned()
+            } else {
+                walk_clip(i, phase)
+            };
+            game.content
+                .animations
+                .iter()
+                .position(|a| {
+                    a.skeleton.0 == skeleton && a.id.0.rsplit('.').next() == Some(name.as_str())
+                })
+                .unwrap_or_else(|| panic!("Required robot {i} source clip {name}"))
+        });
+        let handles = clips.map(|index| server.load(game.content.animations[index].path.clone()));
         if let Some(scene) = crate::assets::native_scene(&game, &format!("veh_t6_dlc_zm_robot_{i}"))
         {
             commands.spawn((
@@ -226,6 +328,9 @@ fn setup(
                 RobotBody {
                     index: i,
                     feet: [None; 2],
+                    clips,
+                    handles,
+                    warnings,
                 },
                 WorldAssetRoot(
                     server
@@ -300,8 +405,22 @@ fn ready(
                 tags.get(*e)
                     .is_ok_and(|name| name.as_str().eq_ignore_ascii_case(tag))
             }) else {
-                continue;
+                panic!("Robot {} required socket {tag} missing", body.index);
             };
+            let impact_tag = if side == 0 {
+                "tag_hatch_fx_le"
+            } else {
+                "tag_hatch_fx_ri"
+            };
+            let impact = spawner
+                .iter_instance_entities(event.instance_id)
+                .find(|e| {
+                    tags.get(*e)
+                        .is_ok_and(|name| name.as_str().eq_ignore_ascii_case(impact_tag))
+                })
+                .unwrap_or_else(|| {
+                    panic!("Robot {} required socket {impact_tag} missing", body.index)
+                });
             if let Some(root) = body.feet[side] {
                 commands.entity(root).insert(FootSocket(socket));
                 continue;
@@ -359,6 +478,22 @@ fn ready(
                     light,
                     fx: None,
                     phase: HatchState::Closed,
+                    clips: [
+                        "ai_zombie_giant_robot_hatch_open",
+                        "ai_zombie_giant_robot_hatch_open_idle",
+                        "ai_zombie_giant_robot_hatch_close",
+                    ]
+                    .map(|name| {
+                        game.content
+                            .animations
+                            .iter()
+                            .position(|a| {
+                                a.skeleton.0 == "actor.veh_t6_dlc_zm_robot_foot_hatch"
+                                    && a.id.0.rsplit('.').next() == Some(name)
+                            })
+                            .unwrap_or_else(|| panic!("Required robot hatch clip {name}"))
+                    }),
+                    impact,
                 },
                 WorldAssetRoot(
                     server
@@ -459,11 +594,12 @@ fn tick(
         &mut AnimationPlayer,
         &mut AnimationGraphHandle,
     )>,
-    bodies: Query<(Entity, &RobotBody)>,
+    mut bodies: Query<(Entity, &mut RobotBody, &mut Transform)>,
     feet: Query<&Foot>,
     targets: Query<&FootTarget>,
     mut hits: MessageReader<EnvironmentalHit>,
     mut events: MessageWriter<FootEvent>,
+    globals: Query<&GlobalTransform>,
 ) {
     let dt = time.delta_secs();
     for hit in hits.read() {
@@ -523,9 +659,14 @@ fn tick(
             robots.next = 5.;
         }
     }
-    for (robot_entity, body) in &bodies {
+    for (robot_entity, mut body, mut pose) in &mut bodies {
         let Some(mut p) = robots.passes[body.index] else {
             commands.entity(robot_entity).insert(Visibility::Hidden);
+            for warning in &mut body.warnings {
+                warning.stop(&mut commands);
+                warning.cursor = 0;
+                warning.phase = None;
+            }
             continue;
         };
         if p.delay > 0. {
@@ -539,42 +680,61 @@ fn tick(
         if p.eligible == Some(2) {
             p.eligible = Some(session.random() as usize % 2);
         }
-        let name = if p.intro {
-            "ai_zombie_giant_robot_bunker_intro".into()
-        } else {
-            walk_clip(body.index, p.step)
-        };
-        let Some(scene) =
-            crate::assets::native_scene(&game, &format!("veh_t6_dlc_zm_robot_{}", body.index))
-        else {
+        let phase = if p.intro { 3 } else { p.step };
+        let animation = &game.content.animations[body.clips[phase]];
+        let end = animation.seconds;
+        if !assets.clips.contains(&body.handles[phase]) || body.feet.iter().any(Option::is_none) {
+            continue;
+        }
+        let Ok((mut clips, mut player, mut graph)) = animated.get_mut(robot_entity) else {
             continue;
         };
-        let Some(presentation) = game
-            .content
-            .presentations
-            .iter()
-            .find(|p| p.scene.as_ref() == Some(scene))
-        else {
+        if !clips.sample(
+            &animation.path,
+            (p.clock + dt).min(end),
+            false,
+            &mut player,
+            &mut graph,
+            &mut assets,
+        ) {
             continue;
-        };
-        let suffix = format!(".{name}");
-        let Some(animation) = game
-            .content
-            .animations
-            .iter()
-            .find(|a| a.skeleton == presentation.id && a.id.0.ends_with(&suffix))
-        else {
-            continue;
-        };
-        let Some(end) = animation
-            .notifications
-            .iter()
-            .find(|n| n.event == "end")
-            .map(|n| n.seconds)
-        else {
-            continue;
-        };
+        }
         let previous = p.clock;
+        if !p.intro && p.step == 0 && previous == 0. {
+            for warning in &mut body.warnings {
+                warning.show(&mut commands);
+            }
+        }
+        for side in 0..2 {
+            let point = body.feet[side]
+                .and_then(|e| feet.get(e).ok())
+                .and_then(|foot| globals.get(foot.impact).ok())
+                .map(GlobalTransform::translation);
+            let warning = &mut body.warnings[side];
+            if let Some(phase) = warning.phase.take() {
+                warning.phase = match phase {
+                    WarningPhase::Landed(t) if t > dt => Some(WarningPhase::Landed(t - dt)),
+                    WarningPhase::Landed(_) => {
+                        if warning.path.get(warning.cursor).is_some_and(|mark| {
+                            point.is_some_and(|p| {
+                                p.distance_squared(mark.point) < (300_f32 * 0.0254).powi(2)
+                            })
+                        }) {
+                            warning.stop(&mut commands);
+                            warning.cursor += 1;
+                            Some(WarningPhase::Dark(0.05))
+                        } else {
+                            None
+                        }
+                    }
+                    WarningPhase::Dark(t) if t > dt => Some(WarningPhase::Dark(t - dt)),
+                    WarningPhase::Dark(_) => {
+                        warning.show(&mut commands);
+                        None
+                    }
+                };
+            }
+        }
         p.clock += dt;
         p.age += dt;
         p.hatch_age += dt;
@@ -587,35 +747,36 @@ fn tick(
             };
         }
         commands.entity(robot_entity).insert(Visibility::Inherited);
-        if let Ok((mut clips, mut player, mut graph)) = animated.get_mut(robot_entity) {
-            clips.sample(
-                &animation.path,
-                p.clock.min(end),
-                false,
-                &mut player,
-                &mut graph,
-                &mut assets,
-            );
+        let motion = animation
+            .root_motion
+            .as_ref()
+            .expect("Required robot scripted root motion");
+        pose.translation = Vec3::from_array(source::ALIGNMENT[body.index])
+            + Vec3::from_array(motion.translation_at(p.clock));
+        pose.rotation = Quat::from_array(motion.rotation_at(p.clock));
+        if p.intro && previous < 0.5 && p.clock >= 0.5 {
+            events.write(FootEvent {
+                robot: body.index,
+                side: 0,
+                action: FootAction::OpeningImpact,
+            });
         }
         for note in animation
             .notifications
             .iter()
-            .filter(|n| n.seconds > previous && n.seconds <= p.clock)
+            .filter(|n| n.seconds >= previous && n.seconds < p.clock)
         {
             if note.event == "kill_zombies_leftfoot_1" && p.ready_at.is_none() {
                 p.ready_at = Some(p.age + 1.);
             }
-            if let Some(side) = if note.event.contains("left") {
-                Some(0)
-            } else if note.event.contains("right") {
-                Some(1)
-            } else {
-                None
-            } {
+            if let Some((side, action)) = foot_action(&note.event) {
+                if !p.intro && matches!(action, FootAction::Impact) {
+                    body.warnings[side].phase = Some(WarningPhase::Landed(1.));
+                }
                 events.write(FootEvent {
                     robot: body.index,
                     side,
-                    event: note.event.clone(),
+                    action,
                 });
             }
         }
@@ -623,6 +784,9 @@ fn tick(
             p.step += 1;
             p.clock = 0.;
             if p.intro || p.step >= 3 {
+                if p.intro {
+                    robots.next = 0.;
+                }
                 robots.passes[body.index] = None;
                 commands.entity(robot_entity).insert(Visibility::Hidden);
                 continue;
@@ -653,61 +817,55 @@ fn foot_events(
         Without<Foot>,
     >,
     enemies: Query<
-        (Entity, &Transform, &Vitality),
+        (Entity, &Transform, &Vitality, Has<crate::panzer::Panzer>),
         (With<crate::enemies::Zombie>, Without<Player>, Without<Foot>),
     >,
     mut damage: ResMut<DamageQueue>,
     mut stomps: MessageWriter<RobotStomp>,
     mut rumble: MessageWriter<crate::actions::Rumble>,
+    globals: Query<&GlobalTransform>,
     zone: Res<crate::access::CurrentZone>,
 ) {
     let dt = time.delta_secs();
     for event in events.read() {
-        let Some((entity, mut foot, pose)) = feet
+        let Some((entity, mut foot, foot_pose)) = feet
             .iter_mut()
             .find(|(_, f, _)| f.robot == event.robot && f.side == event.side)
         else {
             continue;
         };
-        let point = pose.translation();
-        let side = if event.side == 0 { "left" } else { "right" };
-        if event.event == format!("kill_zombies_{side}foot_1") {
+        let impact = globals.get(foot.impact).expect("Robot foot impact socket");
+        let point = impact.translation();
+        if matches!(event.action, FootAction::Kill) {
             foot.active = true;
             foot.finish = 0.;
             foot.poll = 0.;
-        } else if event.event == format!("footstep_{side}_large") {
+        } else if matches!(event.action, FootAction::Impact | FootAction::OpeningImpact) {
             foot.finish = 0.5;
             robots.stomps += 1;
             stomps.write(RobotStomp(point));
             crate::native_fx::emit(
                 &mut commands,
                 "maps/zombie_tomb/fx_tomb_robot_dust",
-                pose.compute_transform(),
+                impact.compute_transform(),
             );
             crate::audio::emit(
                 &mut commands,
                 "zmb_robot_foot_impact",
                 crate::audio::SoundSource::World(point),
             );
-            rumble.write(crate::actions::Rumble {
-                origin: point,
-                radius: 50.8,
-                seconds: 0.5,
-                strength: 2.,
-            });
+            let opening = matches!(event.action, FootAction::OpeningImpact);
+            commands.spawn((
+                SessionEntity,
+                RobotShake {
+                    robot: event.robot,
+                    origin: foot_pose.translation() + Vec3::Y * 72. * 0.0254,
+                    remaining: if opening { 0. } else { 0.2 },
+                    opening,
+                },
+            ));
         } else {
-            let alias = if event.event.starts_with("soundfootstart_") {
-                Some(format!("zmb_robot_leg_move_{side}"))
-            } else if event.event.starts_with("soundfootwarning_") {
-                Some("zmb_robot_foot_alarm".into())
-            } else if event.event.starts_with("soundfootdown_") {
-                Some("zmb_robot_leg_whoosh".into())
-            } else if event.event.starts_with("soundfootalarm_") {
-                Some("zmb_robot_pre_stomp_a".into())
-            } else {
-                None
-            };
-            if let Some(alias) = alias {
+            if let FootAction::Sound(alias) = event.action {
                 crate::audio::emit(
                     &mut commands,
                     alias,
@@ -861,8 +1019,16 @@ fn foot_events(
                 });
             }
         }
-        for (target, _, health) in &enemies {
+        for (target, _, health, panzer) in &enemies {
             if health.state() == LifeState::ActorAlive && touching.contains(&target) {
+                if panzer {
+                    commands
+                        .entity(target)
+                        .insert(crate::panzer::KnockdownRequest(
+                            crate::panzer::KnockdownKind::Robot,
+                        ));
+                    continue;
+                }
                 damage.0.push(Impact {
                     point: None,
                     attacker: entity,
@@ -874,6 +1040,51 @@ fn foot_events(
                 });
             }
         }
+    }
+}
+fn shake(
+    mut commands: Commands,
+    time: Res<Time<Fixed>>,
+    robots: Res<Robots>,
+    mut shakes: Query<(Entity, &mut RobotShake)>,
+    players: Query<(Entity, &Transform, &Vitality, Has<RobotTransit>), With<Player>>,
+    mut rumble: MessageWriter<crate::actions::Rumble>,
+) {
+    for (entity, mut shake) in &mut shakes {
+        shake.remaining -= time.delta_secs();
+        if shake.remaining > 0. {
+            continue;
+        }
+        for (player, pose, health, transit) in &players {
+            if health.state() != LifeState::Standing || transit {
+                continue;
+            }
+            let band = if shake.opening {
+                Some(3)
+            } else if let Some(occupancy) = robots.occupancy.filter(|o| o.player == player) {
+                (occupancy.robot == shake.robot).then_some(2)
+            } else {
+                let distance = pose.translation.distance(shake.origin) / 0.0254;
+                if distance < 1500. {
+                    Some(3)
+                } else if distance < 3000. {
+                    Some(2)
+                } else if distance < 6000. {
+                    Some(1)
+                } else {
+                    None
+                }
+            };
+            if let Some(band) = band {
+                rumble.write(crate::actions::Rumble {
+                    origin: pose.translation,
+                    radius: 100. * 0.0254,
+                    seconds: if band == 1 { 1. } else { 1.5 },
+                    strength: [0., 0.1, 0.3, 0.6][band],
+                });
+            }
+        }
+        commands.entity(entity).despawn();
     }
 }
 fn foot_presentation(
@@ -941,28 +1152,25 @@ fn foot_presentation(
             commands.entity(fx).try_despawn();
         }
         let age = pass.map_or(1., |p| p.hatch_age);
-        let clip = if open && age < 1. {
-            "ai_zombie_giant_robot_hatch_open"
+        let opening = &game.content.animations[foot.clips[0]];
+        let clip = if open && age < opening.seconds {
+            0
         } else if open {
-            "ai_zombie_giant_robot_hatch_open_idle"
+            1
         } else {
-            "ai_zombie_giant_robot_hatch_close"
+            2
         };
-        if let Some(animation) = game
-            .content
-            .animations
-            .iter()
-            .find(|a| a.id.0 == format!("animation.veh_t6_dlc_zm_robot_foot_hatch.{clip}"))
+        let animation = &game.content.animations[foot.clips[clip]];
         {
             if let Ok((mut clips, mut player, mut graph)) = animated.get_mut(entity) {
                 clips.sample(
                     &animation.path,
-                    if open && age >= 1. {
-                        age - 1.
+                    if clip == 1 {
+                        age - opening.seconds
                     } else {
-                        age.min(1.)
+                        age.min(animation.seconds)
                     },
-                    open && age >= 1.,
+                    clip == 1,
                     &mut player,
                     &mut graph,
                     &mut assets,
@@ -1437,5 +1645,43 @@ pub(crate) fn evacuate(
         start_eject(&mut commands, owner, pose.translation, occupancy, true);
         robots.occupancy = None;
         focus.accepted += 1;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn robot_system_queries_and_session_reset_are_valid() {
+        let mut world = World::new();
+        IntoSystem::into_system(tick).initialize(&mut world);
+        IntoSystem::into_system(foot_events).initialize(&mut world);
+        IntoSystem::into_system(foot_presentation).initialize(&mut world);
+        world.insert_resource(Robots::default());
+        world.init_resource::<Messages<FootEvent>>();
+        world.resource_mut::<Robots>().passes[1] = Some(pass(0., false));
+        reset_session(&mut world);
+        assert!(
+            world
+                .resource::<Robots>()
+                .passes
+                .iter()
+                .all(Option::is_none)
+        );
+    }
+
+    #[test]
+    #[ignore = "requires exported installed Origins assets"]
+    fn exported_warning_markers_form_all_six_footprint_paths() {
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/assets/entities.json");
+        let paths = source::warning_paths(&std::fs::read(path).unwrap());
+        for route in paths {
+            assert!(route.iter().flatten().any(|step| !step.lights.is_empty()));
+            for side in route {
+                assert!(side.len() > 1);
+                assert!(side.iter().all(|step| step.point.is_finite()));
+            }
+        }
     }
 }

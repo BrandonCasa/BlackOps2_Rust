@@ -27,16 +27,11 @@ pub(crate) struct PresentationAnimation;
 pub(crate) struct CameraPose;
 const VIEWMODEL_ORIGIN: Vec3 = Vec3::new(0., 0.025, 0.);
 #[derive(Component)]
-struct AimingJoint {
-    owner: Entity,
-    weapon: WeaponId,
-    translation: Vec3,
-    rotation: Quat,
-}
-#[derive(Component)]
 struct SocketAttachment {
     chain: Vec<Entity>,
     bind_rotation: Quat,
+    offset: Transform,
+    piece: bool,
 }
 #[derive(Component)]
 struct WeaponAttachment {
@@ -74,13 +69,16 @@ pub(crate) struct Rig {
     ads: bool,
     pub(crate) left: bool,
     dual: bool,
+    part: Option<usize>,
     playback: Option<WeaponAnimation>,
     main_node: Option<AnimationNodeIndex>,
+    ads_action_node: Option<AnimationNodeIndex>,
     selected_clip: Option<ContentId>,
+    audio_clip: Option<ContentId>,
+    pose_scale: f32,
+    audio_scale: f32,
     source_sample: Option<f32>,
     selection_sequence: u64,
-    sprinting: bool,
-    sprint_phase: Option<(WeaponAnimation, f32)>,
     ads_from: [f32; 2],
     ads_elapsed: f32,
     ads_requested: Option<bool>,
@@ -97,9 +95,11 @@ impl Rig {
         Some((
             self.owner,
             self.left,
-            self.selected_clip.as_ref()?,
+            self.audio_clip.as_ref().or(self.selected_clip.as_ref())?,
             self.selection_sequence,
-            self.source_sample.unwrap_or_else(|| active.elapsed()),
+            self.source_sample
+                .unwrap_or_else(|| active.elapsed() * self.pose_scale)
+                * self.audio_scale,
             matches!(
                 active.repeat_mode(),
                 bevy::animation::RepeatAnimation::Forever
@@ -119,24 +119,13 @@ impl Plugin for PresentationPlugin {
                 spawn_viewmodels,
                 build_graphs,
                 attach_weapons,
+                attach_weapon_parts.run_if(resource_exists::<GameDefinition>),
                 attachment_visuals.run_if(resource_exists::<GameDefinition>),
                 offhand::select_visible,
                 animate,
             )
                 .chain()
                 .in_set(PresentationAnimation),
-        )
-        .add_systems(
-            PostUpdate,
-            clear_aim_pose.before(bevy::app::AnimationSystems),
-        )
-        .add_systems(
-            PostUpdate,
-            aim_pose
-                .in_set(crate::animation::AnimationPoseModifiers)
-                .after(bevy::app::AnimationSystems)
-                .before(bevy::camera::CameraUpdateSystems)
-                .before(bevy::transform::TransformSystems::Propagate),
         )
         .add_systems(
             PostUpdate,
@@ -150,7 +139,7 @@ impl Plugin for PresentationPlugin {
             camera_pose
                 .in_set(crate::animation::AnimationPoseModifiers)
                 .in_set(CameraPose)
-                .after(aim_pose)
+                .after(bevy::app::AnimationSystems)
                 .before(bevy::transform::TransformSystems::Propagate),
         )
         .add_systems(
@@ -294,13 +283,28 @@ fn spawn_viewmodels(
                         .find(|p| p.id == *id)
                 })
                 .and_then(|p| p.scene.as_deref());
-            for (is_arms, is_knife, is_ads, is_left, scene) in [
+            let source_ads = weapon.model_parts.iter().any(|part| part.ads);
+            let scenes = [
                 (true, false, false, false, arms.map(String::as_str)),
                 (false, false, false, false, Some(scene.as_str())),
                 (false, true, false, false, knife),
-                (false, false, true, false, ads_scene),
+                (false, false, true, false, ads_scene.filter(|_| !source_ads)),
                 (false, false, false, true, left_scene),
-            ] {
+            ];
+            for (is_arms, is_knife, is_ads, is_left, scene, part) in scenes
+                .into_iter()
+                .map(|(arms, knife, ads, left, scene)| (arms, knife, ads, left, scene, None))
+                .chain(weapon.model_parts.iter().enumerate().map(|(index, part)| {
+                    (
+                        false,
+                        false,
+                        part.ads,
+                        false,
+                        Some(part.scene.as_str()),
+                        Some(index),
+                    )
+                }))
+            {
                 let Some(scene) = scene else {
                     continue;
                 };
@@ -341,13 +345,16 @@ fn spawn_viewmodels(
                             ads: is_ads,
                             left: is_left,
                             dual: weapon.dual_weapon.is_some(),
+                            part,
                             playback: None,
                             main_node: None,
+                            ads_action_node: None,
                             selected_clip: None,
+                            audio_clip: None,
+                            pose_scale: 1.,
+                            audio_scale: 1.,
                             source_sample: None,
                             selection_sequence: 0,
-                            sprinting: false,
-                            sprint_phase: None,
                             ads_from: [0.; 2],
                             ads_elapsed: 0.,
                             ads_requested: None,
@@ -376,7 +383,7 @@ fn attach_weapons(
         .map(|(_, rig)| (rig.owner, rig.weapon.clone(), rig.sockets))
         .collect();
     for (entity, mut rig) in &mut rigs {
-        if rig.arms || !rig.ready || rig.attached {
+        if rig.arms || rig.part.is_some() || !rig.ready || rig.attached {
             continue;
         }
         let Some((_, _, sockets)) = sockets
@@ -406,6 +413,8 @@ fn attach_weapons(
             SocketAttachment {
                 chain,
                 bind_rotation: rig.bind_rotation,
+                offset: Transform::default(),
+                piece: false,
             },
             Transform::default(),
             if rig.knife {
@@ -414,6 +423,80 @@ fn attach_weapons(
                 Visibility::Inherited
             },
         ));
+        rig.attached = true;
+    }
+}
+fn attach_weapon_parts(
+    mut commands: Commands,
+    definition: Res<GameDefinition>,
+    mut rigs: Query<(Entity, &mut Rig)>,
+    children: Query<&Children>,
+    names: Query<&Name>,
+    parents: Query<&ChildOf>,
+) {
+    if !rigs
+        .iter()
+        .any(|(_, rig)| rig.part.is_some() && rig.ready && !rig.attached)
+    {
+        return;
+    }
+    let guns: Vec<_> = rigs
+        .iter()
+        .filter(|(_, rig)| {
+            !rig.arms && !rig.knife && !rig.ads && !rig.left && rig.part.is_none() && rig.ready
+        })
+        .map(|(entity, rig)| (entity, rig.owner, rig.weapon.clone()))
+        .collect();
+    for (entity, mut rig) in &mut rigs {
+        let Some(index) = rig.part.filter(|_| rig.ready && !rig.attached) else {
+            continue;
+        };
+        let Some((gun, _, _)) = guns
+            .iter()
+            .find(|(_, owner, weapon)| *owner == rig.owner && *weapon == rig.weapon)
+        else {
+            continue;
+        };
+        let weapon = definition
+            .content
+            .weapons
+            .iter()
+            .find(|w| w.id == rig.weapon)
+            .expect("Weapon piece owner");
+        let part = &weapon.model_parts[index];
+        let socket = children
+            .iter_descendants(*gun)
+            .find(|child| {
+                names
+                    .get(*child)
+                    .is_ok_and(|name| name.as_str() == part.tag)
+            })
+            .unwrap_or_else(|| {
+                panic!(
+                    "{} piece {} requires socket {}",
+                    weapon.id.0, part.scene, part.tag
+                )
+            });
+        let root = parents.get(entity).expect("Weapon piece parent").parent();
+        let mut chain = vec![socket];
+        chain.extend(
+            parents
+                .iter_ancestors(socket)
+                .take_while(|parent| *parent != root),
+        );
+        commands.entity(entity).insert(SocketAttachment {
+            chain,
+            bind_rotation: rig.bind_rotation,
+            offset: Transform::from_translation(Vec3::from_array(part.offset)).with_rotation(
+                Quat::from_euler(
+                    EulerRot::ZYX,
+                    part.rotation[1].to_radians(),
+                    part.rotation[0].to_radians(),
+                    part.rotation[2].to_radians(),
+                ),
+            ),
+            piece: true,
+        });
         rig.attached = true;
     }
 }
@@ -429,7 +512,7 @@ fn attachment_visuals(
     hidden: Query<(), With<AttachmentHidden>>,
 ) {
     for (entity, rig) in &rigs {
-        if rig.arms || rig.knife || rig.ads || rig.left || !rig.ready {
+        if rig.arms || rig.knife || rig.ads || rig.left || rig.part.is_some() || !rig.ready {
             continue;
         }
         let Ok(inventory) = inventories.get(rig.owner) else {
@@ -544,7 +627,9 @@ fn attachment_ready(
                 avian3d::prelude::LayerMask::NONE,
             ));
         if meshes.contains(child) {
-            commands.entity(child).insert(RenderLayers::layer(1));
+            commands
+                .entity(child)
+                .insert((RenderLayers::layer(1), NoFrustumCulling));
         }
     }
 }
@@ -572,23 +657,36 @@ fn invalidate_socket_bindings(
 }
 
 fn follow_sockets(
-    joints: Query<&Transform, Without<SocketAttachment>>,
-    mut attachments: Query<(&SocketAttachment, &mut Transform)>,
+    attachments: Query<(Entity, &SocketAttachment)>,
+    mut poses: ParamSet<(Query<&Transform>, Query<&mut Transform>)>,
 ) {
     // A socket already includes the hands' exported source-axis conversion.
     // Remove the weapon's copy at this boundary, retaining socket translation.
-    for (socket, mut transform) in &mut attachments {
-        let mut local = Mat4::IDENTITY;
-        for &joint in &socket.chain {
-            local = joints
-                .get(joint)
-                .expect("Bound weapon socket joint")
-                .to_matrix()
-                * local;
+    // Piece chains include their gun rig. Update guns first so every piece
+    // follows the current pose without becoming a child of a replaceable scene.
+    for piece in [false, true] {
+        for (entity, socket) in &attachments {
+            if socket.piece != piece {
+                continue;
+            }
+            let mut local = Mat4::IDENTITY;
+            for &joint in &socket.chain {
+                local = poses
+                    .p0()
+                    .get(joint)
+                    .expect("Bound weapon socket joint")
+                    .to_matrix()
+                    * local;
+            }
+            let mut pose =
+                Transform::from_matrix(local * socket.offset.to_matrix()).with_scale(Vec3::ONE);
+            pose.rotation *= socket.bind_rotation.inverse();
+            poses
+                .p1()
+                .get_mut(entity)
+                .expect("Weapon socket transform")
+                .set_if_neq(pose);
         }
-        let mut pose = Transform::from_matrix(local).with_scale(Vec3::ONE);
-        pose.rotation *= socket.bind_rotation.inverse();
-        transform.set_if_neq(pose);
     }
 }
 fn rig_ready(
@@ -615,17 +713,14 @@ fn rig_ready(
     rig.sockets = [None; 3];
     rig.camera_chain.clear();
     let source = gltfs.get(&rig.source).expect("Ready viewmodel glTF");
-    let skin = source
+    let root = source
         .skins
         .first()
         .and_then(|skin| skins.get(skin))
-        .expect("Viewmodel skin");
-    let root = skin
-        .joints
-        .first()
+        .and_then(|skin| skin.joints.first())
         .and_then(|joint| nodes.get(joint))
-        .expect("Viewmodel bind root");
-    rig.bind_rotation = root.transform.rotation;
+        .or_else(|| source.nodes.first().and_then(|node| nodes.get(node)));
+    rig.bind_rotation = root.expect("Viewmodel bind root").transform.rotation;
     commands
         .entity(event.entity)
         .insert(avian3d::prelude::CollisionLayers::new(
@@ -639,18 +734,6 @@ fn rig_ready(
                 avian3d::prelude::LayerMask::NONE,
                 avian3d::prelude::LayerMask::NONE,
             ));
-        if rig.arms
-            && names
-                .get(child)
-                .is_ok_and(|name| name.as_str() == "tag_torso")
-        {
-            commands.entity(child).insert(AimingJoint {
-                owner: rig.owner,
-                weapon: rig.weapon.clone(),
-                translation: Vec3::ZERO,
-                rotation: Quat::IDENTITY,
-            });
-        }
         if let Ok(name) = names.get(child) {
             match name.as_str() {
                 "tag_weapon" => rig.sockets[0] = Some(child),
@@ -672,10 +755,11 @@ fn rig_ready(
             commands.entity(child).remove::<AnimationPlayer>();
         }
         if meshes.contains(child) {
+            // First-person bones move outside the model's bind-pose bounds,
+            // especially the small grenade held beside the near plane.
             commands
                 .entity(child)
-                .insert(RenderLayers::layer(1))
-                .remove::<NoFrustumCulling>();
+                .insert((RenderLayers::layer(1), NoFrustumCulling));
         }
     }
     if rig.arms && rig.dual && !rig.left {
@@ -706,68 +790,6 @@ fn rig_ready(
                 }
             }
         }
-    }
-}
-fn clear_aim_pose(mut joints: Query<&mut AimingJoint>) {
-    for mut joint in &mut joints {
-        joint.translation = Vec3::ZERO;
-        joint.rotation = Quat::IDENTITY;
-    }
-}
-fn aim_pose(
-    definition: Option<Res<GameDefinition>>,
-    inventories: offhand::Inventories,
-    mut joints: Query<(&mut AimingJoint, &mut Transform)>,
-) {
-    let Some(definition) = definition else {
-        return;
-    };
-    for (mut joint, mut pose) in &mut joints {
-        let Ok((inventory, lethal, tactical, mines, drinking, buildables)) =
-            inventories.get(joint.owner)
-        else {
-            continue;
-        };
-        let Some(weapon) = definition
-            .content
-            .weapons
-            .iter()
-            .find(|w| w.id == joint.weapon)
-        else {
-            continue;
-        };
-        let equipment = drinking
-            .map(|d| d.selection())
-            .or_else(|| offhand::buildable_selection(buildables))
-            .or_else(|| offhand::selection(lethal, tactical, mines, &definition));
-        let ads = if equipment.is_none()
-            && inventory
-                .active()
-                .is_some_and(|w| w.definition == joint.weapon)
-        {
-            inventory.ads
-        } else {
-            0.
-        };
-        if let Some(pair) = weapon
-            .mechanics
-            .ads_pose
-            .windows(2)
-            .find(|p| ads <= p[1].fraction)
-        {
-            let t =
-                ((ads - pair[0].fraction) / (pair[1].fraction - pair[0].fraction)).clamp(0., 1.);
-            joint.translation = Vec3::from_array(pair[0].translation)
-                .lerp(Vec3::from_array(pair[1].translation), t);
-            joint.rotation =
-                Quat::from_array(pair[0].rotation).slerp(Quat::from_array(pair[1].rotation), t);
-        } else {
-            joint.translation = Vec3::from_array(weapon.mechanics.ads_translation) * ads;
-            joint.rotation =
-                Quat::IDENTITY.slerp(Quat::from_array(weapon.mechanics.ads_rotation), ads);
-        }
-        pose.translation += joint.translation / crate::assets::SOURCE_UNIT_METERS;
-        pose.rotation *= joint.rotation;
     }
 }
 fn camera_tag_pose(local: Mat4) -> Transform {
@@ -897,7 +919,16 @@ fn build_graphs(
             continue;
         };
         let mut complete = true;
-        for action in weapon.animation_actions.values() {
+        let arms = rig.arms;
+        let melee = definition
+            .content
+            .weapons
+            .iter()
+            .filter(|w| {
+                arms && matches!(w.mechanics.delivery, crate::origins::WeaponDelivery::Melee)
+            })
+            .filter_map(|w| w.animation_actions.get(&WeaponAnimation::Melee));
+        for action in weapon.animation_actions.values().chain(melee) {
             let name = action.0.rsplit('.').next().unwrap();
             let Some(path) = crate::animation::clip_path(&definition, &rig.source, name) else {
                 continue;
@@ -943,32 +974,43 @@ pub(crate) fn hand_action(
     } else {
         WeaponAnimation::Idle
     };
-    let aimed = inventory.ads >= 0.99;
     let fire = if empty
-        && aimed
-        && weapon
-            .animation_actions
-            .contains_key(&WeaponAnimation::AdsLastShot)
-    {
-        WeaponAnimation::AdsLastShot
-    } else if empty
         && weapon
             .animation_actions
             .contains_key(&WeaponAnimation::LastShot)
     {
         WeaponAnimation::LastShot
-    } else if aimed
-        && weapon
-            .animation_actions
-            .contains_key(&WeaponAnimation::AdsFire)
-    {
-        WeaponAnimation::AdsFire
     } else {
         WeaponAnimation::Fire
     };
     let action = match signal {
         WeaponSignal::Prime => WeaponAnimation::Prime,
+        WeaponSignal::Equip
+            if empty
+                && weapon
+                    .animation_actions
+                    .contains_key(&WeaponAnimation::EquipEmpty) =>
+        {
+            WeaponAnimation::EquipEmpty
+        }
         WeaponSignal::Equip => WeaponAnimation::Equip,
+        WeaponSignal::FirstEquip => WeaponAnimation::FirstEquip,
+        WeaponSignal::QuickEquip
+            if weapon
+                .animation_actions
+                .contains_key(&WeaponAnimation::QuickEquip) =>
+        {
+            WeaponAnimation::QuickEquip
+        }
+        WeaponSignal::QuickEquip => WeaponAnimation::Equip,
+        WeaponSignal::Unequip
+            if empty
+                && weapon
+                    .animation_actions
+                    .contains_key(&WeaponAnimation::UnequipEmpty) =>
+        {
+            WeaponAnimation::UnequipEmpty
+        }
         WeaponSignal::Unequip => WeaponAnimation::Unequip,
         WeaponSignal::Fire => fire,
         WeaponSignal::Reload => WeaponAnimation::Reload,
@@ -987,22 +1029,13 @@ pub(crate) fn hand_action(
                 .animation_actions
                 .get(&action)
                 .and_then(|id| game.content.animations.iter().find(|a| a.id == *id))
-                .and_then(|a| a.notifications.last())
-                .map_or(0., |n| n.seconds)
+                .map_or(0., |a| a.seconds)
         };
         let fire_duration = duration(fire);
         if age < fire_duration {
             return (fire, Some(age));
         }
-        let rechamber = if aimed
-            && weapon
-                .animation_actions
-                .contains_key(&WeaponAnimation::AdsRechamber)
-        {
-            WeaponAnimation::AdsRechamber
-        } else {
-            WeaponAnimation::Rechamber
-        };
+        let rechamber = WeaponAnimation::Rechamber;
         if matches!(fire, WeaponAnimation::Fire | WeaponAnimation::AdsFire)
             && age - fire_duration < duration(rechamber)
         {
@@ -1018,7 +1051,6 @@ fn animate(
     state: Res<State<GameState>>,
     definition: Option<Res<GameDefinition>>,
     inventories: offhand::Inventories,
-    sprints: Query<&crate::movement::SprintState>,
     locomotions: Query<&locomotion::WeaponLocomotion>,
     mut rigs: Query<(
         &mut Rig,
@@ -1052,8 +1084,6 @@ fn animate(
             rig.sequence = None;
             rig.phase = None;
             rig.playback = None;
-            rig.sprinting = false;
-            rig.sprint_phase = None;
             continue;
         }
         let Some(weapon) = definition
@@ -1091,89 +1121,39 @@ fn animate(
             |s| (s.action, None),
         );
         let locomotion = (selected.is_none()
-            && matches!(action, WeaponAnimation::Idle | WeaponAnimation::IdleEmpty))
-        .then(|| {
-            let empty = inventory.active().is_some_and(|w| {
-                if rig.left {
-                    w.left_magazine == Some(0)
-                } else {
-                    w.magazine == 0
-                }
-            });
-            locomotions.get(rig.owner).ok()?.sample(weapon, empty)
-        })
-        .flatten();
+            && (matches!(action, WeaponAnimation::Idle | WeaponAnimation::IdleEmpty)
+                || signal == WeaponSignal::Idle
+                    && inventory.action == crate::weapons::WeaponAction::Ready))
+            .then(|| {
+                let empty = inventory.active().is_some_and(|w| {
+                    if rig.left {
+                        w.left_magazine == Some(0)
+                    } else {
+                        w.magazine == 0
+                    }
+                });
+                locomotions.get(rig.owner).ok()?.sample(weapon, empty)
+            })
+            .flatten();
         if let Some((phase, _, _, _)) = locomotion {
             action = phase;
             shot_seek = None;
         }
-        let sprint_duration = |action, index: usize| {
-            let name = weapon
-                .animation_actions
-                .get(&action)?
-                .0
-                .rsplit('.')
-                .next()?;
-            let duration = assets.duration(*rig.nodes.get(name)?, &graph)?;
-            (duration > 0.).then_some(if weapon.mechanics.sprint_seconds[index] > 0. {
-                weapon.mechanics.sprint_seconds[index]
-            } else {
-                duration
-            })
-        };
-        let enter = sprint_duration(WeaponAnimation::SprintEnter, 0);
-        let looping = sprint_duration(WeaponAnimation::SprintLoop, 1);
-        let leave = sprint_duration(WeaponAnimation::SprintLeave, 2);
-        let sprinting = sprints.get(rig.owner).is_ok_and(|s| s.sprinting);
-        let idle = selected.is_none()
-            && matches!(action, WeaponAnimation::Idle | WeaponAnimation::IdleEmpty);
-        let sprint_fraction = if !idle {
-            rig.sprinting = false;
-            rig.sprint_phase = None;
-            None
-        } else {
-            if sprinting != rig.sprinting {
-                rig.sprint_phase = if sprinting {
-                    enter
-                        .map(|_| (WeaponAnimation::SprintEnter, 0.))
-                        .or_else(|| looping.map(|_| (WeaponAnimation::SprintLoop, 0.)))
-                } else {
-                    leave.map(|_| (WeaponAnimation::SprintLeave, 0.))
-                };
-                rig.sprinting = sprinting;
-            } else if let Some((phase, elapsed)) = rig.sprint_phase {
-                let elapsed = elapsed
-                    + if **state == GameState::Playing {
-                        time.delta_secs()
-                    } else {
-                        0.
-                    };
-                rig.sprint_phase = match phase {
-                    WeaponAnimation::SprintEnter if enter.is_none_or(|d| elapsed >= d) => looping
-                        .map(|_| (WeaponAnimation::SprintLoop, elapsed - enter.unwrap_or(0.))),
-                    WeaponAnimation::SprintLoop => {
-                        looping.map(|_| (WeaponAnimation::SprintLoop, elapsed))
-                    }
-                    WeaponAnimation::SprintLeave if leave.is_none_or(|d| elapsed >= d) => None,
-                    _ => Some((phase, elapsed)),
-                };
-            }
-            rig.sprint_phase.and_then(|(phase, elapsed)| {
-                let duration = match phase {
-                    WeaponAnimation::SprintEnter => enter,
-                    WeaponAnimation::SprintLoop => looping,
-                    WeaponAnimation::SprintLeave => leave,
-                    _ => None,
-                }?;
-                action = phase;
-                shot_seek = None;
-                Some(elapsed / duration)
-            })
-        };
         if !rig.arms {
+            let source_ads = weapon.model_parts.iter().any(|part| part.ads);
             let ads =
                 selected.is_none() && inventory.ads >= 0.99 && weapon.ads_presentation.is_some();
-            *visibility = if rig.attached && ads == rig.ads {
+            let visible = if let Some(index) = rig.part {
+                let part = &weapon.model_parts[index];
+                if part.ads {
+                    inventory.ads >= 0.99 && selected.is_none()
+                } else {
+                    !(source_ads && part.slot == 1 && inventory.ads >= 0.99 && selected.is_none())
+                }
+            } else {
+                source_ads || ads == rig.ads
+            };
+            *visibility = if rig.attached && visible {
                 Visibility::Inherited
             } else {
                 Visibility::Hidden
@@ -1196,7 +1176,14 @@ fn animate(
         let holding_throwable =
             selected.is_some() && action == WeaponAnimation::Idle && weapon.throwable.is_some();
         let clip_action = if holding_throwable {
-            WeaponAnimation::Prime
+            if weapon
+                .animation_actions
+                .contains_key(&WeaponAnimation::HoldFire)
+            {
+                WeaponAnimation::HoldFire
+            } else {
+                WeaponAnimation::Prime
+            }
         } else {
             action
         };
@@ -1247,12 +1234,20 @@ fn animate(
             .or_else(|| selected.as_ref().and_then(|s| s.timing))
             .or_else(|| inventory.hand_reload_timing(rig.left))
             .or_else(|| inventory.presentation_timing(weapon, melee));
+        let source_animation =
+            clip.and_then(|id| definition.content.animations.iter().find(|a| a.id == *id));
+        let source_duration = source_animation.map_or(clip_duration, |a| a.seconds);
+        rig.pose_scale = if clip_duration > 0. {
+            source_duration / clip_duration
+        } else {
+            1.
+        };
         let source_sample = (|| {
             if let Some((_, elapsed, duration, looping)) = locomotion {
                 let duration = if duration > 0. {
                     duration
                 } else {
-                    clip_duration
+                    source_duration
                 };
                 if duration <= 0. {
                     return None;
@@ -1263,46 +1258,59 @@ fn animate(
                     } else {
                         elapsed.min(duration)
                     } / duration
-                        * clip_duration,
-                )
-            } else if let Some(fraction) = sprint_fraction {
-                Some(
-                    if action == WeaponAnimation::SprintLoop {
-                        fraction
-                    } else {
-                        fraction.clamp(0., 1.)
-                    } * clip_duration,
+                        * source_duration,
                 )
             } else if let Some((duration, remaining)) = timing {
-                Some(((duration - remaining).max(0.) / duration * clip_duration).min(clip_duration))
+                Some(
+                    ((duration - remaining).max(0.) / duration * source_duration)
+                        .min(source_duration),
+                )
             } else if selected.is_none() && shot_seek.is_some() {
-                shot_seek.map(|age| age.min(clip_duration))
+                shot_seek.map(|age| age.min(source_duration))
             } else {
                 None
             }
         })();
         let looping = locomotion.is_some_and(|(_, _, _, looping)| looping)
             || action == WeaponAnimation::SprintLoop
-            || clip
-                .and_then(|id| {
-                    definition
-                        .content
-                        .animations
-                        .iter()
-                        .find(|source| source.id == *id)
-                })
-                .is_some_and(|source| source.looping);
+            || source_animation.is_some_and(|source| source.looping);
+        let ads_clip = (selected.is_none())
+            .then(|| match action {
+                WeaponAnimation::Fire => Some(WeaponAnimation::AdsFire),
+                WeaponAnimation::LastShot => Some(WeaponAnimation::AdsLastShot),
+                WeaponAnimation::Rechamber => Some(WeaponAnimation::AdsRechamber),
+                _ => None,
+            })
+            .flatten()
+            .and_then(|action| weapon.animation_actions.get(&action));
         let restarted = source_sample
             .zip(rig.source_sample)
             .is_some_and(|(now, previous)| now + 0.001 < previous);
-        let changed = changed || rig.selected_clip.as_ref() != clip || restarted;
+        let finishing_prime = holding_throwable && rig.selected_clip.as_ref() == clip;
+        let changed =
+            (changed || rig.selected_clip.as_ref() != clip || restarted) && !finishing_prime;
         if changed {
             rig.selection_sequence = rig.selection_sequence.wrapping_add(1);
             rig.selected_clip = clip.cloned();
+            rig.audio_clip = if inventory.ads >= 0.99 {
+                ads_clip.or(clip)
+            } else {
+                clip
+            }
+            .cloned();
+            rig.audio_scale = rig
+                .audio_clip
+                .as_ref()
+                .and_then(|id| definition.content.animations.iter().find(|a| a.id == *id))
+                .filter(|_| source_duration > 0.)
+                .map_or(1., |a| a.seconds / source_duration);
             if rig.arms {
                 let event = match action {
-                    WeaponAnimation::Equip => Some("equip"),
-                    WeaponAnimation::Unequip => Some("unequip"),
+                    WeaponAnimation::Equip
+                    | WeaponAnimation::EquipEmpty
+                    | WeaponAnimation::QuickEquip => Some("equip"),
+                    WeaponAnimation::FirstEquip => Some("first_equip"),
+                    WeaponAnimation::Unequip | WeaponAnimation::UnequipEmpty => Some("unequip"),
                     WeaponAnimation::Prime => Some("prime"),
                     WeaponAnimation::Melee => Some("melee"),
                     WeaponAnimation::Fire if selected.is_some() => Some("throw"),
@@ -1312,13 +1320,16 @@ fn animate(
                     crate::audio::binding(
                         &mut commands,
                         &definition,
-                        &format!("{}.{}", weapon.id.0, event),
+                        &format!("{}.{}", animation_weapon.id.0, event),
                         crate::audio::SoundSource::attached(rig.owner),
                     );
                 }
             }
             if let Some(previous) = rig.main_node {
                 // Main action clips have no source crossfade; ADS layers retain their weights.
+                player.stop(previous);
+            }
+            if let Some(previous) = rig.ads_action_node.take() {
                 player.stop(previous);
             }
             if let Some(transitions) = transitions.as_mut() {
@@ -1335,6 +1346,7 @@ fn animate(
             bevy::animation::RepeatAnimation::Never
         });
         if let Some(seconds) = source_sample {
+            let seconds = seconds / rig.pose_scale;
             let seek = if looping && clip_duration > 0. {
                 seconds.rem_euclid(clip_duration)
             } else {
@@ -1345,6 +1357,27 @@ fn animate(
             active.resume();
         } else {
             active.pause();
+        }
+        // Hip and ADS firing/rechambering are poses of the same accepted action.
+        // Blend them on the live aim fraction without restarting its clock or audio.
+        let paired = ads_clip
+            .and_then(|id| id.0.rsplit('.').next())
+            .and_then(|name| crate::animation::clip_path(&definition, &rig.source, name))
+            .and_then(|path| loaded.node(path, &mut graph, &mut assets));
+        if let Some((aim_node, aim_duration)) =
+            paired.filter(|(aim_node, _)| *aim_node != node && clip_duration > 0.)
+        {
+            let sample = source_sample
+                .unwrap_or_else(|| player.animation(node).unwrap().elapsed() * rig.pose_scale);
+            player.play(node).set_weight(1. - inventory.ads);
+            player
+                .play(aim_node)
+                .set_weight(inventory.ads)
+                .set_seek_time((sample / source_duration * aim_duration).min(aim_duration))
+                .pause();
+            rig.ads_action_node = Some(aim_node);
+        } else if let Some(previous) = rig.ads_action_node.take() {
+            player.stop(previous);
         }
         if rig.arms && selected.is_none() && weapon.mechanics.native_ads_pitch.is_some() {
             let requested = inventory.native_ads_requested();
@@ -1405,6 +1438,62 @@ mod tests {
     use super::*;
 
     #[test]
+    fn firing_without_notetracks_keeps_its_pose_then_rechambers_without_ads_restart() {
+        let mut game: GameDefinition =
+            serde_json::from_str(include_str!("../gameplay/origins/game.json")).unwrap();
+        let mut weapon: crate::origins::WeaponDefinition =
+            serde_json::from_value(serde_json::json!({
+                "id":"weapon.test", "name":"test", "damage":20, "category":"bullet",
+                "magazine":2, "reserve":0, "fire_interval":0.1, "reload_seconds":1.
+            }))
+            .unwrap();
+        for (action, name, seconds) in [
+            (WeaponAnimation::Fire, "fire", 0.4),
+            (WeaponAnimation::AdsFire, "ads_fire", 0.4),
+            (WeaponAnimation::Rechamber, "rechamber", 0.6),
+        ] {
+            let id = ContentId(format!("animation.test.{name}"));
+            weapon.animation_actions.insert(action, id.clone());
+            game.content
+                .animations
+                .push(crate::origins::AnimationDefinition {
+                    id,
+                    path: String::new(),
+                    skeleton: ContentId("actor.test".into()),
+                    seconds,
+                    looping: false,
+                    notifications: Vec::new(),
+                    root_motion: None,
+                });
+        }
+        let mut inventory = WeaponInventory::default();
+        inventory.grant(&weapon).unwrap();
+        inventory.tick(
+            0.,
+            crate::weapons::WeaponIntent {
+                pressed: true,
+                ..default()
+            },
+            &[weapon.clone()],
+        );
+        assert_eq!(
+            hand_action(&inventory, &weapon, &game, false),
+            (WeaponAnimation::Fire, Some(0.))
+        );
+        inventory.tick(0.15, default(), &[weapon.clone()]);
+        inventory.ads = 1.;
+        assert_eq!(
+            hand_action(&inventory, &weapon, &game, false),
+            (WeaponAnimation::Fire, Some(0.15))
+        );
+        inventory.tick(0.3, default(), &[weapon.clone()]);
+        // The canonical action stays on the same clock when aiming changes.
+        let (action, sample) = hand_action(&inventory, &weapon, &game, false);
+        assert_eq!(action, WeaponAnimation::Rechamber);
+        assert!((sample.unwrap() - 0.05).abs() < 0.00001);
+    }
+
+    #[test]
     fn converted_camera_tags_preserve_neutral_and_native_motion() {
         assert!(
             camera_tag_pose(Mat4::IDENTITY)
@@ -1452,6 +1541,31 @@ mod tests {
                 SocketAttachment {
                     chain: vec![socket, ancestor],
                     bind_rotation: Quat::IDENTITY,
+                    offset: Transform::default(),
+                    piece: false,
+                },
+                Transform::default(),
+            ))
+            .id();
+        let source_basis = Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
+        let gun_bone = app
+            .world_mut()
+            .spawn((
+                ChildOf(model),
+                Transform::from_rotation(source_basis)
+                    .with_scale(Vec3::splat(crate::assets::SOURCE_UNIT_METERS)),
+            ))
+            .id();
+        let piece_offset = Vec3::new(5.799, 0., -0.395);
+        let piece = app
+            .world_mut()
+            .spawn((
+                ChildOf(root),
+                SocketAttachment {
+                    chain: vec![gun_bone, model],
+                    bind_rotation: source_basis,
+                    offset: Transform::from_translation(piece_offset),
+                    piece: true,
                 },
                 Transform::default(),
             ))
@@ -1466,6 +1580,12 @@ mod tests {
             let actual = app.world().get::<Transform>(model).unwrap();
             let expected = ancestor_pose.to_matrix() * socket_pose.to_matrix();
             assert!(actual.to_matrix().abs_diff_eq(expected, 1e-6));
+            let piece_pose = app.world().get::<Transform>(piece).unwrap();
+            let expected_piece = expected
+                * Mat4::from_translation(
+                    source_basis * piece_offset * crate::assets::SOURCE_UNIT_METERS,
+                );
+            assert!(piece_pose.to_matrix().abs_diff_eq(expected_piece, 1e-6));
         }
     }
     #[test]
@@ -1493,13 +1613,16 @@ mod tests {
             ads: false,
             left: false,
             dual: false,
+            part: None,
             playback: None,
             main_node: None,
+            ads_action_node: None,
             selected_clip: None,
+            audio_clip: None,
+            pose_scale: 1.,
+            audio_scale: 1.,
             source_sample: None,
             selection_sequence: 0,
-            sprinting: false,
-            sprint_phase: None,
             ads_from: [0.; 2],
             ads_elapsed: 0.,
             ads_requested: None,

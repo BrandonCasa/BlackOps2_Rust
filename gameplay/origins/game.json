@@ -307549,6 +307549,10 @@
     ],
     "ui_assets": [
       {
+        "id": "ui.zm_tm_wth_dog",
+        "path": "images/zm_tm_wth_dog.dds"
+      },
+      {
         "id": "ui.chalkmarks_0",
         "path": "images/chalkmarks_0.dds"
       },

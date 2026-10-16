@@ -15,6 +15,7 @@ def export_model(walk, asset, destination):
         "bounds": [list(model.unpack("<3f", key)) for key in ("mins", "maxs")],
         "boneNames": names,
         "rootBoneCount": model["numRootBones"],
+        "lodRampType": model["lodRampType"],
         "lods": [],
     }
     handles = list(model["materialHandles"])

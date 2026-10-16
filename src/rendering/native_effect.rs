@@ -47,7 +47,7 @@ pub struct NativeEffectView {
 
 #[derive(Component, Clone, Copy, ShaderType)]
 pub struct NativeFxFrame {
-    scene: NativeWorldScene,
+    pub(crate) scene: NativeWorldScene,
     z_near: Vec4,
     render_target_size: Vec4,
 }
@@ -144,6 +144,9 @@ pub(crate) struct NativeCloudObject {
 #[derive(Clone, Copy, PartialEq, Eq, Hash, TypePath)]
 pub enum NativeEffectProgram {
     Zfeather,
+    ZfeatherDissolve,
+    SimpleFog,
+    SimpleFogDissolve,
     Additive,
     AdditiveFeather,
     LocalAdditiveFeather,
@@ -152,11 +155,18 @@ pub enum NativeEffectProgram {
     SimpleAdditive,
     EyeAdditive,
     OutdoorFeather,
+    OutdoorFogFeather,
     CloudRain,
     CloudSnow,
+    CloudSimple,
+    CloudAdditive,
 }
 
 impl NativeEffectProgram {
+    pub(crate) fn outdoor(self) -> bool {
+        matches!(self, Self::OutdoorFeather | Self::OutdoorFogFeather)
+    }
+
     pub(crate) fn additive(self) -> bool {
         matches!(
             self,
@@ -168,9 +178,16 @@ impl NativeEffectProgram {
                 | Self::SimpleAdditive
                 | Self::EyeAdditive
                 | Self::OutdoorFeather
+                | Self::CloudAdditive
         )
     }
-    fn cloud(self) -> bool {
+    pub(crate) fn cloud(self) -> bool {
+        matches!(
+            self,
+            Self::CloudRain | Self::CloudSnow | Self::CloudSimple | Self::CloudAdditive
+        )
+    }
+    pub(crate) fn cloud_outdoor(self) -> bool {
         matches!(self, Self::CloudRain | Self::CloudSnow)
     }
 }
@@ -203,6 +220,7 @@ pub struct NativeEffectStencil {
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NativeEffectState {
     pub blend: BlendState,
+    pub depth_compare: CompareFunction,
     pub cull_mode: Option<Face>,
     pub front_face: FrontFace,
     pub stencil: Option<NativeEffectStencil>,
@@ -216,6 +234,7 @@ pub struct NativeEffectMaterial {
     pub color_sampler: SamplerDescriptor<'static>,
     pub feather_parms: Vec4,
     pub additive_parms: [Vec4; 4],
+    pub alpha_dissolve_parms: Vec4,
     pub state: NativeEffectState,
 }
 
@@ -223,6 +242,7 @@ pub struct NativeEffectMaterial {
 struct NativeEffectConstants {
     feather_parms: Vec4,
     additive_parms: [Vec4; 4],
+    alpha_dissolve_parms: Vec4,
 }
 
 /// Native PACKED32 vertices and little-endian Uint16 indices. Modified CPU
@@ -241,6 +261,9 @@ pub struct NativeEffectGeometry {
 pub struct NativeEffectDraw {
     pub geometry: Handle<NativeEffectGeometry>,
     pub material: Handle<NativeEffectMaterial>,
+    /// Source-axis inch offsets already include orientation and size; the
+    /// object constant supplies only the particle origin translation.
+    pub source_world_vertices: bool,
     pub vertex_byte_offset: u64,
     pub first_index: u32,
     pub index_count: u32,
@@ -526,7 +549,10 @@ impl SpecializedRenderPipeline for EffectPipeline {
             &self.shader
         };
         let vertex_entry = match key.program {
-            NativeEffectProgram::Zfeather => "vertex",
+            NativeEffectProgram::Zfeather | NativeEffectProgram::ZfeatherDissolve => "vertex",
+            NativeEffectProgram::SimpleFog | NativeEffectProgram::SimpleFogDissolve => {
+                "vertex_simple_fog"
+            }
             NativeEffectProgram::Additive => "vertex_additive",
             NativeEffectProgram::AdditiveFeather => "vertex_additive_feather",
             NativeEffectProgram::LocalAdditiveFeather => "vertex_local_additive_feather",
@@ -535,8 +561,12 @@ impl SpecializedRenderPipeline for EffectPipeline {
             NativeEffectProgram::SimpleAdditive => "vertex_simple_additive",
             NativeEffectProgram::EyeAdditive => "vertex_eye_additive",
             NativeEffectProgram::OutdoorFeather => "vertex_outdoor_feather",
+            NativeEffectProgram::OutdoorFogFeather => "vertex_outdoor_fog_feather",
             NativeEffectProgram::CloudRain => "vertex_rain",
             NativeEffectProgram::CloudSnow => "vertex_snow",
+            NativeEffectProgram::CloudSimple | NativeEffectProgram::CloudAdditive => {
+                "vertex_simple"
+            }
         };
         let vertex_layout = if cloud {
             VertexBufferLayout {
@@ -589,7 +619,7 @@ impl SpecializedRenderPipeline for EffectPipeline {
                 self.material_layout.clone()
             },
         ];
-        if key.program == NativeEffectProgram::OutdoorFeather {
+        if key.program.outdoor() {
             layout.push(self.scene_layouts[usize::from(key.outdoor_filtering)].clone());
         }
         RenderPipelineDescriptor {
@@ -604,7 +634,19 @@ impl SpecializedRenderPipeline for EffectPipeline {
             fragment: Some(FragmentState {
                 shader: shader.clone(),
                 entry_point: Some(
-                    if key.program == NativeEffectProgram::OutdoorFeather {
+                    if key.program == NativeEffectProgram::CloudSimple {
+                        "fragment_simple"
+                    } else if key.program == NativeEffectProgram::CloudAdditive {
+                        "fragment_additive"
+                    } else if key.program == NativeEffectProgram::ZfeatherDissolve {
+                        "fragment_dissolve"
+                    } else if key.program == NativeEffectProgram::SimpleFogDissolve {
+                        "fragment_simple_fog_dissolve"
+                    } else if key.program == NativeEffectProgram::SimpleFog {
+                        "fragment_simple_fog"
+                    } else if key.program == NativeEffectProgram::OutdoorFogFeather {
+                        "fragment_outdoor_fog_feather"
+                    } else if key.program.outdoor() {
                         "fragment_outdoor_feather"
                     } else if matches!(
                         key.program,
@@ -642,7 +684,7 @@ impl SpecializedRenderPipeline for EffectPipeline {
             depth_stencil: Some(DepthStencilState {
                 format: super::frame::NATIVE_DEPTH_FORMAT,
                 depth_write_enabled: Some(false),
-                depth_compare: Some(CompareFunction::GreaterEqual),
+                depth_compare: Some(key.state.depth_compare),
                 stencil,
                 bias: default(),
             }),
@@ -703,6 +745,7 @@ impl RenderAsset for PreparedEffectMaterial {
             let mut constants = UniformBuffer::from(NativeEffectConstants {
                 feather_parms: source.feather_parms,
                 additive_parms: source.additive_parms,
+                alpha_dissolve_parms: source.alpha_dissolve_parms,
             });
             constants.write_buffer(device, queue);
             device.create_bind_group(
@@ -920,9 +963,9 @@ fn queue_effects(
                 continue;
             };
             let cloud = material.program.cloud();
-            if ((cloud || material.program == NativeEffectProgram::OutdoorFeather)
+            if ((material.program.cloud_outdoor() || material.program.outdoor())
                 && cloud_view.is_none())
-                || (!cloud && images.get(effect_view.float_z).is_none())
+                || (!material.program.cloud_outdoor() && images.get(effect_view.float_z).is_none())
             {
                 continue;
             }
@@ -956,13 +999,13 @@ fn queue_effects(
                     program: material.program,
                     target: target.main_texture_format(),
                     samples: msaa.samples(),
-                    depth_filtering: if cloud {
+                    depth_filtering: if material.program.cloud_outdoor() {
                         filtering(&cloud_view.expect("cloud view selected").sampler)
                     } else {
                         effect_view.filtering
                     },
                     state: material.state,
-                    outdoor_filtering: material.program == NativeEffectProgram::OutdoorFeather
+                    outdoor_filtering: material.program.outdoor()
                         && filtering(&cloud_view.expect("outdoor view selected").sampler),
                 },
             );
@@ -1023,12 +1066,17 @@ impl<P: PhaseItem> RenderCommand<P> for DrawNativeEffect {
             return RenderCommandResult::Skip;
         };
         if material.program.cloud() {
-            let (Some(view), Some((_, group)), Some(object)) =
-                (cloud_view, &objects.cloud, cloud_object)
+            let scene = if material.program.cloud_outdoor() {
+                cloud_view.map(|view| &view.bind_group)
+            } else {
+                view.map(|view| &view.bind_group)
+            };
+            let (Some(scene), Some((_, group)), Some(object)) =
+                (scene, &objects.cloud, cloud_object)
             else {
                 return RenderCommandResult::Skip;
             };
-            pass.set_bind_group(0, &view.bind_group, &[frame.index()]);
+            pass.set_bind_group(0, scene, &[frame.index()]);
             pass.set_bind_group(1, group, &[object.index()]);
         } else {
             let (Some(view), Some((_, group)), Some(object)) = (view, &objects.packed, object)
@@ -1039,7 +1087,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawNativeEffect {
             pass.set_bind_group(1, group, &[object.index()]);
         }
         pass.set_bind_group(2, &material.bind_group, &[]);
-        if material.program == NativeEffectProgram::OutdoorFeather {
+        if material.program.outdoor() {
             let Some(outdoor) = cloud_view else {
                 return RenderCommandResult::Skip;
             };

@@ -15,6 +15,7 @@ struct NativeFxObject {
     // VS cb3[0..4]. Source axes and inches, with the current eye translation.
     world_rows: array<vec4<f32>, 4>,
     feather_parms: vec4<f32>, // VS/PS cb1[46]; preserve the material literal.
+    dissolve_scale: f32, // PS cb1[51].x for the alpha-dissolve variants.
 }
 
 struct NativeFxVertexInput {
@@ -37,6 +38,7 @@ fn native_fx_vertex(
     input: NativeFxVertexInput,
     frame: NativeFxFrame,
     object: NativeFxObject,
+    feather: bool,
 ) -> NativeFxVaryings {
     let scene = frame.scene;
     let position = vec4<f32>(input.position, 1.0);
@@ -54,8 +56,10 @@ fn native_fx_vertex(
         dot(world_position, scene.view_projection_rows[3]),
     );
     let vertex_depth = output.clip_position.w;
-    output.color = vec4<f32>(input.color.xyz,
-        clamp(vertex_depth * object.feather_parms.x, 0.0, 1.0) * input.color.w);
+    output.color = input.color;
+    if feather {
+        output.color.w = clamp(vertex_depth * object.feather_parms.x, 0.0, 1.0) * input.color.w;
+    }
 
     let distance_squared = dot(world_position.xyz, world_position.xyz);
     let direction = inverseSqrt(distance_squared) * world_position.xyz;
@@ -95,6 +99,7 @@ fn native_fx_fragment(
     color_sampler: sampler,
     float_z: texture_2d<f32>,
     float_z_sampler: sampler,
+    dissolve: bool,
 ) -> vec4<f32> {
     let screen_uv = fragment_position.xy * frame.render_target_size.zw;
     let sampled_depth = textureSample(float_z, float_z_sampler, screen_uv).x;
@@ -106,5 +111,12 @@ fn native_fx_fragment(
     let sample = textureSample(color_map, color_sampler, input.uv_depth_fog.xy);
     let color = fma(vec3<f32>(input.uv_depth_fog.w),
         fma(input.color.xyz, sample.xyz, -input.fog_color), input.fog_color);
-    return vec4<f32>(color, depth_feather * (sample.w * input.color.w));
+    var alpha = sample.w * input.color.w;
+    if dissolve {
+        // PS b1400bd7: dissolve after interpolating the near-camera-faded alpha,
+        // then apply the depth-intersection fade to the saturated result.
+        alpha = clamp(fma(sample.w + input.color.w, object.dissolve_scale,
+            -object.dissolve_scale), 0.0, 1.0);
+    }
+    return vec4<f32>(color, depth_feather * alpha);
 }

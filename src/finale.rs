@@ -8,7 +8,6 @@ use avian3d::prelude::*;
 use bevy::prelude::*;
 #[derive(Resource, Default)]
 pub struct Finale {
-    pub fists: u32,
     pub souls: u32,
     pub portal_open: bool,
     pub drone_entered: bool,
@@ -19,10 +18,68 @@ pub struct Finale {
     portal_delay: f32,
     entry_delay: f32,
 }
+impl Finale {
+    pub(crate) fn collect_soul(
+        &mut self,
+        commands: &mut Commands,
+        quest: &MainQuest,
+        upgrades: &crate::staff_upgrades::StaffUpgrades,
+        position: Vec3,
+    ) -> bool {
+        if !quest.enabled
+            || quest.stage != QuestStage::Finale
+            || !upgrades.inserted.into_iter().all(|inserted| inserted)
+            || self.souls >= 100
+        {
+            return false;
+        }
+        if (position - Vec3::new(262.636, -9.2456, 200.8124))
+            .xz()
+            .length_squared()
+            < 45.72_f32.powi(2)
+        {
+            crate::quests::soul_effect(
+                commands,
+                position,
+                Vec3::new(262.636, -8.4074, 200.8124),
+                0.,
+                1.,
+            );
+            self.souls += 1;
+            let line = match self.souls {
+                1 => Some(3),
+                33 => Some(4),
+                66 => Some(5),
+                100 => Some(0),
+                _ => None,
+            };
+            if let Some(line) = line {
+                crate::audio::emit(
+                    commands,
+                    format!("vox_sam_generic_encourage_{line}"),
+                    crate::audio::SoundSource::World(Vec3::new(262.636, -8.5344, 200.8124)),
+                );
+            }
+        }
+        // The source portal-active override returns before chest/staff dispatch,
+        // including kills outside the Crazy Place that supply no portal soul.
+        true
+    }
+}
 #[derive(Component)]
 struct FistSoul {
     spent: bool,
     lights: Vec<Entity>,
+}
+impl FistSoul {
+    fn punch(&mut self, fists: &mut crate::rituals::IronFists) -> bool {
+        if self.spent || fists.upgraded || fists.souls >= 20 {
+            return false;
+        }
+        self.spent = true;
+        fists.souls += 1;
+        true
+    }
 }
 #[derive(Component)]
 struct FistReward {
@@ -84,7 +141,7 @@ impl Plugin for FinalePlugin {
                 FixedUpdate,
                 portal
                     .in_set(GameStep::Rewards)
-                    .after(crate::damage::reward_deaths)
+                    .after(crate::quests::souls)
                     .run_if(in_state(GameState::Playing)),
             )
             .add_systems(
@@ -114,7 +171,6 @@ fn fists(
     mut commands: Commands,
     time: Res<Time<Fixed>>,
     spatial: SpatialQuery,
-    mut finale: ResMut<Finale>,
     mut quest: ResMut<MainQuest>,
     mut applied: MessageReader<crate::damage::DamageApplied>,
     game: Res<crate::assets::GameDefinition>,
@@ -175,29 +231,28 @@ fn fists(
         });
     }
     for hit in applied.read() {
-        if hit.impact.source.id() != "weapon.one_inch_punch_zm"
-            || !players.contains(hit.impact.attacker)
-        {
+        if hit.impact.source.id() != "weapon.one_inch_punch_zm" {
             continue;
         }
+        let Ok((_, _, _, _, mut fists, _)) = players.get_mut(hit.impact.attacker) else {
+            continue;
+        };
         let mut souls = actors.p0();
         let Ok((mut soul, pose, zombie)) = souls.get_mut(hit.impact.target) else {
             continue;
         };
-        if soul.spent || finale.fists >= 20 || !zombie.completed_emerging() {
+        if !zombie.completed_emerging() || !soul.punch(&mut fists) {
             continue;
         }
-        soul.spent = true;
         for light in soul.lights.drain(..) {
             commands.entity(light).try_despawn();
         }
-        finale.fists += 1;
         crate::audio::emit(
             &mut commands,
             "zmb_squest_punchtime_punched",
             crate::audio::SoundSource::World(pose.translation),
         );
-        if finale.fists == 20 {
+        if fists.souls == 20 {
             let reward = commands
                 .spawn((
                     SessionEntity,
@@ -226,6 +281,7 @@ fn fists(
             );
         }
     }
+    let mut player_upgraded = false;
     for (owner, player, health, inventory, mut fists, upgrade) in &mut players {
         if let Some(mut upgrade) = upgrade {
             upgrade.remaining -= time.delta_secs();
@@ -234,7 +290,7 @@ fn fists(
                 fists.upgraded = true;
                 fists.element = upgrade.element;
                 commands.entity(owner).remove::<FistUpgrade>();
-                quest.transition(QuestStage::UpgradeFists, QuestStage::Finale);
+                player_upgraded = true;
             }
             continue;
         }
@@ -305,6 +361,9 @@ fn fists(
             break;
         }
     }
+    if player_upgraded && players.iter().all(|(_, _, _, _, fists, _)| fists.upgraded) {
+        quest.transition(QuestStage::UpgradeFists, QuestStage::Finale);
+    }
 }
 fn fist_flash(
     mut commands: Commands,
@@ -363,14 +422,11 @@ fn portal(
     mut finale: ResMut<Finale>,
     mut quest: ResMut<MainQuest>,
     upgrades: Res<crate::staff_upgrades::StaffUpgrades>,
-    mut deaths: MessageReader<crate::damage::EnemyDeath>,
-    enemies: Query<&Transform, With<crate::enemies::Zombie>>,
     mut drones: Query<(Entity, &mut crate::buildables::Drone, &Transform)>,
     mut buildables: ResMut<crate::buildables::BuildableState>,
     mut portals: Query<(Entity, &Transform, &mut Visibility, &mut FinalPortal)>,
 ) {
     if !quest.enabled {
-        deaths.clear();
         return;
     }
     finale.portal_active =
@@ -446,45 +502,6 @@ fn portal(
             );
         }
     }
-    if finale.portal_active {
-        for death in deaths.read() {
-            if death.0.can_supply_soul()
-                && enemies.get(death.0.impact.target).is_ok_and(|p| {
-                    (p.translation - Vec3::new(262.636, -9.2456, 200.8124))
-                        .with_y(0.)
-                        .length_squared()
-                        < 45.72_f32.powi(2)
-                })
-            {
-                if let Ok(pose) = enemies.get(death.0.impact.target) {
-                    crate::quests::soul_effect(
-                        &mut commands,
-                        pose.translation,
-                        Vec3::new(262.636, -8.4074, 200.8124),
-                        0.,
-                        1.,
-                    );
-                }
-                finale.souls = (finale.souls + 1).min(100);
-                let line = match finale.souls {
-                    1 => Some(3),
-                    33 => Some(4),
-                    66 => Some(5),
-                    100 => Some(0),
-                    _ => None,
-                };
-                if let Some(line) = line {
-                    crate::audio::emit(
-                        &mut commands,
-                        format!("vox_sam_generic_encourage_{line}"),
-                        crate::audio::SoundSource::World(Vec3::new(262.636, -8.5344, 200.8124)),
-                    );
-                }
-            }
-        }
-    } else {
-        deaths.clear();
-    }
     if finale.souls >= 100 && !finale.portal_open && finale.portal_delay == 0. {
         finale.portal_delay = 0.5;
     }
@@ -553,6 +570,64 @@ fn portal(
                 crate::audio::SoundSource::World(Vec3::new(262.636, -8.5344, 200.8124)),
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn active_finale_claims_souls_before_other_collectors_until_one_hundred() {
+        let mut quest = MainQuest::reset(crate::frontend::Difficulty::Original);
+        let mut upgrades = crate::staff_upgrades::StaffUpgrades::default();
+        upgrades.inserted = [true; 4];
+        let mut finale = Finale::default();
+        let mut world = World::new();
+        let mut commands = world.commands();
+        let center = Vec3::new(262.636, -9.2456, 200.8124);
+        assert!(!finale.collect_soul(&mut commands, &quest, &upgrades, center));
+        quest.stage = QuestStage::Finale;
+        upgrades.inserted[0] = false;
+        assert!(!finale.collect_soul(&mut commands, &quest, &upgrades, center));
+        upgrades.inserted[0] = true;
+        assert!(finale.collect_soul(&mut commands, &quest, &upgrades, Vec3::ZERO));
+        assert_eq!(finale.souls, 0);
+        assert!(finale.collect_soul(&mut commands, &quest, &upgrades, center));
+        assert_eq!(finale.souls, 1);
+        finale.souls = 99;
+        assert!(finale.collect_soul(&mut commands, &quest, &upgrades, center));
+        assert_eq!(finale.souls, 100);
+        assert!(!finale.collect_soul(&mut commands, &quest, &upgrades, center));
+        assert_eq!(finale.souls, 100);
+    }
+
+    fn soul() -> FistSoul {
+        FistSoul {
+            spent: false,
+            lights: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn each_player_needs_twenty_separate_fist_souls() {
+        let mut first = crate::rituals::IronFists::default();
+        let mut second = crate::rituals::IronFists::default();
+        for _ in 0..19 {
+            assert!(soul().punch(&mut first));
+        }
+        assert_eq!(first.souls, 19);
+        assert_eq!(second.souls, 0);
+        let mut shared = soul();
+        assert!(shared.punch(&mut second));
+        assert!(!shared.punch(&mut first));
+        assert_eq!(first.souls, 19);
+        assert_eq!(second.souls, 1);
+        assert!(soul().punch(&mut first));
+        assert_eq!(first.souls, 20);
+        assert!(!soul().punch(&mut first));
+        assert!(soul().punch(&mut second));
+        assert_eq!(second.souls, 2);
     }
 }
 fn enter(

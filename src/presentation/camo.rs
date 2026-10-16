@@ -1,12 +1,8 @@
 use crate::{
-    origins::content::WeaponId,
     rendering::native::NativeWorldState,
     rendering::native_model::{NativeModelMaterial, NativeModelSurface},
 };
 use bevy::prelude::*;
-
-#[derive(Component)]
-pub(crate) struct WeaponMaterialContext(pub WeaponId);
 
 /// An eligible original material pair, submitted by the weapon/attachment
 /// owner after its native descriptor/model mask and transfer flags resolve.

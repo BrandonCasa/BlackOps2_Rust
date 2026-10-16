@@ -1126,11 +1126,7 @@ fn ice(
     if puzzles.snow > 0. {
         puzzles.snow = (puzzles.snow - dt).max(0.);
         if puzzles.snow == 0. {
-            weather.kind = crate::environment::weather::WeatherKind::Clear;
-            weather.intensity = 0;
-            weather.presented = weather.kind;
-            weather.presented_intensity = 0;
-            weather.delay = 0.;
+            weather.puzzle_precipitation(crate::environment::weather::WeatherKind::Clear, 0);
         }
     }
     for hit in hits.read() {
@@ -1219,11 +1215,7 @@ fn ice(
                     puzzles.second[1] = true;
                     stage_feedback(&mut commands, 1, 1, hit.point);
                     puzzles.snow = 5.;
-                    weather.kind = crate::environment::weather::WeatherKind::Snow;
-                    weather.intensity = 5;
-                    weather.presented = weather.kind;
-                    weather.presented_intensity = 5;
-                    weather.delay = 0.;
+                    weather.puzzle_precipitation(crate::environment::weather::WeatherKind::Snow, 5);
                 }
             }
         }

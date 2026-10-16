@@ -69,8 +69,6 @@ fn prepare_atlas(
 
 #[derive(Clone, Copy)]
 pub(crate) struct ModelLighting {
-    /// Zero-based block index. The original nonzero lighting handle is slot+1.
-    pub slot: u16,
     pub grid_coords_and_vis: Vec4,
     pub sh: [Vec4; 3],
 }
@@ -198,7 +196,6 @@ impl ModelLightingAtlas {
             );
             resident.last_used = frame;
             return Ok(ModelLighting {
-                slot,
                 grid_coords_and_vis: grid_coordinates(slot, visibility),
                 sh: resident.sh,
             });
@@ -223,7 +220,6 @@ impl ModelLightingAtlas {
         }
         self.handles.insert(owner, slot + 1);
         Ok(ModelLighting {
-            slot,
             grid_coords_and_vis: grid_coordinates(slot, visibility),
             sh: lighting.sh,
         })
@@ -257,7 +253,6 @@ impl ModelLightingAtlas {
         let mut coords = grid_coordinates(atlas_slot, 0);
         coords.w = sample.visibility;
         let lighting = ModelLighting {
-            slot: atlas_slot,
             grid_coords_and_vis: coords,
             sh: lighting.sh,
         };

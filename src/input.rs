@@ -6,10 +6,7 @@ use bevy::{
         mouse::{MouseButtonInput, MouseMotion, MouseWheel},
     },
     prelude::*,
-    window::{
-        CursorGrabMode, CursorOptions, MonitorSelection, PrimaryWindow, VideoModeSelection,
-        WindowMode,
-    },
+    window::{CursorGrabMode, CursorOptions, MonitorSelection, PrimaryWindow, WindowMode},
 };
 use std::collections::HashSet;
 mod bindings;
@@ -179,18 +176,10 @@ impl Plugin for GameInputPlugin {
             .add_message::<RestartGame>()
             .add_systems(
                 PreUpdate,
-                toggle_fullscreen
-                    .after(InputSystems)
-                    .before(collect),
+                toggle_fullscreen.after(InputSystems).before(collect),
             )
-            .add_systems(
-                PreUpdate,
-                collect.after(InputSystems),
-            )
-            .add_systems(
-                Update,
-                pause_and_restart,
-            )
+            .add_systems(PreUpdate, collect.after(InputSystems))
+            .add_systems(Update, pause_and_restart)
             .add_systems(
                 FixedUpdate,
                 finish_tick
@@ -219,9 +208,7 @@ fn toggle_fullscreen(
         return;
     }
     window.mode = match window.mode {
-        WindowMode::Windowed => {
-            WindowMode::Fullscreen(MonitorSelection::Current, VideoModeSelection::Current)
-        }
+        WindowMode::Windowed => WindowMode::BorderlessFullscreen(MonitorSelection::Current),
         _ => WindowMode::Windowed,
     };
     keys.clear_just_pressed(KeyCode::Enter);
@@ -235,15 +222,16 @@ pub(crate) fn collect(
     mut wheel: MessageReader<MouseWheel>,
     mouse: Res<ButtonInput<MouseButton>>,
     windows: Query<(&Window, &CursorOptions)>,
+    inventories: Query<&crate::weapons::WeaponInventory, With<crate::player::Player>>,
     state: Res<State<GameState>>,
     settings: Res<ControlSettings>,
     mut actions: ResMut<Actions>,
     mut input: ResMut<GameInput>,
 ) {
     let active = **state == GameState::Playing
-        && windows.iter().any(|(window, cursor)| {
-                window.focused && cursor.grab_mode != CursorGrabMode::None
-            });
+        && windows
+            .iter()
+            .any(|(window, cursor)| window.focused && cursor.grab_mode != CursorGrabMode::None);
     let mappings_changed = settings.bindings != actions.settings.bindings
         || settings.aim_mode != actions.settings.aim_mode
         || settings.crouch_mode != actions.settings.crouch_mode
@@ -296,6 +284,14 @@ pub(crate) fn collect(
     }
     actions.suppressed.retain(|b| b.held(&keys, &mouse));
     use Action::*;
+    let dual = inventories.single().is_ok_and(|inventory| {
+        inventory
+            .active()
+            .is_some_and(|weapon| weapon.left_magazine.is_some())
+    });
+    if dual {
+        actions.states[Aim as usize].toggled = false;
+    }
     input.movement = Vec2::new(
         (actions.state(Right).held as i8 - actions.state(Left).held as i8) as f32,
         (actions.state(Forward).held as i8 - actions.state(Backward).held as i8) as f32,
@@ -303,7 +299,7 @@ pub(crate) fn collect(
     input.sprint = actions.active(Sprint);
     input.crouch = actions.active(Crouch);
     input.fire_held = actions.active(Fire);
-    input.ads = actions.active(Aim);
+    input.ads = !dual && actions.active(Aim);
     input.use_held = actions.active(Interact);
     input.scoreboard = actions.active(Scoreboard);
     input.grenade_held = actions.active(Lethal);
@@ -384,9 +380,7 @@ pub(crate) fn pause_and_restart(
             _ => {}
         }
     }
-    if **state == GameState::Playing
-        && cursors.iter().any(|(w, _)| !w.focused)
-    {
+    if **state == GameState::Playing && cursors.iter().any(|(w, _)| !w.focused) {
         next.set(GameState::Paused);
     }
     if **state == GameState::GameOver
@@ -395,8 +389,7 @@ pub(crate) fn pause_and_restart(
         next.set(GameState::StartingSession);
     }
     for (window, mut cursor) in &mut cursors {
-        let capture = window.focused
-            && **state == GameState::Playing;
+        let capture = window.focused && **state == GameState::Playing;
         let grab_mode = if capture {
             CursorGrabMode::Locked
         } else {
@@ -414,6 +407,107 @@ pub(crate) fn pause_and_restart(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn akimbo_trigger_does_not_latch_toggle_aim_for_the_next_weapon() {
+        use crate::{origins::content::WeaponDefinition, weapons::WeaponInventory};
+        let mut weapon: WeaponDefinition = serde_json::from_value(serde_json::json!({
+            "id":"weapon.dual", "name":"dual", "damage":20, "category":"bullet",
+            "magazine":8, "reserve":0, "fire_interval":0.1, "reload_seconds":1.,
+            "dual_weapon":"weapon.left"
+        }))
+        .unwrap();
+        let mut inventory = WeaponInventory::default();
+        inventory.grant(&weapon).unwrap();
+        let mut app = App::new();
+        app.init_resource::<Actions>()
+            .init_resource::<GameInput>()
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<ButtonInput<MouseButton>>()
+            .add_message::<KeyboardInput>()
+            .add_message::<MouseButtonInput>()
+            .add_message::<MouseMotion>()
+            .add_message::<MouseWheel>()
+            .insert_resource(State::new(GameState::Playing))
+            .add_systems(Update, collect);
+        let settings = ControlSettings {
+            aim_mode: PressMode::Toggle,
+            ..default()
+        };
+        app.world_mut().resource_mut::<Actions>().settings = settings.clone();
+        app.insert_resource(settings);
+        let window = app
+            .world_mut()
+            .spawn((
+                Window {
+                    focused: true,
+                    ..default()
+                },
+                CursorOptions {
+                    grab_mode: CursorGrabMode::Locked,
+                    ..default()
+                },
+            ))
+            .id();
+        let player = app
+            .world_mut()
+            .spawn((
+                crate::player::Player {
+                    yaw: 0.,
+                    pitch: 0.,
+                    velocity: Vec3::ZERO,
+                    height: 1.8,
+                    grounded: true,
+                    crouched: false,
+                    prone: false,
+                    eye_height: 1.6,
+                },
+                inventory,
+            ))
+            .id();
+        for pressed in [true, false] {
+            if pressed {
+                app.world_mut()
+                    .resource_mut::<ButtonInput<MouseButton>>()
+                    .press(MouseButton::Right);
+            } else {
+                app.world_mut()
+                    .resource_mut::<ButtonInput<MouseButton>>()
+                    .release(MouseButton::Right);
+            }
+            app.world_mut().write_message(MouseButtonInput {
+                button: MouseButton::Right,
+                state: if pressed {
+                    bevy::input::ButtonState::Pressed
+                } else {
+                    bevy::input::ButtonState::Released
+                },
+                window,
+            });
+            app.update();
+            assert_eq!(
+                app.world().resource::<Actions>().state(Action::Aim).held,
+                pressed
+            );
+            assert!(!app.world().resource::<GameInput>().ads);
+        }
+        weapon.dual_weapon = None;
+        let mut inventory = WeaponInventory::default();
+        inventory.grant(&weapon).unwrap();
+        app.world_mut().entity_mut(player).insert(inventory);
+        app.update();
+        assert!(!app.world().resource::<GameInput>().ads);
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Right);
+        app.world_mut().write_message(MouseButtonInput {
+            button: MouseButton::Right,
+            state: bevy::input::ButtonState::Pressed,
+            window,
+        });
+        app.update();
+        assert!(app.world().resource::<GameInput>().ads);
+    }
 
     #[test]
     fn session_reset_discards_actions_and_buffers_until_held_buttons_are_released() {

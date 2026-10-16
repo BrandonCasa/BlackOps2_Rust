@@ -34,6 +34,7 @@ use bevy::{
     prelude::*,
     render::{
         Extract, ExtractSchedule, Render, RenderApp, RenderSystems,
+        extract_component::ExtractComponentPlugin,
         mesh::allocator::MeshSlabs,
         render_asset::{
             AssetExtractionError, PrepareAssetError, RenderAsset, RenderAssetPlugin, RenderAssets,
@@ -133,6 +134,24 @@ pub(crate) struct NativeModelParallaxConstants {
 }
 
 #[derive(Clone, Copy, ShaderType)]
+pub(crate) struct NativeClanTagConstants {
+    pub controls: Vec4,
+    pub atlas: Vec4,
+    pub characters: Vec4,
+}
+
+#[derive(Clone, Copy, ShaderType)]
+pub(crate) struct NativeClothRevealConstants {
+    pub source: [Vec4; 4],
+}
+
+#[derive(Clone, Copy, ShaderType)]
+pub(crate) struct NativeFlickerConstants {
+    pub controls: Vec4,
+    pub map_column: Vec4,
+}
+
+#[derive(Clone, Copy, ShaderType)]
 pub(crate) struct NativeModelEmissiveConstants {
     pub controls: Vec4,
     pub gloss_push: Vec4,
@@ -176,7 +195,7 @@ pub(crate) enum EmissiveProgram {
     Alcatraz,
     Transparent,
     ScriptedGlow,
-    ScriptMulti,
+    ScriptMulti { alpha_test: bool },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -184,6 +203,7 @@ pub(crate) enum NormalSpecularProgram {
     Grid,
     VertexLit,
     Scrolling,
+    Blended { unattenuated_reflection: bool },
 }
 
 /// Original weaponParam2 and selected color-detail texture. Base weapon setup
@@ -193,6 +213,7 @@ pub(crate) struct NativeWeaponDetail {
     pub map: Handle<Image>,
     pub sampler: SamplerDescriptor<'static>,
     pub parameters: Vec4,
+    pub hero_lighting: bool,
 }
 
 #[derive(Clone)]
@@ -268,6 +289,7 @@ pub(crate) enum NativeModelMaterial {
         base: NativeModelColorTexture,
         scale_rgb: Option<Vec4>,
     },
+    DecalMultiply(NativeModelColorTexture),
     TileBlend {
         // Macro AO/mix, macro normal, micro normals 1/2, micro colors 1/2.
         textures: [(Handle<Image>, SamplerDescriptor<'static>); 6],
@@ -314,6 +336,10 @@ pub(crate) enum NativeModelMaterial {
         textures: NativeModelThreeLayerTextures,
         constants: NativeModelParallaxConstants,
     },
+    #[expect(
+        dead_code,
+        reason = "native camo rendering is retained until weapon camo selection supplies materials"
+    )]
     Camo3Layer {
         textures: NativeModelThreeLayerTextures,
         constants: NativeModelParallaxConstants,
@@ -331,10 +357,41 @@ pub(crate) enum NativeModelMaterial {
         glow_sampler: SamplerDescriptor<'static>,
         constants: NativeModelEmissiveConstants,
     },
-    CharCloth {
+    Flicker {
+        base: NativeModelTextures,
+        flicker_map: Handle<Image>,
+        flicker_sampler: SamplerDescriptor<'static>,
+        emissive_map: Handle<Image>,
+        emissive_sampler: SamplerDescriptor<'static>,
+        constants: NativeFlickerConstants,
+    },
+    ClanTag {
+        base: NativeModelTextures,
+        detail_map: Handle<Image>,
+        detail_sampler: SamplerDescriptor<'static>,
+        constants: NativeClanTagConstants,
+    },
+    TransparentPhong {
+        player_icon: bool,
         base: NativeModelTextures,
         specular_map: Handle<Image>,
         specular_sampler: SamplerDescriptor<'static>,
+        controls: Vec4,
+    },
+    Character {
+        base: NativeModelTextures,
+        specular_map: Handle<Image>,
+        specular_sampler: SamplerDescriptor<'static>,
+        skin_controls: Option<Vec4>,
+    },
+    ClothReveal {
+        base: NativeModelTextures,
+        specular_map: Handle<Image>,
+        specular_sampler: SamplerDescriptor<'static>,
+        temporal_map: Handle<Image>,
+        temporal_sampler: SamplerDescriptor<'static>,
+        constants: NativeClothRevealConstants,
+        alpha_test: bool,
     },
     ZombieEyes(NativeModelColorTexture),
 }
@@ -464,7 +521,7 @@ impl NativeModelMaterial {
                 None,
                 None,
             ],
-            Self::Unlit { base, .. } => [
+            Self::Unlit { base, .. } | Self::DecalMultiply(base) => [
                 Some((0, &base.color_map, &base.color_sampler)),
                 None,
                 None,
@@ -615,10 +672,69 @@ impl NativeModelMaterial {
                 None,
                 None,
             ],
-            Self::CharCloth {
+            Self::Flicker {
+                base,
+                flicker_map,
+                flicker_sampler,
+                emissive_map,
+                emissive_sampler,
+                ..
+            } => [
+                Some((0, &base.normal_map, &base.normal_sampler)),
+                Some((2, &base.color_map, &base.color_sampler)),
+                Some((4, flicker_map, flicker_sampler)),
+                Some((6, emissive_map, emissive_sampler)),
+                Some((8, &base.reflection_probe, &base.reflection_sampler)),
+                None,
+                None,
+                None,
+                None,
+            ],
+            Self::ClanTag {
+                base,
+                detail_map,
+                detail_sampler,
+                ..
+            } => [
+                Some((0, &base.normal_map, &base.normal_sampler)),
+                Some((2, detail_map, detail_sampler)),
+                Some((4, &base.color_map, &base.color_sampler)),
+                Some((8, &base.reflection_probe, &base.reflection_sampler)),
+                None,
+                None,
+                None,
+                None,
+                None,
+            ],
+            Self::ClothReveal {
                 base,
                 specular_map,
                 specular_sampler,
+                temporal_map,
+                temporal_sampler,
+                ..
+            } => [
+                Some((0, &base.normal_map, &base.normal_sampler)),
+                Some((2, &base.color_map, &base.color_sampler)),
+                Some((4, specular_map, specular_sampler)),
+                Some((6, temporal_map, temporal_sampler)),
+                Some((8, &base.reflection_probe, &base.reflection_sampler)),
+                None,
+                None,
+                None,
+                None,
+            ],
+            Self::Character {
+                base,
+                specular_map,
+                specular_sampler,
+                ..
+            }
+            | Self::TransparentPhong {
+                base,
+                specular_map,
+                specular_sampler,
+                ..
             } => [
                 Some((0, &base.normal_map, &base.normal_sampler)),
                 Some((2, &base.color_map, &base.color_sampler)),
@@ -651,9 +767,10 @@ impl NativeModelMaterial {
             Self::Flag { detail, .. } => NativeModelFamily::Flag(detail.is_some()),
             Self::Canopy { quasi, .. } => NativeModelFamily::Canopy(*quasi),
             Self::RevealDiffuse { .. } => NativeModelFamily::RevealDiffuse,
-            Self::MappedOcclusion { detail, .. } => {
-                NativeModelFamily::MappedOcclusion(detail.is_some())
-            }
+            Self::MappedOcclusion { detail, .. } => NativeModelFamily::MappedOcclusion {
+                detail: detail.is_some(),
+                hero_lighting: detail.as_ref().is_some_and(|detail| detail.hero_lighting),
+            },
             Self::Feather3Layer { .. } => NativeModelFamily::Feather3Layer,
             Self::Unlit3Layer {
                 vertex_lit,
@@ -673,6 +790,7 @@ impl NativeModelMaterial {
             Self::Unlit { scale_rgb, .. } => NativeModelFamily::Unlit {
                 replace: scale_rgb.is_some(),
             },
+            Self::DecalMultiply(_) => NativeModelFamily::DecalMultiply,
             Self::TileBlend {
                 specular,
                 vertex_lit,
@@ -708,7 +826,15 @@ impl NativeModelMaterial {
                 program: *program,
                 vertex_lit: *vertex_lit,
             },
-            Self::CharCloth { .. } => NativeModelFamily::CharCloth,
+            Self::Flicker { .. } => NativeModelFamily::Flicker,
+            Self::ClanTag { .. } => NativeModelFamily::ClanTag,
+            Self::Character { skin_controls, .. } => NativeModelFamily::Character {
+                skin: skin_controls.is_some(),
+            },
+            Self::TransparentPhong { player_icon, .. } => NativeModelFamily::TransparentPhong {
+                player_icon: *player_icon,
+            },
+            Self::ClothReveal { alpha_test, .. } => NativeModelFamily::ClothReveal(*alpha_test),
             Self::ZombieEyes(_) => NativeModelFamily::ZombieEyes,
         }
     }
@@ -720,7 +846,10 @@ enum NativeModelFamily {
     Flag(bool),
     Canopy(bool),
     RevealDiffuse,
-    MappedOcclusion(bool),
+    MappedOcclusion {
+        detail: bool,
+        hero_lighting: bool,
+    },
     Feather3Layer,
     Unlit3Layer {
         vertex_lit: bool,
@@ -734,6 +863,7 @@ enum NativeModelFamily {
     Unlit {
         replace: bool,
     },
+    DecalMultiply,
     TileBlend {
         specular: bool,
         vertex_lit: bool,
@@ -757,7 +887,15 @@ enum NativeModelFamily {
         program: EmissiveProgram,
         vertex_lit: bool,
     },
-    CharCloth,
+    Flicker,
+    ClanTag,
+    Character {
+        skin: bool,
+    },
+    TransparentPhong {
+        player_icon: bool,
+    },
+    ClothReveal(bool),
     ZombieEyes,
 }
 
@@ -768,6 +906,7 @@ impl NativeModelFamily {
             Self::GeometricDiffuse(_)
                 | Self::GeometricSpecular { .. }
                 | Self::Unlit { .. }
+                | Self::DecalMultiply
                 | Self::Canopy(_)
                 | Self::SmokePillar
         )
@@ -817,10 +956,25 @@ impl NativeModelFamily {
                 | Self::Feather3Layer
                 | Self::FourLayers { .. }
                 | Self::Camo3Layer
-                | Self::CharCloth
+                | Self::Character { .. }
+                | Self::ClothReveal(_)
+                | Self::ClanTag
+                | Self::TransparentPhong { .. }
+                | Self::Flicker
                 | Self::PhongEmissive { .. }
                 | Self::TileBlend { .. }
         )
+    }
+
+    fn view_constants(self) -> bool {
+        self.scripted_vertex()
+            || matches!(
+                self,
+                Self::MappedOcclusion {
+                    hero_lighting: true,
+                    ..
+                }
+            )
     }
 
     fn script_inputs(self) -> bool {
@@ -831,11 +985,13 @@ impl NativeModelFamily {
                 | Self::Feather3Layer
                 | Self::FourLayers { .. }
                 | Self::PhongEmissive {
-                    program: EmissiveProgram::ScriptedGlow | EmissiveProgram::ScriptMulti,
+                    program: EmissiveProgram::ScriptedGlow | EmissiveProgram::ScriptMulti { .. },
                     ..
                 }
-                | Self::CharCloth
+                | Self::Character { .. }
+                | Self::ClothReveal(_)
                 | Self::ZombieEyes
+                | Self::Flicker
         )
     }
 
@@ -846,7 +1002,11 @@ impl NativeModelFamily {
     fn atlas(self) -> bool {
         !matches!(
             self,
-            Self::ZombieEyes | Self::Unlit { .. } | Self::Feather3Layer | Self::SmokePillar
+            Self::ZombieEyes
+                | Self::Unlit { .. }
+                | Self::DecalMultiply
+                | Self::Feather3Layer
+                | Self::SmokePillar
         )
     }
 
@@ -861,6 +1021,7 @@ impl NativeModelFamily {
                 | Self::Feather3Layer
                 | Self::Camo3Layer
                 | Self::Unlit { .. }
+                | Self::DecalMultiply
                 | Self::FourLayers { .. }
         )
     }
@@ -995,7 +1156,6 @@ pub(crate) struct ExtractedNativeModelSurface {
     first_index: u32,
     index_count: u32,
     placement: MainEntity,
-    dynamic_lighting_origin: Option<Vec3>,
     colors_index: usize,
     visibility: u8,
 }
@@ -1006,13 +1166,20 @@ impl SyncComponent<RenderApp> for NativeModelSurface {
 
 fn extract_model_surfaces(
     mut commands: Commands,
-    surfaces: Extract<Query<(RenderEntity, &NativeModelSurface)>>,
-    entities: Extract<Query<(RenderEntity, &DynamicLightingOrigin)>>,
+    surfaces: Extract<
+        Query<
+            (RenderEntity, &NativeModelSurface),
+            Or<(Changed<NativeModelSurface>, Changed<RenderEntity>)>,
+        >,
+    >,
+    entities: Extract<Query<RenderEntity>>,
     mut previous_len: Local<usize>,
 ) {
+    if surfaces.is_empty() {
+        return;
+    }
     let mut extracted = Vec::with_capacity(*previous_len);
     for (entity, surface) in &surfaces {
-        let mut dynamic_lighting_origin = None;
         let geometry = match &surface.geometry {
             ModelGeometry::Static(handle) => ExtractedModelGeometry::Static(handle.id()),
             ModelGeometry::Animated {
@@ -1021,13 +1188,12 @@ fn extract_model_surfaces(
                 lod,
                 surface,
             } => {
-                let Ok((instance, origin)) = entities.get(*instance) else {
+                let Ok(instance) = entities.get(*instance) else {
                     commands
                         .entity(entity)
                         .remove::<ExtractedNativeModelSurface>();
                     continue;
                 };
-                dynamic_lighting_origin = Some(origin.0);
                 ExtractedModelGeometry::Animated {
                     model: model.id(),
                     instance: instance.into(),
@@ -1052,7 +1218,6 @@ fn extract_model_surfaces(
                 first_index: surface.first_index,
                 index_count: surface.index_count,
                 placement: surface.placement.into(),
-                dynamic_lighting_origin,
                 colors_index: surface.colors_index,
                 visibility: surface.visibility,
             },
@@ -1090,6 +1255,7 @@ impl Plugin for NativeModelPlugin {
             .add_plugins((
                 RenderAssetPlugin::<PreparedModelVertexLighting>::default(),
                 SyncComponentPlugin::<NativeModelSurface>::default(),
+                ExtractComponentPlugin::<DynamicLightingOrigin>::default(),
                 RenderAssetPlugin::<PreparedModelMaterial, GpuImage>::default(),
             ));
         load_shader_library!(app, "native_model.wesl");
@@ -1170,6 +1336,10 @@ struct ModelPipeline {
     camo_material_layout: BindGroupLayoutDescriptor,
     disc_material_layout: BindGroupLayoutDescriptor,
     cloth_material_layout: BindGroupLayoutDescriptor,
+    cloth_reveal_layout: BindGroupLayoutDescriptor,
+    phong_controls_layout: BindGroupLayoutDescriptor,
+    clan_tag_layout: BindGroupLayoutDescriptor,
+    flicker_layout: BindGroupLayoutDescriptor,
     lighting_layout: BindGroupLayoutDescriptor,
 }
 
@@ -1538,6 +1708,35 @@ impl ModelPipeline {
                 "native selected weapon camo original three layers",
                 &camo_entries,
             ),
+            flicker_layout: {
+                let mut entries = textures.to_vec();
+                entries.push(
+                    uniform_buffer::<NativeFlickerConstants>(false)
+                        .build(20, ShaderStages::FRAGMENT),
+                );
+                BindGroupLayoutDescriptor::new("native emissive flicker inputs", &entries)
+            },
+            clan_tag_layout: {
+                let mut entries = cloth_entries.clone();
+                entries.push(
+                    uniform_buffer::<NativeClanTagConstants>(false)
+                        .build(19, ShaderStages::FRAGMENT),
+                );
+                BindGroupLayoutDescriptor::new("native clan tag atlas inputs", &entries)
+            },
+            cloth_reveal_layout: {
+                let mut entries = textures.to_vec();
+                entries.push(
+                    uniform_buffer::<NativeClothRevealConstants>(false)
+                        .build(22, ShaderStages::FRAGMENT),
+                );
+                BindGroupLayoutDescriptor::new("native cloth reveal inputs", &entries)
+            },
+            phong_controls_layout: {
+                let mut entries = cloth_entries.clone();
+                entries.push(uniform_buffer::<Vec4>(false).build(21, ShaderStages::FRAGMENT));
+                BindGroupLayoutDescriptor::new("native Phong material controls", &entries)
+            },
             cloth_material_layout: BindGroupLayoutDescriptor::new(
                 "native character cloth inputs",
                 &cloth_entries,
@@ -1564,13 +1763,15 @@ impl ModelPipeline {
             NativeModelFamily::Flag(detail) => &self.flag_layouts[usize::from(detail)],
             NativeModelFamily::Canopy(_) => &self.canopy_layout,
             NativeModelFamily::RevealDiffuse => &self.reveal_layout,
-            NativeModelFamily::MappedOcclusion(detail) => {
+            NativeModelFamily::MappedOcclusion { detail, .. } => {
                 &self.mapped_occlusion_layouts[usize::from(detail)]
             }
             NativeModelFamily::FourLayers { .. } => &self.four_layer_layout,
             NativeModelFamily::DetailDiffuse(_) => &self.detail_material_layout,
             NativeModelFamily::Unlit { replace: true } => &self.unlit_replace_layout,
-            NativeModelFamily::Unlit { replace: false } => &self.geometric_material_layout,
+            NativeModelFamily::Unlit { replace: false } | NativeModelFamily::DecalMultiply => {
+                &self.geometric_material_layout
+            }
             NativeModelFamily::TileBlend { specular, .. } => {
                 &self.tile_layouts[usize::from(specular)]
             }
@@ -1591,7 +1792,12 @@ impl ModelPipeline {
             NativeModelFamily::Crystal3Layer(_) => &self.crystal_material_layout,
             NativeModelFamily::Camo3Layer => &self.camo_material_layout,
             NativeModelFamily::PhongEmissive { .. } => &self.disc_material_layout,
-            NativeModelFamily::CharCloth => &self.cloth_material_layout,
+            NativeModelFamily::ClanTag => &self.clan_tag_layout,
+            NativeModelFamily::Flicker => &self.flicker_layout,
+            NativeModelFamily::ClothReveal(_) => &self.cloth_reveal_layout,
+            NativeModelFamily::Character { skin: false } => &self.cloth_material_layout,
+            NativeModelFamily::Character { skin: true }
+            | NativeModelFamily::TransparentPhong { .. } => &self.phong_controls_layout,
             NativeModelFamily::ZombieEyes => &self.geometric_material_layout,
         }
     }
@@ -1638,7 +1844,9 @@ impl SpecializedRenderPipeline for ModelPipeline {
         ];
         if matches!(
             key.family,
-            NativeModelFamily::Unlit { .. } | NativeModelFamily::SmokePillar
+            NativeModelFamily::Unlit { .. }
+                | NativeModelFamily::DecalMultiply
+                | NativeModelFamily::SmokePillar
         ) {
             attributes.retain(|attribute| attribute.shader_location <= 2);
         } else if key.family == NativeModelFamily::ZombieEyes {
@@ -1663,10 +1871,26 @@ impl SpecializedRenderPipeline for ModelPipeline {
             (NativeModelFamily::Canopy(false), true) => "fragment_canopy_srgb",
             (NativeModelFamily::RevealDiffuse, false) => "fragment_reveal",
             (NativeModelFamily::RevealDiffuse, true) => "fragment_reveal_srgb",
-            (NativeModelFamily::MappedOcclusion(true), false) => "fragment_weapon_detail",
-            (NativeModelFamily::MappedOcclusion(true), true) => "fragment_weapon_detail_srgb",
-            (NativeModelFamily::MappedOcclusion(false), false) => "fragment_mapped_occlusion",
-            (NativeModelFamily::MappedOcclusion(false), true) => "fragment_mapped_occlusion_srgb",
+            (
+                NativeModelFamily::MappedOcclusion {
+                    detail: true,
+                    hero_lighting: false,
+                },
+                false,
+            ) => "fragment_weapon_detail",
+            (
+                NativeModelFamily::MappedOcclusion {
+                    detail: true,
+                    hero_lighting: false,
+                },
+                true,
+            ) => "fragment_weapon_detail_srgb",
+            (NativeModelFamily::MappedOcclusion { detail: false, .. }, false) => {
+                "fragment_mapped_occlusion"
+            }
+            (NativeModelFamily::MappedOcclusion { detail: false, .. }, true) => {
+                "fragment_mapped_occlusion_srgb"
+            }
             (NativeModelFamily::Feather3Layer, false) => "fragment",
             (NativeModelFamily::Feather3Layer, true) => "fragment_srgb",
             (
@@ -1738,6 +1962,30 @@ impl SpecializedRenderPipeline for ModelPipeline {
             (NativeModelFamily::GeometricDiffuse(GeometricProgram::VertexOcclusion(_)), true) => {
                 "fragment_geometric_occlusion_srgb"
             }
+            (
+                NativeModelFamily::NormalSpecular(NormalSpecularProgram::Blended {
+                    unattenuated_reflection: false,
+                }),
+                false,
+            ) => "fragment_specular_blended",
+            (
+                NativeModelFamily::NormalSpecular(NormalSpecularProgram::Blended {
+                    unattenuated_reflection: false,
+                }),
+                true,
+            ) => "fragment_specular_blended_srgb",
+            (
+                NativeModelFamily::NormalSpecular(NormalSpecularProgram::Blended {
+                    unattenuated_reflection: true,
+                }),
+                false,
+            ) => "fragment_specular_blended_reflection",
+            (
+                NativeModelFamily::NormalSpecular(NormalSpecularProgram::Blended {
+                    unattenuated_reflection: true,
+                }),
+                true,
+            ) => "fragment_specular_blended_reflection_srgb",
             (NativeModelFamily::NormalSpecular(_), false) => "fragment_specular",
             (NativeModelFamily::NormalSpecular(_), true) => "fragment_specular_srgb",
             (NativeModelFamily::AlphaSpecular(_), false) => "fragment_alpha_specular",
@@ -1862,6 +2110,8 @@ impl SpecializedRenderPipeline for ModelPipeline {
             (NativeModelFamily::Unlit { replace: true }, true) => "fragment_replace_srgb",
             (NativeModelFamily::Unlit { replace: false }, false) => "fragment_multiply",
             (NativeModelFamily::Unlit { replace: false }, true) => "fragment_multiply_srgb",
+            (NativeModelFamily::DecalMultiply, false) => "fragment_decal_multiply",
+            (NativeModelFamily::DecalMultiply, true) => "fragment_decal_multiply_srgb",
             (NativeModelFamily::DetailDiffuse(_), false) => "fragment_detail_diffuse",
             (NativeModelFamily::DetailDiffuse(_), true) => "fragment_detail_diffuse_srgb",
             (NativeModelFamily::FourLayers { fog: false, .. }, false) => "fragment_four_nofog",
@@ -1870,26 +2120,79 @@ impl SpecializedRenderPipeline for ModelPipeline {
             (NativeModelFamily::FourLayers { fog: true, .. }, true) => "fragment_four_fog_srgb",
             (
                 NativeModelFamily::PhongEmissive {
-                    program: EmissiveProgram::ScriptMulti,
+                    program: EmissiveProgram::ScriptMulti { alpha_test: true },
                     ..
                 },
                 false,
             ) => "fragment_emissive_multi",
             (
                 NativeModelFamily::PhongEmissive {
-                    program: EmissiveProgram::ScriptMulti,
+                    program: EmissiveProgram::ScriptMulti { alpha_test: true },
                     ..
                 },
                 true,
             ) => "fragment_emissive_multi_srgb",
-            (NativeModelFamily::CharCloth, false) => "fragment_cloth",
-            (NativeModelFamily::CharCloth, true) => "fragment_cloth_srgb",
+            (
+                NativeModelFamily::PhongEmissive {
+                    program: EmissiveProgram::ScriptMulti { alpha_test: false },
+                    ..
+                },
+                false,
+            ) => "fragment_emissive_multi_opaque",
+            (
+                NativeModelFamily::PhongEmissive {
+                    program: EmissiveProgram::ScriptMulti { alpha_test: false },
+                    ..
+                },
+                true,
+            ) => "fragment_emissive_multi_opaque_srgb",
+            (NativeModelFamily::ClanTag, false) => "fragment_clan_tag",
+            (NativeModelFamily::Flicker, false) => "fragment_flicker",
+            (NativeModelFamily::Flicker, true) => "fragment_flicker_srgb",
+            (NativeModelFamily::ClanTag, true) => "fragment_clan_tag_srgb",
+            (NativeModelFamily::ClothReveal(false), false) => "fragment_cloth_reveal",
+            (NativeModelFamily::ClothReveal(false), true) => "fragment_cloth_reveal_srgb",
+            (NativeModelFamily::ClothReveal(true), false) => "fragment_cloth_reveal_cutout",
+            (NativeModelFamily::ClothReveal(true), true) => "fragment_cloth_reveal_cutout_srgb",
+            (NativeModelFamily::Character { skin: false }, false) => "fragment_cloth",
+            (NativeModelFamily::Character { skin: false }, true) => "fragment_cloth_srgb",
+            (NativeModelFamily::Character { skin: true }, false) => "fragment_skin",
+            (NativeModelFamily::Character { skin: true }, true) => "fragment_skin_srgb",
+            (NativeModelFamily::TransparentPhong { player_icon: false }, false) => {
+                "fragment_viewmodel_transparent"
+            }
+            (NativeModelFamily::TransparentPhong { player_icon: false }, true) => {
+                "fragment_viewmodel_transparent_srgb"
+            }
+            (
+                NativeModelFamily::MappedOcclusion {
+                    detail: true,
+                    hero_lighting: true,
+                },
+                false,
+            ) => "fragment_weapon_detail_hero",
+            (
+                NativeModelFamily::MappedOcclusion {
+                    detail: true,
+                    hero_lighting: true,
+                },
+                true,
+            ) => "fragment_weapon_detail_hero_srgb",
+            (NativeModelFamily::TransparentPhong { player_icon: true }, false) => {
+                "fragment_player_icon"
+            }
+            (NativeModelFamily::TransparentPhong { player_icon: true }, true) => {
+                "fragment_player_icon_srgb"
+            }
             (NativeModelFamily::ZombieEyes, false) => "fragment_eyes",
             (NativeModelFamily::ZombieEyes, true) => "fragment_eyes_srgb",
         };
         let shader = if key.family.depth() {
             &self.plinth_shader
-        } else if matches!(key.family, NativeModelFamily::Unlit { .. }) {
+        } else if matches!(
+            key.family,
+            NativeModelFamily::Unlit { .. } | NativeModelFamily::DecalMultiply
+        ) {
             &self.unlit_shader
         } else if matches!(key.family, NativeModelFamily::TileBlend { .. }) {
             &self.tile_shader
@@ -1899,7 +2202,7 @@ impl SpecializedRenderPipeline for ModelPipeline {
             &self.shader
         };
         let mut layout = vec![
-            if key.family.scripted_vertex() {
+            if key.family.view_constants() {
                 self.scripted_scene_layout.clone()
             } else {
                 self.scene_layout.clone()
@@ -1960,7 +2263,10 @@ impl SpecializedRenderPipeline for ModelPipeline {
                         } else {
                             "vertex_four_nofog"
                         }
-                    } else if matches!(key.family, NativeModelFamily::Unlit { .. }) {
+                    } else if matches!(
+                        key.family,
+                        NativeModelFamily::Unlit { .. } | NativeModelFamily::DecalMultiply
+                    ) {
                         "vertex_unlit"
                     } else if key.family == NativeModelFamily::Crystal3Layer(true) {
                         "vertex_crystal_mlv"
@@ -2058,10 +2364,12 @@ impl RenderAsset for PreparedModelMaterial {
         };
         let mut views = Vec::with_capacity(textures.len());
         let mut samplers = Vec::with_capacity(textures.len());
-        for ((binding, _, descriptor), image) in textures.into_iter().zip(gpu_images) {
+        for ((binding, handle, descriptor), image) in textures.into_iter().zip(gpu_images) {
             assert!(
                 !image.texture_descriptor.format.is_srgb(),
-                "native model inputs require original encoded UNORM texture reads"
+                "native model binding {binding} image {:?} has {:?}; original encoded UNORM texture reads are required",
+                handle.path(),
+                image.texture_descriptor.format
             );
             assert!(
                 descriptor.compare.is_none(),
@@ -2195,6 +2503,42 @@ impl RenderAsset for PreparedModelMaterial {
         if let Some(uniform) = &mut weapon_detail_uniform {
             uniform.write_buffer(device, queue);
         }
+        let mut cloth_reveal_uniform = match &source {
+            NativeModelMaterial::ClothReveal { constants, .. } => {
+                Some(UniformBuffer::from(*constants))
+            }
+            _ => None,
+        };
+        if let Some(uniform) = &mut cloth_reveal_uniform {
+            uniform.write_buffer(device, queue);
+        }
+        let mut phong_controls_uniform = match &source {
+            NativeModelMaterial::Character {
+                skin_controls: Some(controls),
+                ..
+            }
+            | NativeModelMaterial::TransparentPhong { controls, .. } => {
+                Some(UniformBuffer::from(*controls))
+            }
+            _ => None,
+        };
+        if let Some(uniform) = &mut phong_controls_uniform {
+            uniform.write_buffer(device, queue);
+        }
+        let mut flicker_uniform = match &source {
+            NativeModelMaterial::Flicker { constants, .. } => Some(UniformBuffer::from(*constants)),
+            _ => None,
+        };
+        if let Some(uniform) = &mut flicker_uniform {
+            uniform.write_buffer(device, queue);
+        }
+        let mut clan_tag_uniform = match &source {
+            NativeModelMaterial::ClanTag { constants, .. } => Some(UniformBuffer::from(*constants)),
+            _ => None,
+        };
+        if let Some(uniform) = &mut clan_tag_uniform {
+            uniform.write_buffer(device, queue);
+        }
         let mut disc_uniform = match &source {
             NativeModelMaterial::PhongEmissive { constants, .. } => {
                 Some(UniformBuffer::from(*constants))
@@ -2311,6 +2655,30 @@ impl RenderAsset for PreparedModelMaterial {
                 resource: uniform.binding().expect("original weaponParam2"),
             });
         }
+        if let Some(uniform) = &cloth_reveal_uniform {
+            entries.push(BindGroupEntry {
+                binding: 22,
+                resource: uniform.binding().expect("original cloth reveal constants"),
+            });
+        }
+        if let Some(uniform) = &phong_controls_uniform {
+            entries.push(BindGroupEntry {
+                binding: 21,
+                resource: uniform.binding().expect("original Phong material controls"),
+            });
+        }
+        if let Some(uniform) = &flicker_uniform {
+            entries.push(BindGroupEntry {
+                binding: 20,
+                resource: uniform.binding().expect("original flicker constants"),
+            });
+        }
+        if let Some(uniform) = &clan_tag_uniform {
+            entries.push(BindGroupEntry {
+                binding: 19,
+                resource: uniform.binding().expect("original clan tag constants"),
+            });
+        }
         let bind_group = device.create_bind_group(
             "native model material",
             &cache.get_bind_group_layout(pipeline.material_layout(family)),
@@ -2337,10 +2705,18 @@ struct ModelScriptOwners(HashMap<MainEntity, NativeModelScriptInputs>);
 
 fn extract_script_owners(
     mut owners: ResMut<ModelScriptOwners>,
-    source: Extract<Query<(Entity, &crate::presentation::cues::CueParameters)>>,
+    source: Extract<
+        Query<
+            (Entity, &crate::presentation::cues::CueParameters),
+            Changed<crate::presentation::cues::CueParameters>,
+        >,
+    >,
+    mut removed: Extract<RemovedComponents<crate::presentation::cues::CueParameters>>,
 ) {
-    owners.0.clear();
-    owners.0.extend(source.iter().map(|(entity, inputs)| {
+    for entity in removed.read() {
+        owners.0.remove(&MainEntity::from(entity));
+    }
+    for (entity, inputs) in &source {
         let vectors = std::array::from_fn(|slot| {
             if inputs.script_available & (1 << slot) != 0 {
                 Vec4::from_array(inputs.script_vectors[slot])
@@ -2348,8 +2724,10 @@ fn extract_script_owners(
                 Vec4::ZERO
             }
         });
-        (entity.into(), NativeModelScriptInputs { vectors })
-    }));
+        owners
+            .0
+            .insert(entity.into(), NativeModelScriptInputs { vectors });
+    }
 }
 
 #[derive(Resource, Default)]
@@ -2515,6 +2893,7 @@ fn queue_models(
         Res<RenderAssets<PreparedNativeGeometry>>,
         Res<RenderAssets<PreparedAnimatedModel>>,
         Query<&PreparedSkin>,
+        Query<&DynamicLightingOrigin>,
     ),
     materials: Res<RenderAssets<PreparedModelMaterial>>,
     views: Query<(
@@ -2533,7 +2912,7 @@ fn queue_models(
     mut queued: Local<HashMap<RetainedViewEntity, Vec<MainEntity>>>,
     mut ordered: ResMut<NativeOrderedDraws>,
 ) {
-    let (geometries, animated, skins) = geometry_inputs;
+    let (geometries, animated, skins, origins) = geometry_inputs;
     queued.retain(|view, entities| {
         let Some(phase) = phases.get_mut(view) else {
             return false;
@@ -2600,7 +2979,7 @@ fn queue_models(
                         .is_some_and(|end| u64::from(end) * 2 <= indices.size()),
                 "native static model draw must reference complete source Uint16 triangles"
             );
-            if material.family.scripted_vertex()
+            if material.family.view_constants()
                 && !uniforms
                     .scripted_scene_offsets
                     .contains_key(&view.retained_view_entity)
@@ -2633,9 +3012,12 @@ fn queue_models(
             if !uniforms.object_offsets.contains_key(&object_key) {
                 let lighting = if material.family.atlas() {
                     let atlas = atlas.as_deref_mut().expect("original model lighting atlas");
-                    let lighting = if let Some(origin) = surface.dynamic_lighting_origin {
+                    let lighting = if let Some(instance) = surface.geometry.instance() {
+                        let Ok(origin) = origins.get(instance) else {
+                            continue;
+                        };
                         atlas
-                            .touch_dynamic_grid(surface.placement, origin, frame.0)
+                            .touch_dynamic_grid(surface.placement, origin.0, frame.0)
                             .map(|(lighting, _)| lighting)
                     } else {
                         atlas
@@ -2864,7 +3246,7 @@ fn draw_model<'w>(
     else {
         return RenderCommandResult::Skip;
     };
-    if material.family.scripted_vertex() {
+    if material.family.view_constants() {
         let (Some((_, scripted_scene)), Some(&offset)) = (
             &groups.scripted_scene,
             uniforms
@@ -2961,5 +3343,213 @@ impl ModelOrderedRenderer<'_, '_> {
                 pass,
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::{ecs::schedule::ScheduleLabel, render::extract_plugin::ExtractPlugin};
+
+    #[test]
+    fn model_extraction_retains_surfaces_and_updates_instance_lighting() {
+        let mut app = App::new();
+        app.add_plugins(ExtractPlugin::<RenderApp>::new(
+            |_, _| {},
+            Render::base_schedule,
+            Render.intern(),
+            RenderSystems::ExtractCommands.intern(),
+            RenderSystems::PostCleanup.intern(),
+        ));
+        app.add_plugins((
+            SyncComponentPlugin::<NativeModelSurface>::default(),
+            ExtractComponentPlugin::<DynamicLightingOrigin>::default(),
+        ));
+        app.sub_app_mut(RenderApp)
+            .init_resource::<ModelScriptOwners>()
+            .add_systems(
+                ExtractSchedule,
+                (extract_model_surfaces, extract_script_owners),
+            )
+            .update_schedule = Some(Render.intern());
+
+        let owner = app
+            .world_mut()
+            .spawn((
+                DynamicLightingOrigin(Vec3::X),
+                crate::presentation::cues::CueParameters {
+                    script_vectors: [[2.; 4]; 4],
+                    script_available: 1,
+                    ..default()
+                },
+            ))
+            .id();
+        let surface = NativeModelSurface {
+            pass: NativeWorldPass::Opaque,
+            sort_key: (0, 0),
+            vertex_lighting: None,
+            geometry: ModelGeometry::Static(Handle::default()),
+            material: Handle::default(),
+            state: NativeWorldState {
+                blend: None,
+                alpha_test: false,
+                depth_compare: CompareFunction::GreaterEqual,
+                depth_write: true,
+                polygon_offset: 0,
+                cull_mode: None,
+                front_face: FrontFace::Ccw,
+                color_write: ColorWrites::ALL,
+            },
+            primary_byte_offset: 0,
+            first_index: 0,
+            index_count: 3,
+            placement: owner,
+            colors_index: 0,
+            visibility: 255,
+        };
+        let static_surface = app.world_mut().spawn(surface.clone()).id();
+        let animated_surface = app
+            .world_mut()
+            .spawn(NativeModelSurface {
+                geometry: ModelGeometry::Animated {
+                    model: Handle::default(),
+                    instance: owner,
+                    lod: 0,
+                    surface: 0,
+                },
+                ..surface
+            })
+            .id();
+        app.update();
+        let render_owner = app.world().get::<RenderEntity>(owner).unwrap().id();
+        let render_static = app
+            .world()
+            .get::<RenderEntity>(static_surface)
+            .unwrap()
+            .id();
+        let render_animated = app
+            .world()
+            .get::<RenderEntity>(animated_surface)
+            .unwrap()
+            .id();
+        let ticks = [render_static, render_animated].map(|entity| {
+            app.sub_app(RenderApp)
+                .world()
+                .entity(entity)
+                .get_ref::<ExtractedNativeModelSurface>()
+                .unwrap()
+                .last_changed()
+        });
+        assert_eq!(
+            app.sub_app(RenderApp)
+                .world()
+                .resource::<ModelScriptOwners>()
+                .0[&MainEntity::from(owner)]
+                .vectors,
+            [Vec4::splat(2.), Vec4::ZERO, Vec4::ZERO, Vec4::ZERO]
+        );
+        assert_eq!(
+            app.sub_app(RenderApp)
+                .world()
+                .get::<ExtractedNativeModelSurface>(render_animated)
+                .unwrap()
+                .geometry
+                .instance(),
+            Some(render_owner)
+        );
+
+        app.update();
+        app.world_mut()
+            .get_mut::<DynamicLightingOrigin>(owner)
+            .unwrap()
+            .0 = Vec3::Y;
+        app.world_mut()
+            .get_mut::<crate::presentation::cues::CueParameters>(owner)
+            .unwrap()
+            .script_available = 2;
+        app.update();
+        let render_world = app.sub_app(RenderApp).world();
+        assert_eq!(
+            render_world.resource::<ModelScriptOwners>().0[&MainEntity::from(owner)].vectors,
+            [Vec4::ZERO, Vec4::splat(2.), Vec4::ZERO, Vec4::ZERO]
+        );
+        assert_eq!(
+            render_world
+                .get::<DynamicLightingOrigin>(render_owner)
+                .unwrap()
+                .0,
+            Vec3::Y
+        );
+        for (entity, tick) in [render_static, render_animated].into_iter().zip(ticks) {
+            assert_eq!(
+                render_world
+                    .entity(entity)
+                    .get_ref::<ExtractedNativeModelSurface>()
+                    .unwrap()
+                    .last_changed(),
+                tick,
+                "unchanged surfaces must survive extraction without reinsertion"
+            );
+        }
+
+        app.world_mut()
+            .get_mut::<NativeModelSurface>(static_surface)
+            .unwrap()
+            .first_index = 3;
+        app.world_mut().entity_mut(owner).remove::<(
+            DynamicLightingOrigin,
+            crate::presentation::cues::CueParameters,
+        )>();
+        app.update();
+        assert!(
+            !app.sub_app(RenderApp)
+                .world()
+                .resource::<ModelScriptOwners>()
+                .0
+                .contains_key(&MainEntity::from(owner))
+        );
+        assert_eq!(
+            app.sub_app(RenderApp)
+                .world()
+                .get::<ExtractedNativeModelSurface>(render_static)
+                .unwrap()
+                .first_index,
+            3
+        );
+        assert!(
+            app.sub_app(RenderApp)
+                .world()
+                .get::<DynamicLightingOrigin>(render_owner)
+                .is_none()
+        );
+        app.world_mut()
+            .entity_mut(owner)
+            .insert(DynamicLightingOrigin(Vec3::Z));
+        app.world_mut()
+            .entity_mut(static_surface)
+            .remove::<NativeModelSurface>();
+        app.update();
+        assert_eq!(
+            app.sub_app(RenderApp)
+                .world()
+                .get::<DynamicLightingOrigin>(render_owner)
+                .unwrap()
+                .0,
+            Vec3::Z
+        );
+        assert!(
+            app.sub_app(RenderApp)
+                .world()
+                .get::<ExtractedNativeModelSurface>(render_static)
+                .is_none()
+        );
+        app.world_mut().despawn(animated_surface);
+        app.update();
+        assert!(
+            app.sub_app(RenderApp)
+                .world()
+                .get_entity(render_animated)
+                .is_err()
+        );
     }
 }

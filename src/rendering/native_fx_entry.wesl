@@ -7,7 +7,11 @@ struct NativeEffectTransform {
     world_rows: array<vec4<f32>, 4>,
     outdoor_rows: array<vec4<f32>, 3>,
 }
-struct NativeEffectConstants { feather_parms: vec4<f32>, additive_parms: array<vec4<f32>, 4>, }
+struct NativeEffectConstants {
+    feather_parms: vec4<f32>,
+    additive_parms: array<vec4<f32>, 4>,
+    alpha_dissolve_parms: vec4<f32>,
+}
 
 @group(0) @binding(0) var<uniform> frame: NativeFxFrame;
 @group(0) @binding(1) var float_z: texture_2d<f32>;
@@ -33,13 +37,14 @@ struct Varyings {
 }
 
 fn source_object() -> NativeFxObject {
-    return NativeFxObject(transform.world_rows, material.feather_parms);
+    return NativeFxObject(transform.world_rows, material.feather_parms,
+        material.alpha_dissolve_parms.x);
 }
 
 @vertex
 fn vertex(input: VertexInput) -> Varyings {
     let source = NativeFxVertexInput(input.position.xyz, input.color, input.uv);
-    let result = native_fx_vertex(source, frame, source_object());
+    let result = native_fx_vertex(source, frame, source_object(), true);
     return Varyings(result.clip_position, result.color, result.fog_color,
         result.uv_depth_fog);
 }
@@ -49,12 +54,54 @@ fn fragment(input: Varyings) -> @location(0) vec4<f32> {
     let source = NativeFxVaryings(input.position, input.color, input.fog_color,
         input.uv_depth_fog);
     let result = native_fx_fragment(source, input.position, frame, source_object(),
-        color_map, color_sampler, float_z, float_z_sampler);
+        color_map, color_sampler, float_z, float_z_sampler, false);
     // All recovered effect_w77q49e8 materials specify alphaTest gt0.
     if !(result.a > 0.0) { discard; }
     // Source RGB is encoded before blending; the target must preserve that
     // arithmetic. An sRGB attachment would change the blend itself.
     return result;
+}
+
+// effect_wj9j7075: the original VS409a0e7d and dissolve PSb1400bd7.
+@fragment
+fn fragment_dissolve(input: Varyings) -> @location(0) vec4<f32> {
+    let source = NativeFxVaryings(input.position, input.color, input.fog_color,
+        input.uv_depth_fog);
+    let result = native_fx_fragment(source, input.position, frame, source_object(),
+        color_map, color_sampler, float_z, float_z_sampler, true);
+    if !(result.a > 0.0) { discard; }
+    return result;
+}
+
+// effect_842ee834, VS/PS f0f4081a: the same height/sun fog equations,
+// unchanged vertex alpha, and no scene-depth or near-camera feathering.
+@vertex
+fn vertex_simple_fog(input: VertexInput) -> Varyings {
+    let source = NativeFxVertexInput(input.position.xyz, input.color, input.uv);
+    let result = native_fx_vertex(source, frame, source_object(), false);
+    return Varyings(result.clip_position, result.color, result.fog_color,
+        result.uv_depth_fog);
+}
+fn simple_fog_fragment(input: Varyings, dissolve: bool) -> vec4<f32> {
+    let sample = textureSample(color_map, color_sampler, input.uv_depth_fog.xy);
+    var alpha = sample.a * input.color.a;
+    if dissolve {
+        // effect_32z8zqf9, PS6584dc8f.
+        alpha = clamp(fma(sample.a + input.color.a, material.alpha_dissolve_parms.x,
+            -material.alpha_dissolve_parms.x), 0.0, 1.0);
+    }
+    if !(alpha > 0.0) { discard; }
+    let color = fma(vec3<f32>(input.uv_depth_fog.w),
+        fma(input.color.rgb, sample.rgb, -input.fog_color), input.fog_color);
+    return vec4<f32>(color, alpha);
+}
+@fragment
+fn fragment_simple_fog(input: Varyings) -> @location(0) vec4<f32> {
+    return simple_fog_fragment(input, false);
+}
+@fragment
+fn fragment_simple_fog_dissolve(input: Varyings) -> @location(0) vec4<f32> {
+    return simple_fog_fragment(input, true);
 }
 
 // effect_jqj65q53: VS1136047 / PS8788956c, original additive eye-offset pass.
@@ -199,4 +246,36 @@ fn fragment_outdoor_feather(input: OutdoorVaryings) -> @location(0) vec4<f32> {
 @vertex
 fn vertex_local_additive_feather(input: AdditiveInput) -> AdditiveVaryings {
     return additive_vertex(input, true, true);
+}
+
+// effect_1519efqw: VS/PS9e1df5d4. The standard fogged zfeather
+// program gains outdoor lookup coordinates and an alpha-only outdoor fade.
+struct OutdoorFogVaryings {
+    @builtin(position) position: vec4<f32>,
+    @location(0) color: vec4<f32>,
+    @location(1) fog_color: vec3<f32>,
+    @location(2) uv_depth_fog: vec4<f32>,
+    @location(3) outdoor: vec3<f32>,
+}
+@vertex
+fn vertex_outdoor_fog_feather(input: VertexInput) -> OutdoorFogVaryings {
+    let source = NativeFxVertexInput(input.position.xyz, input.color, input.uv);
+    let result = native_fx_vertex(source, frame, source_object(), true);
+    let local = vec4<f32>(input.position.xyz, 1.0);
+    let outdoor = vec3<f32>(dot(local, transform.outdoor_rows[0]),
+        dot(local, transform.outdoor_rows[1]), dot(local, transform.outdoor_rows[2]));
+    return OutdoorFogVaryings(result.clip_position, result.color, result.fog_color,
+        result.uv_depth_fog, outdoor);
+}
+@fragment
+fn fragment_outdoor_fog_feather(input: OutdoorFogVaryings) -> @location(0) vec4<f32> {
+    let source = NativeFxVaryings(input.position, input.color, input.fog_color,
+        input.uv_depth_fog);
+    let result = native_fx_fragment(source, input.position, frame, source_object(),
+        color_map, color_sampler, float_z, float_z_sampler, false);
+    let height = textureSample(outdoor_map, outdoor_sampler, input.outdoor.xy).a;
+    let outdoor_fade = clamp((input.outdoor.z - height) * 8.0, 0.0, 1.0);
+    let alpha = outdoor_fade * result.a;
+    if !(alpha > 0.0) { discard; }
+    return vec4<f32>(result.rgb, alpha);
 }

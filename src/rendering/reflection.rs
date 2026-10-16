@@ -66,7 +66,11 @@ impl ReflectionWorld {
         }
     }
 
-    fn cell(&self, origin: [f32; 3]) -> Option<usize> {
+    pub(crate) fn cell_count(&self) -> usize {
+        self.reflection_cells.len()
+    }
+
+    pub(crate) fn cell(&self, origin: [f32; 3]) -> Option<usize> {
         let mut at = 0;
         loop {
             let code = usize::from(self.reflection_nodes[at]);

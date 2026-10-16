@@ -119,6 +119,7 @@ impl Plugin for NativeFramePlugin {
                         super::native::render_ordered::<
                             { super::native::NativeWorldPass::QuasiOpaque as u8 },
                         >,
+                        super::native_sky::render_sky,
                         super::native::render_ordered::<
                             { super::native::NativeWorldPass::EmissiveOpaque as u8 },
                         >,
@@ -171,13 +172,14 @@ pub(crate) fn maintain_float_z(
             &mut Camera,
             &Projection,
             &mut Tonemapping,
+            Has<bevy::anti_alias::dlss::Dlss>,
             Option<&mut NativeEffectView>,
             Option<&NativeSceneImage>,
         ),
         With<NativeRenderView>,
     >,
 ) {
-    for (entity, mut camera, projection, mut tone, input, scene) in &mut cameras {
+    for (entity, mut camera, projection, mut tone, dlss, input, scene) in &mut cameras {
         // Acquire the window output normally. The render-world preparation
         // suppresses only the built-in final blit after attachment creation.
         if matches!(camera.output_mode, CameraOutputMode::Skip) {
@@ -222,7 +224,11 @@ pub(crate) fn maintain_float_z(
             let mut image = Image::new_uninit(
                 extent,
                 TextureDimension::D2,
-                TextureFormat::Rgba8Unorm,
+                if dlss {
+                    TextureFormat::Rgba16Float
+                } else {
+                    TextureFormat::Rgba8Unorm
+                },
                 RenderAssetUsages::default(),
             );
             image.texture_descriptor.label = Some("T6 resolved scene / resolvedPostSun alias");
@@ -276,18 +282,25 @@ pub(crate) fn maintain_float_z(
 // The native 3D shaders produce encoded RGB directly. CompositingSpace is
 // restricted to Bevy's 2D path; set our format before UI derives its subview.
 fn extract_native_target_format(
-    cameras: Extract<Query<RenderEntity, With<NativeRenderView>>>,
+    cameras: Extract<
+        Query<(RenderEntity, Has<bevy::anti_alias::dlss::Dlss>), With<NativeRenderView>>,
+    >,
     mut commands: Commands,
     mut formats: ResMut<CameraMainPassTextureFormats>,
 ) {
-    for entity in &cameras {
+    for (entity, dlss) in &cameras {
+        let format = if dlss {
+            TextureFormat::Rgba16Float
+        } else {
+            TextureFormat::Rgba8Unorm
+        };
         if formats.0.contains_key(&entity) {
-            formats.0.insert(entity, TextureFormat::Rgba8Unorm);
+            formats.0.insert(entity, format);
             // Extraction defers camera insertion until the render world is ready.
             // Queue this after that insertion while publishing the UI format now.
             commands.queue(move |world: &mut World| {
                 if let Some(mut view) = world.get_mut::<ExtractedView>(entity) {
-                    view.target_format = TextureFormat::Rgba8Unorm;
+                    view.target_format = format;
                 }
             });
         }
@@ -426,7 +439,7 @@ impl NativeFramePipeline {
 #[derive(Clone, PartialEq, Eq, Hash)]
 enum NativeFrameKey {
     Depth { multisampled: bool },
-    Output { format: TextureFormat },
+    Output { format: TextureFormat, linear: bool },
 }
 
 impl SpecializedRenderPipeline for NativeFramePipeline {
@@ -441,10 +454,14 @@ impl SpecializedRenderPipeline for NativeFramePipeline {
                 TextureFormat::R32Float,
                 vec![ShaderDefVal::Bool("MULTISAMPLED".into(), multisampled)],
             ),
-            NativeFrameKey::Output { format } => (
+            NativeFrameKey::Output { format, linear } => (
                 &self.output_layout,
                 &self.output_shader,
-                if format.is_srgb() {
+                if linear && format.is_srgb() {
+                    "fragment"
+                } else if linear {
+                    "fragment_encode"
+                } else if format.is_srgb() {
                     "fragment_srgb"
                 } else {
                     "fragment"
@@ -502,6 +519,7 @@ fn prepare_frame_groups(
             &ViewDepthStencilTexture,
             &ViewTarget,
             Option<&PreparedNativeFrame>,
+            Has<bevy::anti_alias::dlss::Dlss>,
         ),
         With<NativeRenderView>,
     >,
@@ -509,7 +527,7 @@ fn prepare_frame_groups(
     if pipeline.fullscreen.is_none() {
         pipeline.fullscreen = Some(fullscreen.clone());
     }
-    for (entity, float_z, depth, target, previous) in &views {
+    for (entity, float_z, depth, target, previous, dlss) in &views {
         let (Some(image), Some(output_format)) = (
             images.get(float_z.float_z),
             target.out_texture_view_format(),
@@ -533,6 +551,7 @@ fn prepare_frame_groups(
             &pipeline,
             NativeFrameKey::Output {
                 format: output_format,
+                linear: dlss,
             },
         );
         let views = [target.main_texture_view(), target.main_texture_other_view()];

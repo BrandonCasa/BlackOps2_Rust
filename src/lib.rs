@@ -96,7 +96,7 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
 }
 
 pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
-    let (cinematics, playback) = cinematics::Cinematics::begin(&options.asset_root);
+    let cinematics = cinematics::Cinematics::load(&options.asset_root);
     // Reserve stack space for the debug glTF asset-loading task frames.
     bevy::tasks::IoTaskPool::get_or_init(|| {
         bevy::tasks::TaskPoolBuilder::new()
@@ -106,13 +106,15 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
             .build()
     });
     let mut app = App::new();
+    app.insert_resource(bevy::anti_alias::dlss::DlssProjectId(
+        bevy::asset::uuid::Uuid::from_u128(0x8e091984_d832_4d03_9f7c_38a3fca674dc),
+    ));
     let mut render_settings = bevy::render::settings::WgpuSettings {
         backends: Some(bevy::render::settings::Backends::VULKAN),
         ..default()
     };
     render_settings.features |= bevy::render::settings::WgpuFeatures::DEPTH32FLOAT_STENCIL8;
     app.insert_resource(cinematics)
-        .insert_resource(playback)
         .insert_resource(bevy::winit::WinitSettings::continuous());
     let asset_root = options.asset_root.to_string_lossy().into_owned();
     app.insert_resource(options);
@@ -138,7 +140,10 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
             .set(WindowPlugin {
                 primary_window: Some(Window {
                     title: "Origins".into(),
-                    mode: bevy::window::WindowMode::Windowed,
+                    mode: bevy::window::WindowMode::BorderlessFullscreen(
+                        bevy::window::MonitorSelection::Primary,
+                    ),
+                    present_mode: bevy::window::PresentMode::AutoVsync,
                     decorations: false,
                     resolution: bevy::window::WindowResolution::new(1920, 1080),
                     ..default()

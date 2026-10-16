@@ -13,6 +13,7 @@ pub struct BloodRestricted;
 struct Plane {
     quest: bool,
     node: usize,
+    glow: Option<Entity>,
 }
 #[derive(Component)]
 pub(crate) struct Pilot {
@@ -114,6 +115,7 @@ fn spawn_plane(
             Plane {
                 quest,
                 node: 1 % source::PLANE.len(),
+                glow: None,
             },
             Transform::from_translation(Vec3::from_array(source::PLANE[0])),
             Visibility::Inherited,
@@ -127,12 +129,21 @@ fn spawn_plane(
     presentation(commands, entity, "veh_t6_dlc_zm_biplane_lod0", game, server);
     if quest {
         commands.entity(entity).insert(BloodRestricted);
+    } else {
+        crate::native_fx::attach(
+            commands,
+            "maps/zombie_tomb/fx_tomb_elem_reveal_fire_glow",
+            entity,
+            Transform::IDENTITY,
+        );
     }
-    crate::audio::emit_loop(
-        commands,
-        "zmb_zombieblood_3rd_plane_loop",
-        crate::audio::SoundSource::attached(entity),
-    );
+    if quest {
+        crate::audio::emit_loop(
+            commands,
+            "zmb_zombieblood_3rd_plane_loop",
+            crate::audio::SoundSource::attached(entity),
+        );
+    }
 }
 fn movement(
     mut commands: Commands,
@@ -248,8 +259,10 @@ fn movement(
     }
 }
 fn restricted_visibility(
+    mut commands: Commands,
     effects: Res<crate::powerups::PowerupEffects>,
     mut entities: Query<&mut Visibility, With<BloodRestricted>>,
+    mut planes: Query<(Entity, &mut Plane)>,
 ) {
     for mut visible in &mut entities {
         *visible = if effects.zombie_blood > 0. {
@@ -257,6 +270,23 @@ fn restricted_visibility(
         } else {
             Visibility::Hidden
         };
+    }
+    for (entity, mut plane) in &mut planes {
+        if !plane.quest {
+            continue;
+        }
+        if effects.zombie_blood > 0. && plane.glow.is_none() {
+            plane.glow = Some(crate::native_fx::attach(
+                &mut commands,
+                "maps/zombie_tomb/fx_tomb_elem_reveal_fire_glow",
+                entity,
+                Transform::IDENTITY,
+            ));
+        } else if effects.zombie_blood <= 0.
+            && let Some(glow) = plane.glow.take()
+        {
+            crate::native_fx::stop(&mut commands, glow);
+        }
     }
 }
 fn observe(

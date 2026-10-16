@@ -1,7 +1,7 @@
 use crate::{
     GameState,
     assets::GameDefinition,
-    damage::{DamageQueue, EnemyDeath, Impact, ImpactSource},
+    damage::{DamageQueue, Impact, ImpactSource},
     gameplay::{GameStep, Session, SessionEntity},
     input::GameInput,
     interactions::{InteractionFocus, InteractionRejection},
@@ -35,19 +35,42 @@ impl Rituals {
                 _ => self.chests >= 4,
             }
     }
+
+    fn packed_weapon<'a>(
+        &mut self,
+        weapons: &'a [crate::origins::WeaponDefinition],
+        session: &mut Session,
+    ) -> &'a crate::origins::WeaponDefinition {
+        if self.weapon_reward.is_none() {
+            let bases = ["weapon.scar_zm", "weapon.galil_zm", "weapon.mp44_zm"];
+            let selected = bases[session.random() as usize % bases.len()];
+            self.weapon_reward = Some(
+                weapons
+                    .iter()
+                    .find(|weapon| weapon.id.0 == selected)
+                    .and_then(|weapon| weapon.upgraded.clone())
+                    .expect("Origins headshot challenge upgraded weapon"),
+            );
+        }
+        weapons
+            .iter()
+            .find(|weapon| Some(&weapon.id) == self.weapon_reward.as_ref())
+            .expect("Origins headshot challenge weapon definition")
+    }
 }
 #[derive(Component, Default)]
 pub struct IronFists {
     pub unlocked: bool,
     pub upgraded: bool,
     pub element: Option<crate::quests::Element>,
+    pub(crate) souls: u32,
 }
 #[derive(Component)]
 pub(crate) struct ChallengeBox;
 #[derive(Component)]
-struct SoulChest(usize);
+pub(crate) struct SoulChest(usize);
 #[derive(Component)]
-struct SoulBoxGlow {
+pub(crate) struct SoulBoxGlow {
     elapsed: f32,
     pending: Vec<(f32, bool)>,
     active: bool,
@@ -115,7 +138,7 @@ impl Plugin for RitualPlugin {
             )
             .add_systems(
                 FixedUpdate,
-                soul_box_glow.after(track).run_if(
+                soul_box_glow.after(crate::quests::souls).run_if(
                     in_state(GameState::StartingSession).or_else(in_state(GameState::Playing)),
                 ),
             )
@@ -193,23 +216,18 @@ fn soul_box_glow(
     }
 }
 
-fn track(
-    mut commands: Commands,
+pub(crate) fn track(
     mut rituals: ResMut<Rituals>,
-    mut deaths: MessageReader<EnemyDeath>,
+    mut captures: MessageReader<crate::generators::GeneratorCaptured>,
     mut stomps: MessageReader<crate::robots::RobotStomp>,
-    enemies: Query<(&Transform, &Collider), With<crate::enemies::Zombie>>,
-    volumes: Query<(
-        &crate::environment::triggers::MapTrigger,
-        &crate::environment::triggers::TriggerState,
-    )>,
-    query: SpatialQuery,
-    game: Res<GameDefinition>,
-    generators: Res<crate::generators::Generators>,
     mut boxes: Query<(Entity, &SoulChest, &mut SoulBoxGlow)>,
-    players: Query<(&Vitality, &IronFists), With<Player>>,
+    players: Query<Entity, With<Player>>,
 ) {
-    rituals.generators = generators.completions;
+    for capture in captures.read() {
+        if players.contains(capture.player) {
+            rituals.generators += 1;
+        }
+    }
     for event in stomps.read() {
         for (i, (_, _, center)) in source::BOXES.iter().enumerate() {
             if !rituals.complete[i]
@@ -229,75 +247,70 @@ fn track(
             }
         }
     }
-    for death in deaths.read() {
-        if !death.0.can_supply_soul() {
+}
+
+pub(crate) fn collect_soul(
+    commands: &mut Commands,
+    rituals: &mut Rituals,
+    pose: &Transform,
+    touched: &[Entity],
+    volumes: &Query<(
+        &crate::environment::triggers::MapTrigger,
+        &crate::environment::triggers::TriggerState,
+    )>,
+    game: &GameDefinition,
+    boxes: &mut Query<(Entity, &SoulChest, &mut SoulBoxGlow)>,
+) -> bool {
+    for (i, (_, target, _)) in source::BOXES.iter().enumerate() {
+        if rituals.complete[i] {
             continue;
         }
-        let Ok((pose, shape)) = enemies.get(death.0.impact.target) else {
+        let inside = touched
+            .iter()
+            .filter_map(|e| volumes.get(*e).ok())
+            .filter(|(_, state)| state.enabled)
+            .map(|(volume, _)| volume)
+            .any(|volume| {
+                game.environment
+                    .triggers
+                    .iter()
+                    .find(|t| t.id == volume.0)
+                    .is_some_and(|t| {
+                        t.source
+                            .get("targetname")
+                            .is_some_and(|name| name.as_str() == *target)
+                    })
+            });
+        if !inside {
             continue;
-        };
-        let touched = query.shape_intersections(
-            shape,
-            pose.translation,
-            pose.rotation,
-            &SpatialQueryFilter::from_mask(crate::environment::triggers::TRIGGER_LAYER),
-        );
-        for (i, (_, target, _)) in source::BOXES.iter().enumerate() {
-            if rituals.complete[i] {
-                continue;
-            }
-            let inside = touched
-                .iter()
-                .filter_map(|e| volumes.get(*e).ok())
-                .filter(|(_, state)| state.enabled)
-                .map(|(volume, _)| volume)
-                .any(|volume| {
-                    game.environment
-                        .triggers
-                        .iter()
-                        .find(|t| t.id == volume.0)
-                        .is_some_and(|t| {
-                            t.source
-                                .get("targetname")
-                                .is_some_and(|name| name.as_str() == *target)
-                        })
-                });
-            if !inside {
-                continue;
-            }
-            let first = rituals.souls[i] == 0;
-            rituals.souls[i] += 1;
-            if first {
-                for (_, chest, mut glow) in &mut boxes {
-                    if chest.0 == i {
-                        glow.queue(1., true);
-                    }
-                }
-            }
-            if rituals.souls[i] >= 30 {
-                rituals.complete[i] = true;
-                rituals.chests += 1;
-                for (entity, chest, mut glow) in &mut boxes {
-                    if chest.0 == i {
-                        glow.queue(0.5, false);
-                        commands.entity(entity).insert(Visibility::Hidden);
-                    }
-                }
-                crate::audio::emit(
-                    &mut commands,
-                    "zmb_footprintbox_disappear",
-                    crate::audio::SoundSource::World(pose.translation),
-                );
-            }
-            break;
         }
+        let first = rituals.souls[i] == 0;
+        rituals.souls[i] += 1;
+        if first {
+            for (_, chest, mut glow) in boxes.iter_mut() {
+                if chest.0 == i {
+                    glow.queue(1., true);
+                }
+            }
+        }
+        if rituals.souls[i] >= 30 {
+            rituals.complete[i] = true;
+            rituals.chests += 1;
+            for (entity, chest, mut glow) in boxes.iter_mut() {
+                if chest.0 == i {
+                    glow.queue(0.5, false);
+                    commands.entity(entity).insert(Visibility::Hidden);
+                }
+            }
+            crate::audio::emit(
+                commands,
+                "zmb_footprintbox_disappear",
+                crate::audio::SoundSource::World(pose.translation),
+            );
+        }
+        return true;
     }
-    if players
-        .iter()
-        .any(|(v, fists)| v.state() == LifeState::HumanTerminal && fists.unlocked)
-    {
-        rituals.claimed[3] = false;
-    }
+    false
 }
 pub(crate) fn claim(
     mut commands: Commands,
@@ -375,26 +388,12 @@ pub(crate) fn claim(
     }
     let accepted = match selected {
         0 => {
-            let bases = ["weapon.scar_zm", "weapon.galil_zm", "weapon.mp44_zm"];
-            if rituals.weapon_reward.is_none() {
-                rituals.weapon_reward = game
-                    .content
-                    .weapons
-                    .iter()
-                    .find(|w| w.id.0 == bases[session.random() as usize % 3])
-                    .and_then(|w| w.upgraded.clone());
+            let weapon = rituals.packed_weapon(&game.content.weapons, &mut session);
+            let accepted = inventory.receive(weapon).is_ok();
+            if accepted {
+                inventory.fill_received(weapon);
             }
-            let weapon = rituals
-                .weapon_reward
-                .as_ref()
-                .and_then(|id| game.content.weapons.iter().find(|w| w.id == *id));
-            weapon.is_some_and(|w| {
-                let accepted = inventory.receive(w).is_ok();
-                if accepted {
-                    inventory.fill_received(w);
-                }
-                accepted
-            })
+            accepted
         }
         1 => crate::environment::digging::spawn_powerup(
             &mut commands,
@@ -437,9 +436,13 @@ pub(crate) fn claim(
         focus.rejection = Some(InteractionRejection::Unavailable);
     }
 }
-fn punches(mut players: Query<(&Vitality, &mut WeaponInventory, &mut IronFists)>) {
+fn punches(
+    mut rituals: ResMut<Rituals>,
+    mut players: Query<(&Vitality, &mut WeaponInventory, &mut IronFists)>,
+) {
     for (health, mut inventory, mut fists) in &mut players {
-        if health.state() == LifeState::HumanTerminal {
+        if health.state() == LifeState::HumanTerminal && fists.unlocked {
+            rituals.claimed[3] = false;
             fists.unlocked = false;
         }
         let weapon = fists.unlocked.then(|| {
@@ -519,6 +522,94 @@ pub fn punch(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bleeding_out_makes_the_completed_one_inch_punch_reward_claimable_again() {
+        let mut health = Vitality::human(
+            100,
+            100,
+            50,
+            crate::life::PlayerLethalPolicy::SoloOrLastEligiblePlayer,
+        )
+        .unwrap();
+        health.kill_human().unwrap();
+        let mut app = App::new();
+        app.insert_resource(Rituals {
+            chests: 4,
+            claimed: [false, false, false, true],
+            ..default()
+        })
+        .add_systems(Update, punches);
+        let player = app
+            .world_mut()
+            .spawn((
+                health,
+                WeaponInventory::default(),
+                IronFists {
+                    unlocked: true,
+                    souls: 20,
+                    ..default()
+                },
+            ))
+            .id();
+        app.update();
+        assert!(!app.world().get::<IronFists>(player).unwrap().unlocked);
+        assert_eq!(app.world().get::<IronFists>(player).unwrap().souls, 20);
+        assert!(
+            app.world()
+                .resource::<Rituals>()
+                .eligible(3, &Session::default())
+        );
+    }
+
+    #[test]
+    fn headshot_reward_draws_once_independent_of_weapon_catalog_order() {
+        let weapons: Vec<crate::origins::WeaponDefinition> = [
+            ("weapon.unrelated", None),
+            ("weapon.mp44_zm", Some("weapon.mp44_upgraded_zm")),
+            ("weapon.galil_zm", Some("weapon.galil_upgraded_zm")),
+            ("weapon.scar_zm", Some("weapon.scar_upgraded_zm")),
+            ("weapon.galil_upgraded_zm", None),
+            ("weapon.scar_upgraded_zm", None),
+            ("weapon.mp44_upgraded_zm", None),
+        ]
+        .into_iter()
+        .map(|(id, upgraded)| {
+            serde_json::from_value(serde_json::json!({
+                "id": id, "name": id, "damage": 100, "category": "bullet",
+                "magazine": 30, "reserve": 180, "fire_interval": 0.1,
+                "reload_seconds": 2.0, "upgraded": upgraded
+            }))
+            .unwrap()
+        })
+        .collect();
+        let expected_weapons = [
+            "weapon.scar_upgraded_zm",
+            "weapon.galil_upgraded_zm",
+            "weapon.mp44_upgraded_zm",
+        ];
+        for seed in 0..64 {
+            let mut session = Session { seed, ..default() };
+            let mut expected = session.clone();
+            let expected_weapon = expected_weapons[expected.random() as usize % 3];
+            let mut rituals = Rituals::default();
+            assert_eq!(
+                rituals.packed_weapon(&weapons, &mut session).id.0,
+                expected_weapon
+            );
+            assert_eq!(session.seed, expected.seed);
+            let mut reordered = weapons.clone();
+            reordered.reverse();
+            assert_eq!(
+                rituals.packed_weapon(&reordered, &mut session).id.0,
+                expected_weapon
+            );
+            assert_eq!(
+                session.seed, expected.seed,
+                "retry must preserve the selected weapon"
+            );
+        }
+    }
 
     #[test]
     fn soul_box_material_maps_source_slot_on_startup_souls_completion_and_stomp() {

@@ -222,7 +222,12 @@ pub(crate) fn resolve(
         if transit
             || robot_transit
             || pilot_landing
-            || panzer.is_some_and(|p| matches!(p.phase, crate::panzer::PanzerPhase::Landing(_)))
+            || panzer.is_some_and(|p| {
+                matches!(
+                    p.phase,
+                    crate::panzer::PanzerPhase::Landing | crate::panzer::PanzerPhase::Hover { .. }
+                )
+            })
         {
             continue;
         }

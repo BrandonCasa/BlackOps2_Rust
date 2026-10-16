@@ -87,6 +87,165 @@ impl Materials {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "requires the authorized local FX export"]
+    fn exported_source_particle_materials_bind() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/assets");
+        let catalog: crate::native_fx::Catalog =
+            crate::origins::read(&root.join("fx_catalog.json"));
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            bevy::asset::AssetPlugin {
+                file_path: root.to_string_lossy().into_owned(),
+                ..default()
+            },
+        ))
+        .init_asset::<Image>();
+        let server = app.world().resource::<AssetServer>();
+        let mut names = Vec::new();
+        let mut counts = [0; 12];
+        for name in catalog.materials.keys() {
+            let definition: Definition = crate::origins::read(
+                &root
+                    .join("materials")
+                    .join(format!("{}.json", name.replace('*', "_"))),
+            );
+            let (family, program) = match definition.technique_set.as_str() {
+                "effect_842ee834" => (0, NativeEffectProgram::SimpleFog),
+                "effect_wj9j7075" => (1, NativeEffectProgram::ZfeatherDissolve),
+                "effect_32z8zqf9" => (2, NativeEffectProgram::SimpleFogDissolve),
+                "effect_775wj8ww" => (3, NativeEffectProgram::EyeFeather),
+                "effect_8f63534j" => (4, NativeEffectProgram::SimpleAdditive),
+                "particlecloud_9337w7f6" => (5, NativeEffectProgram::CloudSimple),
+                "particlecloud_w7046j83" => (6, NativeEffectProgram::CloudAdditive),
+                "effect_eq3qqw5f" => (7, NativeEffectProgram::SimpleAdditive),
+                "effect_1w3e5wf8" => (8, NativeEffectProgram::SimpleFeather),
+                "effect_e3ej38qz" => (9, NativeEffectProgram::LocalAdditiveFeather),
+                "effect_ze9wj511" => (10, NativeEffectProgram::AdditiveFeather),
+                "effect_60e2624u" => (11, NativeEffectProgram::EyeAdditive),
+                _ => continue,
+            };
+            let material = definition
+                .bind(server)
+                .unwrap_or_else(|error| panic!("{name}: {error}"));
+            assert!(material.program == program, "{name}");
+            let constant = |key| {
+                definition
+                    .constants
+                    .iter()
+                    .find(|v| v.name.as_deref() == Some(key))
+                    .map(|v| Vec4::from_array(v.literal))
+                    .unwrap_or(Vec4::ZERO)
+            };
+            assert_eq!(material.feather_parms, constant("featherParms"), "{name}");
+            assert_eq!(
+                material.alpha_dissolve_parms,
+                constant("alphaDissolveParms"),
+                "{name}"
+            );
+            assert_eq!(
+                material.additive_parms[3],
+                constant("eyeOffsetParms"),
+                "{name}"
+            );
+            assert!(
+                root.join(material.color_map.path().unwrap().path())
+                    .is_file(),
+                "{name}"
+            );
+            if name == "gfx_fxt_lensflare_stripe_white" {
+                assert_eq!(material.state.depth_compare, CompareFunction::Always);
+            } else {
+                assert_eq!(
+                    material.state.depth_compare,
+                    CompareFunction::GreaterEqual,
+                    "{name}"
+                );
+            }
+            if name == "gfx_fxt_env_dust_mote_pcloud_add" {
+                assert_eq!(material.state.blend.color.src_factor, BlendFactor::SrcAlpha);
+                assert_eq!(material.state.blend.color.dst_factor, BlendFactor::One);
+                assert_eq!(
+                    material.state.blend.alpha.src_factor,
+                    BlendFactor::OneMinusDstAlpha
+                );
+            }
+            if matches!(family, 7..=10) {
+                assert_eq!(
+                    material.state.blend.color.src_factor,
+                    BlendFactor::OneMinusDst
+                );
+                assert_eq!(material.state.blend.color.dst_factor, BlendFactor::One);
+            }
+            names.push(name.as_str());
+            counts[family] += 1;
+        }
+        assert_eq!(counts, [12, 16, 8, 14, 11, 13, 12, 1, 1, 1, 1, 4]);
+        assert!(names.contains(&"gfx_fxt_debris_gib_wood"));
+        assert!(names.contains(&"gfx_fxt_bio_bloodburst"));
+        assert!(names.contains(&"gfx_fxt_gas_flash_eo2_z2"));
+        assert!(names.contains(&"gfx_fxt_bio_bloodburst_b_ds64"));
+        assert!(names.contains(&"gfx_fxt_debris_fine_clump_ds128"));
+        assert!(names.contains(&"gfx_fxt_spark_single"));
+        assert!(names.contains(&"gfx_fxt_lensflare_stripe_white"));
+        assert!(names.contains(&"gfx_fxt_env_dust_mote_pcloud_add"));
+        eprintln!(
+            "Bound all {} original fog, dissolve, eye-offset, spark, and cloud materials",
+            names.len()
+        );
+    }
+
+    #[test]
+    #[ignore = "requires the authorized local FX export"]
+    fn exported_robot_dust_footstep_and_warning_materials_bind() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/assets");
+        let catalog: crate::native_fx::Catalog =
+            crate::origins::read(&root.join("fx_catalog.json"));
+        let warning = "maps/zombie_tomb/fx_tomb_foot_warning_light_red";
+        assert_eq!(catalog.effects[warning].elements.len(), 5);
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            bevy::asset::AssetPlugin {
+                file_path: root.to_string_lossy().into_owned(),
+                ..default()
+            },
+        ))
+        .init_asset::<Image>();
+        let server = app.world().resource::<AssetServer>();
+        let names: std::collections::BTreeSet<_> = catalog
+            .effects
+            .iter()
+            .filter(|(name, _)| {
+                name.as_str() == "maps/zombie_tomb/fx_tomb_robot_dust"
+                    || name.as_str() == warning
+                    || name.starts_with("maps/zombie_tomb/fx_tomb_robot_foot_step_")
+            })
+            .flat_map(|(_, effect)| &effect.elements)
+            .flat_map(|e| &e.visuals)
+            .flatten()
+            .filter_map(|v| v.material.as_ref())
+            .map(|name| name.trim_start_matches(','))
+            .collect();
+        assert!(!names.is_empty());
+        for name in names {
+            let definition: Definition = crate::origins::read(
+                &root
+                    .join("materials")
+                    .join(format!("{}.json", name.replace('*', "_"))),
+            );
+            definition
+                .bind(server)
+                .unwrap_or_else(|error| panic!("{name}: {error}"));
+        }
+    }
+}
+
 impl Definition {
     fn bind(&self, server: &AssetServer) -> Result<NativeEffectMaterial, String> {
         if self.game != "t6" || self.kind != "material" || self.version != 1 {
@@ -94,16 +253,35 @@ impl Definition {
         }
         let program = match self.technique_set.as_str() {
             "effect_w77q49e8" => NativeEffectProgram::Zfeather,
+            "effect_wj9j7075" => NativeEffectProgram::ZfeatherDissolve,
+            "effect_842ee834" => NativeEffectProgram::SimpleFog,
+            "effect_32z8zqf9" => NativeEffectProgram::SimpleFogDissolve,
             "effect_jqj65q53" => NativeEffectProgram::Additive,
-            "effect_5e098749" => NativeEffectProgram::AdditiveFeather,
-            "effect_737e1je4" => NativeEffectProgram::LocalAdditiveFeather,
+            "effect_5e098749" | "effect_ze9wj511" => NativeEffectProgram::AdditiveFeather,
+            "effect_737e1je4" | "effect_e3ej38qz" => NativeEffectProgram::LocalAdditiveFeather,
             "effect_z096f2e2" => NativeEffectProgram::OutdoorFeather,
-            "effect_50567j38" | "effect_z0z25860" => NativeEffectProgram::SimpleFeather,
-            "effect_ezz8jfwj" => NativeEffectProgram::EyeFeather,
-            "effect_910219f6" => NativeEffectProgram::EyeAdditive,
-            "effect_8e1qf0qq" => NativeEffectProgram::SimpleAdditive,
+            "effect_1519efqw" => NativeEffectProgram::OutdoorFogFeather,
+            // VS5656248b adds only unused fog outputs to the simple feather
+            // vertex program; PS a0389359 is identical.
+            "effect_50567j38" | "effect_z0z25860" | "effect_8wjj7fj0" | "effect_1w3e5wf8" => {
+                NativeEffectProgram::SimpleFeather
+            }
+            // VS7c3a8ec2 differs from VS8b0718c3 only in unused TEXCOORD0.w;
+            // both use PSa0389359, which consumes TEXCOORD0.xyz.
+            "effect_ezz8jfwj" | "effect_775wj8ww" => NativeEffectProgram::EyeFeather,
+            // Both families use the identical effectadd_ab4b60e3 technique:
+            // VS255edc40 / PS8788956c; only their debug performance pass differs.
+            "effect_910219f6" | "effect_f4225412" | "effect_60e2624u" => {
+                NativeEffectProgram::EyeAdditive
+            }
+            "effect_8e1qf0qq" | "effect_eq3qqw5f" => NativeEffectProgram::SimpleAdditive,
+            // VS58ec9b48 preserves vertex RGBA/UV and ordinary world projection;
+            // PS8788956c is the existing premultiplied additive operation.
+            "effect_8f63534j" => NativeEffectProgram::SimpleAdditive,
             "particlecloud_ew972295" => NativeEffectProgram::CloudRain,
             "particlecloud_j32z635q" => NativeEffectProgram::CloudSnow,
+            "particlecloud_9337w7f6" => NativeEffectProgram::CloudSimple,
+            "particlecloud_w7046j83" => NativeEffectProgram::CloudAdditive,
             _ => {
                 return Err(format!(
                     "port the original {} UNLIT/EMISSIVE programs before submitting this effect",
@@ -135,57 +313,48 @@ impl Definition {
             selected = Some(state);
         }
         let state = selected.expect("two required source technique slots were selected");
-        // Validate the original family contract; shader identity does not imply
-        // blend identity (z0z25860 shares 50567j38 shaders but screens RGB).
-        let additive = program.additive();
-        let screen = self.technique_set == "effect_z0z25860";
+        // Shader identity does not determine blend state. Preserve the selected
+        // material's factors, including straight-alpha additive dust and screen RGB.
+        let factor = |field: &str| -> Result<BlendFactor, String> {
+            match state.get(field).and_then(|v| v.as_str()) {
+                Some("zero") => Ok(BlendFactor::Zero),
+                Some("one") => Ok(BlendFactor::One),
+                Some("srcalpha") => Ok(BlendFactor::SrcAlpha),
+                Some("invsrcalpha") => Ok(BlendFactor::OneMinusSrcAlpha),
+                Some("invdestalpha") => Ok(BlendFactor::OneMinusDstAlpha),
+                Some("invdestcolor") => Ok(BlendFactor::OneMinusDst),
+                other => Err(format!("port source {field}={other:?}")),
+            }
+        };
         let blend = BlendState {
             color: BlendComponent {
-                src_factor: if screen {
-                    BlendFactor::OneMinusDst
-                } else if additive {
-                    BlendFactor::One
-                } else {
-                    BlendFactor::SrcAlpha
-                },
-                dst_factor: if additive {
-                    BlendFactor::One
-                } else {
-                    BlendFactor::OneMinusSrcAlpha
-                },
+                src_factor: factor("srcBlendRgb")?,
+                dst_factor: factor("dstBlendRgb")?,
                 operation: BlendOperation::Add,
             },
             alpha: BlendComponent {
-                src_factor: if additive {
-                    BlendFactor::Zero
-                } else {
-                    BlendFactor::OneMinusDstAlpha
-                },
-                dst_factor: BlendFactor::One,
+                src_factor: factor("srcBlendAlpha")?,
+                dst_factor: factor("dstBlendAlpha")?,
                 operation: BlendOperation::Add,
             },
         };
+        let depth_compare = match state.get("depthTest").and_then(|v| v.as_str()) {
+            // The source rasterizer and native attachment both use reverse Z.
+            Some("less_equal") => CompareFunction::GreaterEqual,
+            Some("disabled") => CompareFunction::Always,
+            other => return Err(format!("port source depthTest={other:?}")),
+        };
         for (field, expected) in [
+            ("blendOpRgb", "add"),
+            ("blendOpAlpha", "add"),
             (
-                "srcBlendRgb",
-                if screen {
-                    "invdestcolor"
-                } else if additive {
-                    "one"
+                "alphaTest",
+                if program.additive() {
+                    "disabled"
                 } else {
-                    "srcalpha"
+                    "gt0"
                 },
             ),
-            ("dstBlendRgb", if additive { "one" } else { "invsrcalpha" }),
-            ("blendOpRgb", "add"),
-            (
-                "srcBlendAlpha",
-                if additive { "zero" } else { "invdestalpha" },
-            ),
-            ("dstBlendAlpha", "one"),
-            ("blendOpAlpha", "add"),
-            ("alphaTest", if additive { "disabled" } else { "gt0" }),
-            ("depthTest", "less_equal"),
             ("polygonOffset", "offset0"),
         ] {
             if state.get(field).and_then(|v| v.as_str()) != Some(expected) {
@@ -256,9 +425,11 @@ impl Definition {
         let feather_parms = if matches!(
             program,
             NativeEffectProgram::Zfeather
+                | NativeEffectProgram::ZfeatherDissolve
                 | NativeEffectProgram::AdditiveFeather
                 | NativeEffectProgram::LocalAdditiveFeather
                 | NativeEffectProgram::OutdoorFeather
+                | NativeEffectProgram::OutdoorFogFeather
                 | NativeEffectProgram::SimpleFeather
                 | NativeEffectProgram::EyeFeather
         ) {
@@ -318,14 +489,34 @@ impl Definition {
                 *output = Vec4::from_array(value.literal);
             }
         }
+        let alpha_dissolve_parms = if matches!(
+            program,
+            NativeEffectProgram::ZfeatherDissolve | NativeEffectProgram::SimpleFogDissolve
+        ) {
+            let mut values = self
+                .constants
+                .iter()
+                .filter(|v| v.name.as_deref() == Some("alphaDissolveParms"));
+            let value = values
+                .next()
+                .ok_or("required alphaDissolveParms is absent")?;
+            if values.next().is_some() || !value.literal.iter().all(|v| v.is_finite()) {
+                return Err("required alphaDissolveParms must be one finite source float4".into());
+            }
+            Vec4::from_array(value.literal)
+        } else {
+            Vec4::ZERO
+        };
         Ok(NativeEffectMaterial {
             program,
             color_map: image(server, &texture.image),
             color_sampler: texture.sampler_state.descriptor()?,
             feather_parms,
             additive_parms,
+            alpha_dissolve_parms,
             state: NativeEffectState {
                 blend,
+                depth_compare,
                 cull_mode,
                 front_face: FrontFace::Cw,
                 stencil,

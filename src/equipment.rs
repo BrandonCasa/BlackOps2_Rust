@@ -734,9 +734,19 @@ pub(crate) fn throw_input(
                     }
                     if matches!(previous, ThrowState::Recovery { .. })
                         && matches!(inventory.state, ThrowState::Ready)
-                        && let Some(native) = &tuning.native_launch
                     {
-                        weapons.restore_offhand(native.restore_seconds + dt);
+                        let restore = tuning
+                            .native_launch
+                            .as_ref()
+                            .map(|native| native.restore_seconds)
+                            .unwrap_or_else(|| {
+                                weapons
+                                    .definition(&definition.content.weapons)
+                                    .map_or(0., |weapon| weapon.mechanics.quick_equip_seconds)
+                            });
+                        if restore > 0. {
+                            weapons.restore_offhand(restore + dt);
+                        }
                     }
                 }
             }
@@ -821,10 +831,7 @@ pub(crate) fn throw_input(
                     .and_then(|p| p.scene.as_ref())
                 {
                     commands.entity(entity).with_children(|parent| {
-                        let mut child = parent.spawn((
-                            WorldAssetRoot(server.load(scene.to_owned())),
-                            crate::presentation::camo::WeaponMaterialContext(weapon.id.clone()),
-                        ));
+                        let mut child = parent.spawn(WorldAssetRoot(server.load(scene.to_owned())));
                         if let Some(lure) = &weapon.lure
                             && let Some(clip) = definition
                                 .content
@@ -1554,6 +1561,93 @@ mod native_grenade_tests {
             position = contact;
             velocity = next;
         }
+    }
+
+    #[test]
+    #[ignore = "requires the authorized local Origins export"]
+    fn exported_frag_bounces_then_detonates_with_sound_requests() {
+        use avian3d::collider_tree::{ColliderTreeProxy, ColliderTrees};
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/assets");
+        let mut app = App::new();
+        app.insert_resource(GameDefinition::load_from_root(&root))
+            .insert_resource(crate::origins::read::<crate::native_fx::Catalog>(
+                &root.join("fx_catalog.json"),
+            ))
+            .init_resource::<Time<Fixed>>()
+            .init_resource::<crate::session::SessionId>()
+            .init_resource::<crate::damage::DamageQueue>()
+            .init_resource::<BlastQueue>()
+            .init_resource::<EquipmentEvidence>()
+            .init_resource::<crate::lures::LureEvidence>()
+            .add_message::<crate::environment::support::EnvironmentalHit>()
+            .add_message::<crate::enemies::RagdollExplosion>()
+            .add_systems(Update, (flight, resolve_blasts).chain());
+        let floor = Collider::cuboid(100., 0.2, 100.);
+        let floor_position = Vec3::new(0., -0.1, 0.);
+        let bounds = floor.aabb(floor_position, Quat::IDENTITY, 0.);
+        let floor = app
+            .world_mut()
+            .spawn((
+                Position(floor_position),
+                Rotation::IDENTITY,
+                floor,
+                bounds,
+                crate::assets::WorldContents(1),
+                crate::movement::physics::SurfaceFlags(5 << 20),
+                crate::audio::SurfaceSound("concrete".into()),
+            ))
+            .id();
+        let mut trees = ColliderTrees::default();
+        trees.static_tree.add_proxy(
+            bounds.into(),
+            ColliderTreeProxy {
+                collider: floor,
+                body: None,
+                layers: CollisionLayers::default(),
+                flags: default(),
+            },
+        );
+        app.insert_resource(trees);
+        let mut body = grenade();
+        let tuning = app
+            .world()
+            .resource::<GameDefinition>()
+            .content
+            .weapons
+            .iter()
+            .find(|weapon| weapon.id == body.definition)
+            .unwrap()
+            .throwable
+            .as_ref()
+            .unwrap();
+        body.radius = tuning.collision_radius;
+        body.remaining = tuning.fuse_seconds;
+        body.motion = GrenadeMotion::Flying(Vec3::new(8., 2., 0.));
+        let missile = app
+            .world_mut()
+            .spawn((body, Transform::from_xyz(0., 1.5, 0.)))
+            .id();
+        for _ in 0..250 {
+            app.world_mut()
+                .resource_mut::<Time<Fixed>>()
+                .advance_by(std::time::Duration::from_secs_f32(1. / 60.));
+            app.update();
+        }
+        let evidence = app.world().resource::<EquipmentEvidence>();
+        assert!(evidence.bounces > 0);
+        assert_eq!(evidence.detonations, 1);
+        assert!(app.world().get_entity(missile).is_err());
+        let requests = crate::audio::requested_sounds(app.world_mut());
+        assert!(
+            requests
+                .iter()
+                .any(|(alias, _)| alias == "wpn_grenade_bounce_concrete")
+        );
+        assert!(
+            requests
+                .iter()
+                .any(|(alias, _)| alias == "wpn_grenade_explode")
+        );
     }
 }
 

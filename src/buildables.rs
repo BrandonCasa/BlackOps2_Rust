@@ -33,6 +33,27 @@ pub struct Drone {
     revive: Option<(Entity, f32)>,
     crash: Option<f32>,
 }
+impl Drone {
+    pub(crate) fn new(owner: Entity, home: Vec3, upgraded: bool) -> Self {
+        Self {
+            owner,
+            home,
+            upgraded,
+            remaining: 90.,
+            returning: false,
+            quest_goal: None,
+            cooldown: 0.,
+            burst: 0.,
+            pause: 0.,
+            revive: None,
+            crash: None,
+        }
+    }
+
+    pub(crate) fn can_collect_medallion(&self) -> bool {
+        !self.returning && self.quest_goal.is_none() && self.revive.is_none() && self.pause <= 0.
+    }
+}
 #[derive(Resource, Default)]
 pub struct BuildableState {
     pub drone: Option<Entity>,
@@ -166,19 +187,7 @@ fn actions(
         if let Some(home) = crafting.drone_home() {
             let entity = commands
                 .spawn((
-                    Drone {
-                        quest_goal: None,
-                        owner,
-                        remaining: 90.,
-                        returning: false,
-                        upgraded: state.drone_upgraded,
-                        home,
-                        cooldown: 0.,
-                        burst: 0.,
-                        pause: 0.,
-                        revive: None,
-                        crash: None,
-                    },
+                    Drone::new(owner, home, state.drone_upgraded),
                     SessionEntity,
                     Transform::from_translation(pose.translation + Vec3::Y * 2.),
                     Visibility::Inherited,
@@ -389,21 +398,31 @@ fn shield_targets(
 fn drones(
     mut commands: Commands,
     time: Res<Time<Fixed>>,
+    input: Res<GameInput>,
     query: SpatialQuery,
     players: Query<(Entity, &Player, &Transform, &Vitality), Without<Drone>>,
     pickups: Query<(Entity, &crate::powerups::Pickup, &Transform), Without<Drone>>,
-    mut drones: Query<(Entity, &mut Drone, &mut Transform, &Vitality), Without<Player>>,
+    mut drones: Query<
+        (
+            Entity,
+            &mut Drone,
+            &mut Transform,
+            &Vitality,
+            Option<&crate::side_rewards::MedallionFlight>,
+        ),
+        Without<Player>,
+    >,
     mut state: ResMut<BuildableState>,
     mut revive: MessageWriter<crate::solo_revive::RemoteRevive>,
     mut collect: MessageWriter<crate::powerups::DronePickup>,
 ) {
     let dt = time.delta_secs();
-    for (entity, mut drone, mut pose, health) in &mut drones {
+    for (entity, mut drone, mut pose, health, medallion) in &mut drones {
         if health.state() != LifeState::ActorAlive {
             if drone.crash.is_none() {
                 drone.crash = Some(3.);
                 state.drone = None;
-                state.drone_cooldown = 0.;
+                state.drone_cooldown = 60.;
                 commands.entity(entity).insert(ColliderDisabled);
             }
             let remaining = drone.crash.as_mut().unwrap();
@@ -415,14 +434,21 @@ fn drones(
             }
             continue;
         }
-        if drone.quest_goal.is_none() {
+        let side_goal = medallion.is_some_and(|flight| flight.owns_goal(drone.quest_goal));
+        if drone.quest_goal.is_none() || side_goal {
             drone.remaining -= dt;
         }
         drone.cooldown = (drone.cooldown - dt).max(0.);
         drone.pause = (drone.pause - dt).max(0.);
         let owner = players.get(drone.owner).ok();
+        let recalled =
+            input.drone && !drone.is_added() && (drone.quest_goal.is_none() || side_goal);
         drone.returning |= drone.remaining <= 0.
+            || recalled
             || owner.is_none_or(|(_, _, _, v)| v.state() == LifeState::HumanTerminal);
+        if drone.returning && side_goal {
+            drone.quest_goal = None;
+        }
         if drone.quest_goal.is_none() && !drone.returning {
             if drone.revive.is_some_and(|(target, _)| {
                 players
@@ -432,7 +458,8 @@ fn drones(
             }) {
                 drone.revive = None;
             }
-            if drone.revive.is_none() {
+            // The original drone only searches for revive targets in co-op.
+            if drone.revive.is_none() && players.iter().len() > 1 {
                 if let Some((target, _, _, _)) = players.iter().find(|(_, _, p, v)| {
                     v.state() == LifeState::Downed
                         && p.translation.distance_squared(pose.translation) < 12.7_f32.powi(2)
@@ -513,7 +540,11 @@ fn drones(
                 clock = 0.;
             }
             if clock >= 1. {
-                revive.write(crate::solo_revive::RemoteRevive { player: target });
+                revive.write(crate::solo_revive::RemoteRevive {
+                    player: target,
+                    reviver: drone.owner,
+                    method: crate::solo_revive::ReviveMethod::Drone,
+                });
                 drone.revive = None;
                 drone.pause = 1.;
             } else {

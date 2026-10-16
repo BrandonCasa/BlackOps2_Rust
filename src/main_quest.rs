@@ -168,9 +168,11 @@ fn progress(
         &crate::environment::triggers::MapTrigger,
         &crate::environment::triggers::TriggerState,
     )>,
-    (waves, mut session): (
+    (waves, mut session, generators, crafting): (
         Res<crate::panzer::PanzerWaves>,
         ResMut<crate::gameplay::Session>,
+        Res<crate::generators::Generators>,
+        Res<crate::crafting::Crafting>,
     ),
 ) {
     for (target, _, mut visible) in &mut targets {
@@ -194,6 +196,19 @@ fn progress(
         strikes.clear();
         deaths.clear();
         return;
+    }
+    if quest.stage == QuestStage::UpgradeStaffs {
+        quest.update_prerequisites(
+            [
+                "elemental_staff_fire",
+                "elemental_staff_water",
+                "elemental_staff_air",
+                "elemental_staff_lightning",
+            ]
+            .into_iter()
+            .all(|staff| crafting.crafted.contains(staff)),
+            generators.active_count() == 6,
+        );
     }
     if let Some(remaining) = state.staff_returns.as_mut() {
         for (index, delay) in remaining.iter_mut().enumerate() {

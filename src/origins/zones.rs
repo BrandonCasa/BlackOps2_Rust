@@ -109,6 +109,33 @@ pub(crate) fn bind(
             .map_err(|error| format!("Invalid authored Origins zones: {error}"))?;
     let metadata: Metadata = serde_json::from_slice(metadata)
         .map_err(|e| format!("Invalid external entity metadata: {e}"))?;
+    let spawn_entities: BTreeMap<_, _> = metadata
+        .entities
+        .iter()
+        .filter(|entity| {
+            matches!(
+                entity.text("script_noteworthy"),
+                Some("spawn_location" | "riser_location")
+            )
+        })
+        .filter_map(|entity| {
+            Some((
+                format!("spawn.{}", entity.text("guid")?.to_ascii_lowercase()),
+                entity,
+            ))
+        })
+        .collect();
+    for spawn in &mut game.access.spawns {
+        let entity = spawn_entities
+            .get(&spawn.id)
+            .ok_or_else(|| format!("Spawn {} has no source entity", spawn.id))?;
+        spawn.find_flesh = entity.text("script_string") == Some("find_flesh");
+        spawn.yaw = if entity.text("angles").is_some() {
+            entity.vector("angles")?.y.to_radians()
+        } else {
+            0.
+        };
+    }
     let clip: ClipMap =
         serde_json::from_slice(clip).map_err(|e| format!("Invalid external clipmap: {e}"))?;
     let hulls: BTreeMap<String, Hull> =
@@ -314,6 +341,28 @@ pub(crate) fn bind(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    #[ignore = "requires exported installed Origins assets"]
+    fn exported_tunnel_spawns_pursue_players_and_keep_source_facing() {
+        let game = GameDefinition::load_from_root(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/assets"),
+        );
+        let tunnel = game
+            .access
+            .spawns
+            .iter()
+            .find(|spawn| spawn.id == "spawn.c0340470")
+            .unwrap();
+        assert!(tunnel.find_flesh);
+        assert!(!tunnel.rising);
+        assert!((tunnel.yaw - 300_f32.to_radians()).abs() < 0.0001);
+        assert_eq!(
+            game.access.spawns.iter().filter(|spawn| spawn.find_flesh).count(),
+            305
+        );
+        assert_eq!(game.access.spawns.len(), 338);
+    }
+
     #[test]
     fn source_zone_names_bind_to_existing_game_ids_without_losing_graph() {
         let data: AuthoredZones =

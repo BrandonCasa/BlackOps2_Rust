@@ -1,4 +1,5 @@
 import package::rendering::native_world::{NativeWorldObject, native_world_unpack_direction};
+import package::rendering::native_scripted_model::NativeModelScriptedScene;
 import package::rendering::native_world_plain::{NativeWorldGeometricVertexInput, native_world_position_fog};
 import package::rendering::native_world_plain::native_world_plain_specular_reflection;
 import package::rendering::native_model::{
@@ -10,10 +11,12 @@ import package::rendering::native_model_variants::{
     native_model_geometric_vertex, native_model_geometric_vertex_lighting, native_model_diffuse_fragment,
     native_model_geometric_diffuse_fragment, native_model_alpha_diffuse_fragment,
     native_model_normal_specular_fragment, native_model_alpha_specular_fragment,
+    native_model_blended_specular_fragment,
     native_model_vertex_occlusion_fragment, native_model_geometric_specular_fragment, native_model_blended_diffuse, native_model_mapped_normal,
 };
 
 @group(0) @binding(0) var<uniform> scene: NativeModelScene;
+@group(0) @binding(1) var<uniform> view: NativeModelScriptedScene;
 @group(1) @binding(0) var<uniform> object: NativeModelObject;
 @group(2) @binding(0) var color_map: texture_2d<f32>;
 @group(2) @binding(1) var color_sampler: sampler;
@@ -151,6 +154,30 @@ fn shade_alpha_specular(input: Varyings) -> vec4<f32> {
         color_map, color_sampler, normal_map, normal_sampler,
         specular_map, specular_sampler, model_lighting, model_lighting_sampler,
         reflection_probe, reflection_sampler);
+}
+
+fn shade_blended_specular(input: Varyings, unattenuated_reflection: bool) -> vec4<f32> {
+    return native_model_blended_specular_fragment(source(input), scene, occlusion,
+        unattenuated_reflection, color_map, color_sampler, normal_map, normal_sampler,
+        specular_map, specular_sampler, model_lighting, model_lighting_sampler,
+        reflection_probe, reflection_sampler);
+}
+
+@fragment
+fn fragment_specular_blended(input: Varyings) -> @location(0) vec4<f32> {
+    return shade_blended_specular(input, false);
+}
+@fragment
+fn fragment_specular_blended_srgb(input: Varyings) -> @location(0) vec4<f32> {
+    return attachment_srgb(shade_blended_specular(input, false));
+}
+@fragment
+fn fragment_specular_blended_reflection(input: Varyings) -> @location(0) vec4<f32> {
+    return shade_blended_specular(input, true);
+}
+@fragment
+fn fragment_specular_blended_reflection_srgb(input: Varyings) -> @location(0) vec4<f32> {
+    return attachment_srgb(shade_blended_specular(input, true));
 }
 
 fn shade_vertex_occlusion(input: Varyings) -> vec4<f32> {
@@ -378,7 +405,7 @@ struct CanopyVaryings {
 fn vertex_canopy(input: GeometricVertexInput) -> CanopyVaryings {
     let transformed = native_world_position_fog(
         NativeWorldGeometricVertexInput(input.position, input.color, input.uv, input.packed_normal.xyz, vec2<f32>(0.0)),
-        scene.world, NativeWorldObject(object.world_rows, vec4<f32>(0.0), vec4<f32>(0.0), vec4<f32>(0.0)));
+        scene.world, NativeWorldObject(object.world_rows, vec4<f32>(0.0), vec4<f32>(0.0), vec4<f32>(0.0), vec4<f32>(1.0)));
     let radial = vec3<f32>(dot(input.position, object.world_rows[0].xyz),
         dot(input.position, object.world_rows[1].xyz), dot(input.position, object.world_rows[2].xyz));
     let unpacked = native_world_unpack_direction(input.packed_normal.xyz);
@@ -491,7 +518,9 @@ fn vertex_scrolling(input: VertexInput) -> Varyings {
 // Original PS3c17e0d4, SHA256 7ab5003d6ee9aad875cc883e0b3fcf350f269ba1d44bf5ad3374fc35327c5611.
 // weaponParam2 comes from code (0052c1d0/0052b7c0), not colorDetailScale.
 @group(2) @binding(18) var<uniform> weapon_detail: vec4<f32>;
-fn shade_weapon_detail(input: Varyings) -> vec4<f32> {
+// PS4dc2aa8d adds only the hero-lighting transform to PS3c17e0d4.
+// SHA256 848b089a23c14d6690923ac2fbd4f15eadbe27facf6531f4ff1a72bb956b6fa4.
+fn weapon_detail_lighting(input: Varyings) -> vec3<f32> {
     let detail_uv = fma(input.uv - vec2<f32>(0.5), vec2<f32>(weapon_detail.z), weapon_detail.xy) + vec2<f32>(0.5);
     let detail_sample = textureSample(detail_map, detail_sampler, detail_uv);
     let occ = textureSample(occlusion_map, occlusion_sampler, input.uv);
@@ -510,11 +539,23 @@ fn shade_weapon_detail(input: Varyings) -> vec4<f32> {
     let reflected = native_world_plain_specular_reflection(input.eye_to_vertex.xyz, normal,
         vec4<f32>(specular_gamma, specular.a), reflection_probe, reflection_sampler);
     let reflection = (occ.g * reflected) * input.reflection_correction;
-    let lit = fma(diffuse_lit, vec3<f32>(32.0), reflection);
+    return fma(diffuse_lit, vec3<f32>(32.0), reflection);
+}
+fn finish_weapon_detail(input: Varyings, lit: vec3<f32>) -> vec4<f32> {
     let fogged = fma(vec3<f32>(input.normal_fog.w), lit - input.fog_color, input.fog_color);
     return vec4<f32>(sqrt(fogged * scene.world.hdr_control0.x), 1.0);
 }
+fn shade_weapon_detail_hero(input: Varyings) -> vec4<f32> {
+    let hero_input = vec4<f32>(weapon_detail_lighting(input), 1.0);
+    let lit = vec3<f32>(dot(hero_input, view.hero_lighting[0]),
+        dot(hero_input, view.hero_lighting[1]), dot(hero_input, view.hero_lighting[2]));
+    return finish_weapon_detail(input, lit);
+}
 @fragment
-fn fragment_weapon_detail(input: Varyings) -> @location(0) vec4<f32> { return shade_weapon_detail(input); }
+fn fragment_weapon_detail(input: Varyings) -> @location(0) vec4<f32> { return finish_weapon_detail(input, weapon_detail_lighting(input)); }
 @fragment
-fn fragment_weapon_detail_srgb(input: Varyings) -> @location(0) vec4<f32> { return attachment_srgb(shade_weapon_detail(input)); }
+fn fragment_weapon_detail_srgb(input: Varyings) -> @location(0) vec4<f32> { return attachment_srgb(finish_weapon_detail(input, weapon_detail_lighting(input))); }
+@fragment
+fn fragment_weapon_detail_hero(input: Varyings) -> @location(0) vec4<f32> { return shade_weapon_detail_hero(input); }
+@fragment
+fn fragment_weapon_detail_hero_srgb(input: Varyings) -> @location(0) vec4<f32> { return attachment_srgb(shade_weapon_detail_hero(input)); }

@@ -58,6 +58,8 @@ pub struct WeaponDefinition {
     #[serde(default)]
     pub ads_presentation: Option<ContentId>,
     #[serde(default)]
+    pub model_parts: Vec<WeaponModelPart>,
+    #[serde(default)]
     pub dual_weapon: Option<WeaponId>,
     #[serde(default)]
     pub pickup: Option<ContentId>,
@@ -79,6 +81,16 @@ pub struct WeaponDefinition {
     pub mine: Option<crate::mines::MineDefinition>,
     #[serde(default)]
     pub lure: Option<crate::lures::LureDefinition>,
+}
+
+#[derive(Clone, Deserialize)]
+pub struct WeaponModelPart {
+    pub slot: u8,
+    pub scene: String,
+    pub tag: String,
+    pub offset: [f32; 3],
+    pub rotation: [f32; 3],
+    pub ads: bool,
 }
 
 #[derive(Clone, Deserialize)]
@@ -125,7 +137,12 @@ pub enum WeaponAnimation {
     ReloadStart,
     ReloadEnd,
     Equip,
+    FirstEquip,
+    EquipEmpty,
+    QuickEquip,
     Unequip,
+    UnequipEmpty,
+    HoldFire,
     Melee,
     AdsEnter,
     AdsLeave,
@@ -206,12 +223,10 @@ pub struct WeaponMechanics {
     pub crawl_seconds: [f32; 7],
     pub dive_seconds: [f32; 3],
     pub ads_zoom_fraction: [f32; 2],
-    pub ads_pose: Vec<AdsPoseSample>,
     pub ads_sight: Option<AdsSight>,
     pub ads_enabled: bool,
     pub native_ads_pitch: Option<f32>,
-    pub ads_translation: [f32; 3],
-    pub ads_rotation: [f32; 4],
+    pub no_ads_auto_reload: bool,
     pub burst_delay: f32,
     pub movement: [f32; 2],
     pub empty_reload: f32,
@@ -222,6 +237,10 @@ pub struct WeaponMechanics {
     pub reload_start_insert: f32,
     pub reload_end_seconds: f32,
     pub equip_seconds: f32,
+    pub first_equip_seconds: f32,
+    pub quick_equip_seconds: f32,
+    pub empty_equip_seconds: f32,
+    pub empty_unequip_seconds: f32,
     pub unequip_seconds: f32,
     pub dual_wield: bool,
     pub projectile_speed: f32,
@@ -270,12 +289,10 @@ impl Default for WeaponMechanics {
             crawl_seconds: [0.; 7],
             dive_seconds: [0.; 3],
             ads_zoom_fraction: [1., 1.],
-            ads_pose: Vec::new(),
             ads_sight: None,
             ads_enabled: true,
             native_ads_pitch: None,
-            ads_translation: [0.; 3],
-            ads_rotation: [0., 0., 0., 1.],
+            no_ads_auto_reload: false,
             burst_delay: 0.,
             movement: [1., 0.5],
             empty_reload: 1.8,
@@ -286,6 +303,10 @@ impl Default for WeaponMechanics {
             reload_start_insert: 0.,
             reload_end_seconds: 0.,
             equip_seconds: 0.5,
+            first_equip_seconds: 0.,
+            quick_equip_seconds: 0.,
+            empty_equip_seconds: 0.,
+            empty_unequip_seconds: 0.,
             unequip_seconds: 0.3,
             dual_wield: false,
             projectile_speed: 30.,
@@ -298,12 +319,6 @@ impl Default for WeaponMechanics {
             fuse_seconds: 4.,
         }
     }
-}
-#[derive(Clone, Deserialize)]
-pub struct AdsPoseSample {
-    pub fraction: f32,
-    pub translation: [f32; 3],
-    pub rotation: [f32; 4],
 }
 #[derive(Clone, Deserialize)]
 pub struct AdsSight {

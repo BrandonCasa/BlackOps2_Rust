@@ -12,6 +12,12 @@ const MEDALLIONS: [[f32; 3]; 4] = [
     [26.2636, 13.35405, 53.9242],
     [33.36925, -6.45795, -116.32565],
 ];
+const MEDALLION_APPROACHES: [[f32; 3]; 4] = [
+    [-11.6586, 12.8524, 3.2004],
+    [-70.612, 9.8806, -2.1336],
+    [26.9494, 14.0208, 53.5686],
+    [35.3695, -4.2164, -114.5413],
+];
 const REWARD: [f32; 3] = [-2.2352, 9.5504, 0.2032];
 const BLOOD: [f32; 3] = [3.0988, 8.5344, 6.9088];
 
@@ -23,11 +29,37 @@ pub struct SideRewards {
     fire_timer: f32,
     blood_round: Option<u32>,
     spare: std::collections::HashSet<Entity>,
-    drone_target: Option<usize>,
-    drone_wait: f32,
-    delivery: bool,
     delivered: bool,
 }
+#[derive(Clone, Copy)]
+enum MedallionLeg {
+    Approach(usize),
+    Collect(usize),
+    Depart(usize),
+    Deliver,
+}
+#[derive(Component)]
+pub(crate) struct MedallionFlight {
+    leg: MedallionLeg,
+    wait: f32,
+}
+impl MedallionFlight {
+    fn goal(&self) -> Vec3 {
+        match self.leg {
+            MedallionLeg::Approach(index) | MedallionLeg::Depart(index) => {
+                Vec3::from_array(MEDALLION_APPROACHES[index])
+            }
+            MedallionLeg::Collect(index) => Vec3::from_array(MEDALLIONS[index]) + Vec3::Y * 0.762,
+            MedallionLeg::Deliver => Vec3::from_array(REWARD) + Vec3::Y * 0.762,
+        }
+    }
+
+    pub(crate) fn owns_goal(&self, goal: Option<Vec3>) -> bool {
+        goal == Some(self.goal())
+    }
+}
+#[derive(Component)]
+struct Medallion(usize);
 #[derive(Component)]
 pub(crate) struct Reward;
 pub struct SideRewardPlugin;
@@ -53,8 +85,28 @@ impl Plugin for SideRewardPlugin {
             );
     }
 }
-fn reset(mut state: ResMut<SideRewards>) {
+fn reset(
+    mut commands: Commands,
+    mut state: ResMut<SideRewards>,
+    game: Res<GameDefinition>,
+    server: Res<AssetServer>,
+) {
     *state = default();
+    let scene =
+        crate::assets::native_scene(&game, "p6_zm_tm_medallion").expect("Origins medallion model");
+    for (index, position) in MEDALLIONS.into_iter().enumerate() {
+        commands.spawn((
+            SessionEntity,
+            Medallion(index),
+            WorldAssetRoot(server.load(scene.clone())),
+            Transform::from_translation(Vec3::from_array(position)).with_rotation(if index == 3 {
+                Quat::from_rotation_z(-36_f32.to_radians())
+            } else {
+                Quat::IDENTITY
+            }),
+            Visibility::Inherited,
+        ));
+    }
 }
 fn spare_change(
     mut commands: Commands,
@@ -213,115 +265,183 @@ fn medallions(
     time: Res<Time<Fixed>>,
     mut state: ResMut<SideRewards>,
     players: Query<&Transform, (With<Player>, Without<crate::buildables::Drone>)>,
-    mut drones: Query<(&mut crate::buildables::Drone, &Transform), Without<Player>>,
+    mut drones: Query<
+        (
+            Entity,
+            &mut crate::buildables::Drone,
+            &Transform,
+            &crate::life::Vitality,
+            Option<&mut MedallionFlight>,
+        ),
+        Without<Player>,
+    >,
+    pickups: Query<(&crate::powerups::Pickup, &Transform), Without<crate::buildables::Drone>>,
+    medallions: Query<(Entity, &Medallion)>,
     game: Res<GameDefinition>,
     server: Res<AssetServer>,
 ) {
     if state.delivered {
         return;
     }
-    let Ok(player) = players.single() else {
-        return;
-    };
-    for (mut drone, pose) in &mut drones {
-        if drone.returning {
-            if state.drone_target.take().is_some() || state.delivery {
-                drone.quest_goal = None;
-                state.drone_wait = 0.;
-            }
-            continue;
-        }
-        if state.delivery {
-            let goal = Vec3::from_array(REWARD) + Vec3::Y * 0.762;
-            drone.quest_goal = Some(goal);
-            if pose.translation.distance(goal) < 0.1016 {
-                state.drone_wait += time.delta_secs();
-                if state.drone_wait >= 1. {
-                    state.delivered = true;
-                    state.delivery = false;
-                    drone.quest_goal = None;
-                    crate::audio::emit(
-                        &mut commands,
-                        "zmb_perks_packa_ready",
-                        crate::audio::SoundSource::World(goal),
-                    );
-                    crate::audio::emit(
-                        &mut commands,
-                        "mus_side_stinger_4",
-                        crate::audio::SoundSource::World(goal),
-                    );
-                    let id = commands
-                        .spawn((
-                            SessionEntity,
-                            Reward,
-                            Transform::from_translation(Vec3::from_array(REWARD))
-                                .with_rotation(Quat::from_rotation_y(90_f32.to_radians())),
-                            Visibility::Inherited,
-                        ))
-                        .id();
-                    if let Some(weapon) = game
-                        .content
-                        .weapons
-                        .iter()
-                        .find(|w| w.id.0 == "weapon.mg08_upgraded_zm")
-                        && let Some(scene) = game
-                            .content
-                            .presentations
-                            .iter()
-                            .find(|p| Some(&p.id) == weapon.pickup.as_ref())
-                            .and_then(|p| p.scene.as_ref())
-                    {
-                        commands
-                            .entity(id)
-                            .insert(WorldAssetRoot(server.load(scene.clone())));
-                    }
-                }
-            }
-            continue;
-        }
-        if state.drone_target.is_none() && drone.quest_goal.is_none() {
-            state.drone_target = MEDALLIONS
-                .iter()
-                .enumerate()
-                .filter(|(i, _)| !state.seals[*i])
-                .filter(|(_, p)| player.translation.distance(Vec3::from_array(**p)) < 12.7)
-                .min_by(|a, b| {
-                    pose.translation
-                        .distance_squared(Vec3::from_array(*a.1))
-                        .total_cmp(&pose.translation.distance_squared(Vec3::from_array(*b.1)))
+    for (entity, mut drone, pose, health, flight) in &mut drones {
+        let Some(mut flight) = flight else {
+            let Ok(player) = players.get(drone.owner) else {
+                continue;
+            };
+            if health.state() != crate::life::LifeState::ActorAlive
+                || !drone.can_collect_medallion()
+                || pickups.iter().any(|(pickup, pose)| {
+                    pickup.remaining > 0.
+                        && pose.translation.distance_squared(player.translation) < 12.7_f32.powi(2)
                 })
-                .map(|(i, _)| i);
+            {
+                continue;
+            }
+            let leg = if state.seals.iter().all(|found| *found) {
+                MedallionLeg::Deliver
+            } else {
+                let Some(index) = MEDALLIONS
+                    .iter()
+                    .enumerate()
+                    .filter(|(index, _)| !state.seals[*index])
+                    .filter(|(_, position)| {
+                        player
+                            .translation
+                            .distance_squared(Vec3::from_array(**position))
+                            < 12.7_f32.powi(2)
+                    })
+                    .min_by(|a, b| {
+                        player
+                            .translation
+                            .distance_squared(Vec3::from_array(*a.1))
+                            .total_cmp(&player.translation.distance_squared(Vec3::from_array(*b.1)))
+                    })
+                    .map(|(index, _)| index)
+                else {
+                    continue;
+                };
+                MedallionLeg::Approach(index)
+            };
+            let flight = MedallionFlight { leg, wait: 0. };
+            drone.quest_goal = Some(flight.goal());
+            commands.entity(entity).insert(flight);
+            continue;
+        };
+        // Main quest movement takes ownership by replacing the side quest goal.
+        if !flight.owns_goal(drone.quest_goal)
+            || drone.returning
+            || health.state() != crate::life::LifeState::ActorAlive
+        {
+            if flight.owns_goal(drone.quest_goal) {
+                drone.quest_goal = None;
+            }
+            commands.entity(entity).remove::<MedallionFlight>();
+            continue;
         }
-        if let Some(index) = state.drone_target {
-            let goal = Vec3::from_array(MEDALLIONS[index]) + Vec3::Y * 0.762;
-            drone.quest_goal = Some(goal);
-            if pose.translation.distance(goal) < 0.1016 {
-                state.drone_wait += time.delta_secs();
-                if state.drone_wait >= 1. {
-                    state.seals[index] = true;
-                    state.drone_target = None;
-                    state.drone_wait = 0.;
-                    drone.quest_goal = None;
-                    crate::audio::emit(
-                        &mut commands,
-                        "zmb_medallion_pickup",
-                        crate::audio::SoundSource::World(goal),
-                    );
-                    let count = state.seals.iter().filter(|v| **v).count();
-                    crate::audio::emit(
-                        &mut commands,
-                        format!("vox_maxi_drone_pickups_{}", count - 1),
-                        crate::audio::SoundSource::World(goal),
-                    );
-                    if count == 4 {
-                        state.delivery = true;
-                        crate::audio::emit(
-                            &mut commands,
-                            "vox_maxi_drone_pickups_4",
-                            crate::audio::SoundSource::World(goal),
-                        );
+        let goal = flight.goal();
+        if pose.translation.distance(goal) >= 0.1016 {
+            flight.wait = 0.;
+            continue;
+        }
+        match flight.leg {
+            MedallionLeg::Approach(index) => {
+                flight.leg = MedallionLeg::Collect(index);
+                drone.quest_goal = Some(flight.goal());
+            }
+            MedallionLeg::Depart(_) => {
+                drone.quest_goal = None;
+                commands.entity(entity).remove::<MedallionFlight>();
+            }
+            MedallionLeg::Collect(index) => {
+                flight.wait += time.delta_secs();
+                if flight.wait < 1. {
+                    continue;
+                }
+                state.seals[index] = true;
+                for (medallion_entity, medallion) in &medallions {
+                    if medallion.0 == index {
+                        commands.entity(medallion_entity).despawn();
                     }
                 }
+                crate::native_fx::emit(
+                    &mut commands,
+                    "weapon/zmb_staff/fx_zmb_staff_charge",
+                    Transform::from_translation(Vec3::from_array(MEDALLIONS[index])),
+                );
+                crate::audio::emit(
+                    &mut commands,
+                    "zmb_medallion_pickup",
+                    crate::audio::SoundSource::World(goal),
+                );
+                let count = state.seals.iter().filter(|found| **found).count();
+                crate::audio::emit(
+                    &mut commands,
+                    format!("vox_maxi_drone_pickups_{}", count - 1),
+                    crate::audio::SoundSource::World(goal),
+                );
+                if count == 4 {
+                    crate::audio::emit(
+                        &mut commands,
+                        "vox_maxi_drone_pickups_4",
+                        crate::audio::SoundSource::World(goal),
+                    );
+                }
+                flight.leg = MedallionLeg::Depart(index);
+                flight.wait = 0.;
+                drone.quest_goal = Some(flight.goal());
+            }
+            MedallionLeg::Deliver => {
+                flight.wait += time.delta_secs();
+                if flight.wait < 1. {
+                    continue;
+                }
+                state.delivered = true;
+                drone.quest_goal = None;
+                commands.entity(entity).remove::<MedallionFlight>();
+                crate::native_fx::emit(
+                    &mut commands,
+                    "weapon/zmb_staff/fx_zmb_staff_charge",
+                    Transform::from_translation(Vec3::from_array(REWARD)),
+                );
+                crate::audio::emit(
+                    &mut commands,
+                    "zmb_perks_packa_ready",
+                    crate::audio::SoundSource::World(goal),
+                );
+                crate::audio::emit(
+                    &mut commands,
+                    "mus_side_stinger_4",
+                    crate::audio::SoundSource::World(goal),
+                );
+                let weapon = game
+                    .content
+                    .weapons
+                    .iter()
+                    .find(|weapon| weapon.id.0 == "weapon.mg08_upgraded_zm")
+                    .expect("Origins Magna Collider weapon");
+                let scene = game
+                    .content
+                    .presentations
+                    .iter()
+                    .find(|presentation| Some(&presentation.id) == weapon.pickup.as_ref())
+                    .and_then(|presentation| presentation.scene.as_ref())
+                    .expect("Origins Magna Collider pickup model");
+                let reward = commands
+                    .spawn((
+                        SessionEntity,
+                        Reward,
+                        WorldAssetRoot(server.load(scene.clone())),
+                        Transform::from_translation(Vec3::from_array(REWARD))
+                            .with_rotation(Quat::from_rotation_y(90_f32.to_radians())),
+                        Visibility::Inherited,
+                    ))
+                    .id();
+                crate::native_fx::attach(
+                    &mut commands,
+                    "maps/zombie_tomb/fx_tomb_elem_reveal_glow",
+                    reward,
+                    Transform::IDENTITY,
+                );
             }
         }
     }
@@ -406,5 +526,56 @@ pub(crate) fn collect(
             }
         }
         break;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn main_quest_can_take_the_drone_during_a_medallion_flight() {
+        let game: GameDefinition =
+            serde_json::from_str(include_str!("../gameplay/origins/game.json")).unwrap();
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::asset::AssetPlugin::default()))
+            .init_resource::<Time<Fixed>>()
+            .init_resource::<SideRewards>()
+            .insert_resource(game)
+            .add_systems(Update, medallions);
+        let owner = app.world_mut().spawn_empty().id();
+        let main_quest_goal = Vec3::new(-62.5864, 5.8928, -7.3152);
+        let mut drone = crate::buildables::Drone::new(owner, Vec3::ZERO, false);
+        drone.quest_goal = Some(main_quest_goal);
+        let entity = app
+            .world_mut()
+            .spawn((
+                drone,
+                crate::life::Vitality::ordinary_actor(200, 200).unwrap(),
+                Transform::IDENTITY,
+                MedallionFlight {
+                    leg: MedallionLeg::Collect(0),
+                    wait: 0.9,
+                },
+            ))
+            .id();
+        app.update();
+        assert_eq!(
+            app.world()
+                .get::<crate::buildables::Drone>(entity)
+                .unwrap()
+                .quest_goal,
+            Some(main_quest_goal)
+        );
+        assert!(app.world().get::<MedallionFlight>(entity).is_none());
+        assert_eq!(app.world().resource::<SideRewards>().seals, [false; 4]);
+        app.update();
+        assert_eq!(
+            app.world()
+                .get::<crate::buildables::Drone>(entity)
+                .unwrap()
+                .quest_goal,
+            Some(main_quest_goal)
+        );
     }
 }

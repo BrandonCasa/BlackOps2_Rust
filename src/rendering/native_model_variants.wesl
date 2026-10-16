@@ -73,7 +73,7 @@ fn native_model_geometric_vertex_lighting(
             input.packed_normal, vec2<f32>(0.0)),
         scene.world,
         NativeWorldObject(object.world_rows, object.reflection_lighting_sh0,
-            object.reflection_lighting_sh1, object.reflection_lighting_sh2),
+            object.reflection_lighting_sh1, object.reflection_lighting_sh2, vec4<f32>(1.0)),
     );
     let normal = world.normal_fog.xyz;
     let squared_yz = normal.yz * normal.yz;
@@ -253,6 +253,45 @@ fn native_model_normal_specular_fragment(
     let result = native_model_specular_lighting(input, scene, occlusion, normal,
         reflected, color_sample.rgb * input.color.rgb, model_lighting, model_lighting_sampler);
     return vec4<f32>(result, 1.0);
+}
+
+// PS8bb4c6fc / PS6741885c use the same packed32 VS347155f7, mapped
+// normal, explicit specular, model atlas and reflection correction as the
+// opaque PS4bceb0cc. Alpha multiplies the complete lit result and fog before
+// square-root encoding. PS6741885c first divides reflection by that alpha.
+fn native_model_blended_specular_fragment(
+    input: NativeModelVaryings,
+    scene: NativeModelScene,
+    occlusion: NativeModelOcclusion,
+    unattenuated_reflection: bool,
+    color_map: texture_2d<f32>, color_sampler: sampler,
+    normal_map: texture_2d<f32>, normal_sampler: sampler,
+    specular_map: texture_2d<f32>, specular_sampler: sampler,
+    model_lighting: texture_3d<f32>, model_lighting_sampler: sampler,
+    reflection_probe: texture_cube<f32>, reflection_sampler: sampler,
+) -> vec4<f32> {
+    let normal_sample = textureSample(normal_map, normal_sampler, input.uv);
+    let normal = native_model_mapped_normal(input, normal_sample.rg);
+    let specular = textureSample(specular_map, specular_sampler, input.uv);
+    let reflected = native_world_plain_specular_reflection(input.eye_to_vertex.xyz,
+        normal, specular, reflection_probe, reflection_sampler);
+    var reflection = (reflected * occlusion.occlusion_amount.y) * input.reflection_correction;
+    let colored = textureSample(color_map, color_sampler, input.uv) * input.color;
+    if unattenuated_reflection {
+        reflection = reflection / colored.a;
+    }
+    let irradiance = native_model_atlas_irradiance(normal, input.grid_coords_and_vis.xyz,
+        scene, model_lighting, model_lighting_sampler) * occlusion.occlusion_amount.z;
+    let diffuse = colored.rgb * colored.rgb;
+    let lit = fma(irradiance * diffuse, vec3<f32>(32.0), reflection);
+    let fog = colored.a * input.fog_color;
+    let delta = fma(lit, vec3<f32>(colored.a), -fog);
+    let fogged = fma(vec3<f32>(input.normal_fog.w), delta, fog);
+    let alpha = sqrt(colored.a);
+    // Source fixed-function gt0 applies to output alpha. Complete all implicit
+    // samples first, retaining derivatives even for rejected zero-alpha lanes.
+    if !(alpha > 0.0) { discard; }
+    return vec4<f32>(sqrt(fogged * scene.world.hdr_control0.x), alpha);
 }
 
 // 47jq982j: the same real inputs and response as zqq1fze7, with the original

@@ -197,8 +197,29 @@ pub(crate) fn combat(
         return;
     };
     if reserved || buildables.shield_held || stomp || robot_transit || tank_rescue {
-        inventory.cancel_action();
+        inventory.suspend();
         inventory.cancel_charge();
+        for emission in inventory.tick(
+            dt,
+            WeaponIntent {
+                suspended: true,
+                ..default()
+            },
+            &definition.content.weapons,
+        ) {
+            if let WeaponEmission::Ads { weapon, aiming } = emission {
+                crate::audio::binding(
+                    &mut commands,
+                    &definition,
+                    &format!(
+                        "{}.{}",
+                        weapon.0,
+                        if aiming { "ads_enter" } else { "ads_leave" }
+                    ),
+                    crate::audio::SoundSource::attached(entity),
+                );
+            }
+        }
         return;
     }
     let reload_scale = definition
@@ -211,6 +232,7 @@ pub(crate) fn combat(
     inventory.set_reload_duration_scale(reload_scale);
     inventory.firing = crate::perks::firing_modifiers(perks, &definition);
     if grenades.busy() || mines.busy() || tactical.busy() || drinking.is_some() {
+        inventory.suspend();
         inventory.cancel_charge();
     }
     if input.staff_secondary
@@ -234,11 +256,17 @@ pub(crate) fn combat(
     let emissions = inventory.tick(
         dt,
         if grenades.busy() || mines.busy() || tactical.busy() || drinking.is_some() {
-            WeaponIntent::default()
+            WeaponIntent {
+                suspended: true,
+                ..default()
+            }
         } else {
             WeaponIntent {
+                suspended: false,
                 pressed: actions.fire,
                 held: actions.fire_held,
+                secondary_pressed: actions.secondary_fire,
+                secondary_held: actions.secondary_fire_held,
                 reload: actions.reload,
                 melee: actions.melee,
                 cycle: actions.cycle_weapon,
@@ -256,6 +284,19 @@ pub(crate) fn combat(
     for emission in emissions {
         let weapon = inventory.definition(&definition.content.weapons);
         let (melee, damage, weapon_id, weapon) = match emission {
+            WeaponEmission::Ads { weapon, aiming } => {
+                crate::audio::binding(
+                    &mut commands,
+                    &definition,
+                    &format!(
+                        "{}.{}",
+                        weapon.0,
+                        if aiming { "ads_enter" } else { "ads_leave" }
+                    ),
+                    crate::audio::SoundSource::attached(entity),
+                );
+                continue;
+            }
             WeaponEmission::DryFire(id) => {
                 crate::audio::binding(
                     &mut commands,
@@ -285,6 +326,20 @@ pub(crate) fn combat(
                 capacity,
                 seconds,
             } => {
+                crate::audio::binding(
+                    &mut commands,
+                    &definition,
+                    &format!(
+                        "{}.{}",
+                        weapon.0,
+                        if magazine == 0 {
+                            "reload_empty"
+                        } else {
+                            "reload"
+                        }
+                    ),
+                    crate::audio::SoundSource::attached(entity),
+                );
                 reloads.write(crate::perk_effects::ReloadEvent {
                     owner: entity,
                     weapon,
@@ -321,7 +376,21 @@ pub(crate) fn combat(
                 crate::audio::binding(
                     &mut commands,
                     &definition,
-                    &format!("{}.shot", id.0),
+                    &format!(
+                        "{}.{}",
+                        id.0,
+                        if inventory.active().is_some_and(|w| {
+                            if w.definition == id {
+                                w.magazine == 0
+                            } else {
+                                w.left_magazine == Some(0)
+                            }
+                        }) {
+                            "last_shot"
+                        } else {
+                            "shot"
+                        }
+                    ),
                     crate::audio::SoundSource::Entity {
                         entity,
                         offset: Vec3::Y * (player.eye_height - player.height * 0.5),

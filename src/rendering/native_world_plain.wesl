@@ -44,7 +44,7 @@ fn native_world_position_fog(
         dot(world_position, scene.view_projection_rows[2]),
         dot(world_position, scene.view_projection_rows[3]),
     );
-    output.color = input.color;
+    output.color = input.color * object.color;
     output.uv_lightmap = vec4<f32>(input.uv, input.lightmap_uv);
 
     let height_term = fma(scene.fog_consts.w, world_position.z, scene.fog_consts.x);

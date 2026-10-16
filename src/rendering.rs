@@ -1,5 +1,7 @@
 use crate::{GameState, assets::GameDefinition, player::Player};
 use bevy::prelude::*;
+pub(crate) mod culling;
+mod dlss;
 pub(crate) mod fog;
 pub(crate) mod frame;
 pub(crate) mod light_grid;
@@ -11,6 +13,7 @@ pub mod native;
 pub(crate) mod native_effect;
 pub(crate) mod native_light;
 pub(crate) mod native_model;
+pub(crate) mod native_sky;
 pub(crate) mod native_water;
 pub(crate) mod reflection;
 pub(crate) mod shadow;
@@ -24,21 +27,38 @@ pub struct GameRenderingPlugin;
 impl Plugin for GameRenderingPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((
+            dlss::NativeDlssPlugin,
             frame::NativeFramePlugin,
             native::NativeWorldPlugin,
             native_effect::NativeEffectPlugin,
             model_lighting::ModelLightingPlugin,
             native_model::NativeModelPlugin,
+            native_sky::NativeSkyPlugin,
             skinning::NativeSkinningPlugin,
             animated_models::AnimatedModelPlugin,
             native_water::NativeWaterPlugin,
             shadow::ShadowPlugin,
         ))
+        .init_resource::<culling::SourceVisibility>()
         .add_systems(Startup, setup)
+        .add_systems(
+            PostUpdate,
+            culling::update_visibility
+                .after(bevy::camera::visibility::VisibilitySystems::UpdateFrusta)
+                .after(bevy::transform::TransformSystems::Propagate)
+                .before(models::select_lods)
+                .before(bevy::camera::visibility::VisibilitySystems::CheckVisibility),
+        )
+        .add_systems(
+            PostUpdate,
+            culling::filter_visibility
+                .after(bevy::camera::visibility::VisibilitySystems::CheckVisibility),
+        )
         .add_systems(Update, camera_follow)
         .add_systems(
             PostUpdate,
             (source_camera_constants, world::object_constants)
+                .after(culling::filter_visibility)
                 .after(bevy::camera::CameraUpdateSystems)
                 .after(bevy::camera::visibility::VisibilitySystems::UpdateFrusta)
                 .after(frame::maintain_float_z)
@@ -53,26 +73,46 @@ impl Plugin for GameRenderingPlugin {
         );
     }
 }
-pub(crate) fn setup(mut commands: Commands) {
-    commands.spawn((
+pub(crate) fn setup(
+    mut commands: Commands,
+    dlss_supported: Option<Res<bevy::anti_alias::dlss::DlssSuperResolutionSupported>>,
+) {
+    let mut camera = commands.spawn((
         Camera3d {
             depth_load_op: bevy::camera::Camera3dDepthLoadOp::Clear(0.),
             ..default()
         },
         fog::CameraFog::default(),
         frame::NativeRenderView,
+        bevy::core_pipeline::tonemapping::Tonemapping::None,
+        bevy::core_pipeline::tonemapping::DebandDither::Disabled,
         GameCamera,
+        Msaa::Off,
+        bevy::core_pipeline::prepass::NoBackgroundMotionVectors,
         bevy::camera::visibility::RenderLayers::from_layers(&[0, 1]),
         Projection::Perspective(PerspectiveProjection {
             fov: BASE_FOV_DEGREES.to_radians(),
             // Native r_znear defaults to four inches (0041ad50 / 0074b550).
             near: 4. * crate::assets::SOURCE_UNIT_METERS,
+            far: culling::CULL_DISTANCE * crate::assets::SOURCE_UNIT_METERS,
             ..default()
         }),
         Transform::from_xyz(0., 2., 0.),
         bevy::audio::SpatialListener::new(0.2),
         Name::new("Origins camera"),
     ));
+    if dlss_supported.is_some() {
+        camera.insert(bevy::anti_alias::dlss::Dlss::<
+            bevy::anti_alias::dlss::DlssSuperResolutionFeature,
+        > {
+            perf_quality_mode: bevy::anti_alias::dlss::DlssPerfQualityMode::Performance,
+            reset: true,
+            ..default()
+        });
+        info!("DLSS Super Resolution: Performance");
+    } else {
+        warn!("DLSS Super Resolution unavailable; rendering at native resolution");
+    }
 }
 
 fn source_camera_constants(
@@ -102,14 +142,15 @@ fn source_camera_constants(
     let (Some(world), Some(clock)) = (world, clock) else {
         return;
     };
-    let bank = match weather.presented {
+    let bank = match weather.vision {
         crate::environment::weather::WeatherKind::Clear => 1,
         crate::environment::weather::WeatherKind::Rain => 2,
         crate::environment::weather::WeatherKind::Snow => 4,
     };
     // Native eye-relative inches -> Bevy eye-relative Y-up metres.
     let basis = world::source_frame();
-    let sun = world.initial_sun_light();
+    let mut sun = world.initial_sun_light();
+    sun.diffuse_color = weather.sun_diffuse();
     for (
         entity,
         camera,

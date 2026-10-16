@@ -190,8 +190,6 @@ if (!$SkipOat) {
     # Preserve source texels and mip counts while replacing unsupported BGRX DDS.
     & $python (Join-Path $checkout 'tools/normalize_dds.py') (Join-Path $assets 'images') $texconv (Join-Path $reports 'opaque-dds-normalization.json')
     if ($LASTEXITCODE -ne 0) { throw 'Original opaque DDS normalization failed.' }
-    # Source flat normal is equivalent to the engine's built-in identity normal; unchanged pixels.
-    Copy-Item -LiteralPath (Join-Path $assets 'images/global_normal_flat_16x16.dds') -Destination (Join-Path $assets 'images/$identitynormalmap.dds') -Force
     foreach ($name in @('code_post_gfx_zm', 'en_code_post_gfx_zm', 'common_zm', 'patch_zm', 'zm_tomb', 'zm_tomb_patch')) {
         $models = Join-Path $extracted "oat/$name/model_export"
         if (Test-Path -LiteralPath $models) { Copy-Item -LiteralPath $models -Destination $assets -Recurse -Force }
@@ -208,7 +206,14 @@ if (!$SkipOat) {
         $destination = Join-Path $variantImages $_.Name
         if (!(Test-Path -LiteralPath $destination)) { New-Item -ItemType HardLink -Path $destination -Target $_.FullName | Out-Null }
     }
+    # OAT model copies can overwrite existing aliases after native RGBA staging.
+    & $python (Join-Path $checkout 'tools/native_images.py') --assets $assets --report (Join-Path $reports 'native-rgba-source-restage.json') --sync-aliases
+    if ($LASTEXITCODE -ne 0) { throw 'Original source image alias synchronization failed.' }
 }
+
+# Native materials own texture loading; glTF retains geometry, skins and animation.
+& $python (Join-Path $checkout 'tools/strip_native_rig_materials.py') --assets $assets --report (Join-Path $reports 'native-rig-material-removal.json')
+if ($LASTEXITCODE -ne 0) { throw 'Native rig material removal failed.' }
 
 # Normalize reserved URI characters with unchanged pygltflib, preserving DDS bytes.
 $uriSdk = Join-Path $tools 'uri-python'

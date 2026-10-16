@@ -46,9 +46,11 @@ fn remember_translation(mut players: Query<(&Transform, &mut PreviousTranslation
 #[derive(Resource, Default)]
 pub struct TickActions {
     pub fire: bool,
+    pub secondary_fire: bool,
     pub melee: bool,
     pub reload: bool,
     pub fire_held: bool,
+    pub secondary_fire_held: bool,
     pub ads: bool,
     pub cycle_weapon: bool,
     pub weapon_slot: Option<usize>,
@@ -98,6 +100,7 @@ fn spawn_player(
         .find(|w| w.id.0 == "weapon.c96_zm")
     {
         let _ = inventory.grant(weapon);
+        inventory.equip_new(weapon);
     }
     let Ok(vitality) = Vitality::human(
         definition.player_health.maximum,
@@ -219,6 +222,7 @@ pub(crate) fn move_player(
         ads: input.ads,
         cycle_weapon: std::mem::take(&mut input.cycle_weapon),
         weapon_slot: input.weapon_slot.take(),
+        ..default()
     };
     let Ok((
         entity,
@@ -240,6 +244,15 @@ pub(crate) fn move_player(
     else {
         return;
     };
+    if inventory
+        .active()
+        .is_some_and(|w| w.left_magazine.is_some())
+    {
+        let trigger = controls.state(crate::input::Action::Aim);
+        actions.secondary_fire = trigger.pressed;
+        actions.secondary_fire_held = trigger.held || trigger.pressed;
+        actions.ads = false;
+    }
     if drinking.is_some() || reserved.contains(entity) {
         *actions = TickActions::default();
     }
@@ -543,6 +556,8 @@ pub(crate) fn move_player(
         )
         && !actions.fire
         && !actions.fire_held
+        && !actions.secondary_fire
+        && !actions.secondary_fire_held
         && !actions.melee
         && !actions.reload
         && input.movement.y >= 105. / 127.;

@@ -1,8 +1,12 @@
 //! Origins source-authored effect timelines and original native draw inputs.
 mod cloud;
+pub(crate) mod decal;
 mod geometry;
 mod impact;
+pub(crate) mod lighting;
 mod material;
+#[cfg(test)]
+mod tests;
 mod visuals;
 use crate::rendering::native_effect::{
     NativeCloudObject, NativeEffectDraw, NativeEffectGeometry, NativeEffectMaterial,
@@ -78,7 +82,7 @@ struct Visual {
     model: Option<String>,
     effect: Option<String>,
     sound: Option<String>,
-    decal_materials: Option<Vec<String>>,
+    decal_materials: Option<[String; 2]>,
 }
 #[derive(Clone, Deserialize)]
 struct TrailVertex {
@@ -135,11 +139,13 @@ struct Element {
     billboard_pivot: [f32; 2],
     billboard_trim: Option<BillboardTrim>,
     lighting_fraction: i8,
+    alpha_fade_ms: u16,
     trail: Option<Trail>,
     cloud_density: Option<Range>,
 }
 #[derive(Deserialize)]
 struct SourceEffect {
+    flags: u16,
     elements: Vec<Element>,
     looping_count: usize,
     looping_life_ms: f32,
@@ -164,6 +170,7 @@ struct Emitter {
     limits: Vec<u32>,
     seed: u64,
     previous: Option<Transform>,
+    lighting: Vec3,
     trail_points: Vec<Option<Vec3>>,
     trail_distance: Vec<f32>,
 }
@@ -201,7 +208,7 @@ impl Plugin for NativeFxPlugin {
         );
         app.add_systems(
             Update,
-            (follow_source_attachments, spawn, animate)
+            (follow_source_attachments, spawn, animate, decal::fade)
                 .chain()
                 .run_if(in_state(GameState::Playing)),
         );
@@ -222,6 +229,7 @@ fn load_catalog(
 ) {
     let catalog: Catalog = crate::origins::read(&options.asset_root.join("fx_catalog.json"));
     catalog.impacts.validate();
+    commands.insert_resource(decal::Materials::load(&options.asset_root, &catalog));
     commands.insert_resource(material::Materials::load(
         &options.asset_root,
         catalog.materials.keys(),
@@ -282,6 +290,7 @@ pub(crate) fn emit(
         limits: vec![],
         seed: entity.to_bits().wrapping_add(1),
         previous: None,
+        lighting: Vec3::ZERO,
         trail_points: vec![],
         trail_distance: vec![],
     });
@@ -337,15 +346,27 @@ fn spawn(
     native_materials: Res<Assets<NativeEffectMaterial>>,
     cloud_geometry: Res<cloud::Geometry>,
     outdoor: Option<Res<NativeOutdoorMap>>,
+    lighting: (
+        Res<crate::rendering::model_lighting::ModelLightingSource>,
+        Res<lighting::Source>,
+        Res<crate::environment::weather::Weather>,
+    ),
     mut geometries: ResMut<Assets<NativeEffectGeometry>>,
+    mut decals: (
+        Option<Res<decal::World>>,
+        ResMut<decal::Materials>,
+        ResMut<Assets<crate::rendering::native::NativeWorldMaterial>>,
+        ResMut<Assets<crate::rendering::native::NativeWorldGeometry>>,
+        Query<&GlobalTransform>,
+    ),
     mut emitters: Query<(
         Entity,
         &mut Emitter,
-        &GlobalTransform,
         &Transform,
-        Option<&AttachedSource>,
+        Has<ChildOf>,
         Option<&Stopped>,
     )>,
+    transforms: bevy::transform::helper::TransformHelper,
     particles: Query<&Owned>,
     mut occupied: Local<HashSet<Entity>>,
 ) {
@@ -354,7 +375,7 @@ fn spawn(
     };
     occupied.clear();
     occupied.extend(particles.iter().map(|owner| owner.0));
-    for (entity, mut emitter, global, local, attachment, stopped) in &mut emitters {
+    for (entity, mut emitter, local, parented, stopped) in &mut emitters {
         if stopped.is_some() {
             if !occupied.contains(&entity) {
                 commands.entity(entity).despawn();
@@ -370,7 +391,22 @@ fn spawn(
                 ),
             );
         };
+        // Update runs before transform propagation. New explosions and runners
+        // already own their world pose; attached FX need the current hierarchy.
+        let parent = if parented {
+            transforms
+                .compute_global_transform(entity)
+                .expect("source FX transform hierarchy")
+                .compute_transform()
+        } else {
+            *local
+        };
         if emitter.next.is_empty() {
+            if effect.flags & 1 != 0 {
+                emitter.lighting = lighting
+                    .1
+                    .sample(&lighting.0, &lighting.2, parent.translation);
+            }
             let start_ms = (time.elapsed_secs() * 1000.) as u32;
             emitter.seed = u64::from(
                 (((start_ms.wrapping_mul(0x343fd).wrapping_add(0x269ec3)) >> 17) * 479) >> 15,
@@ -391,11 +427,6 @@ fn spawn(
             }
         }
         emitter.elapsed += time.delta_secs();
-        let parent = if attachment.is_some() {
-            *local
-        } else {
-            global.compute_transform()
-        };
         for (i, e) in effect.elements.iter().enumerate() {
             let prior_count = emitter.counts[i];
             let births = schedule_element(&mut emitter, effect, e, i, parent, time.delta_secs());
@@ -550,7 +581,7 @@ fn spawn(
                 } else {
                     let name = visual.and_then(|v| {
                         if e.kind == 11 {
-                            v.decal_materials.as_ref().and_then(|m| m.first())
+                            v.decal_materials.as_ref().map(|pair| &pair[1])
                         } else {
                             v.material.as_ref()
                         }
@@ -565,17 +596,31 @@ fn spawn(
                         );
                     };
                     if e.kind == 11 {
-                        panic!(
-                            "Original FX {} element {i}: decal {name} requires original world-triangle clipping (00446b30) and its selected decal technique",
-                            emitter.name
+                        let (color, size, _, _) = self::visual(
+                            e.visual_samples
+                                .first()
+                                .expect("Original mark visual sample"),
+                            r,
+                            particle_seed,
+                            &catalog,
+                        );
+                        decal::spawn_world(
+                            &mut commands,
+                            particle_entity,
+                            pose,
+                            size.x,
+                            particle.rotation,
+                            color,
+                            f32::from(e.alpha_fade_ms) * 0.001,
+                            name,
+                            decals.0.as_deref().expect("Original world decal receivers"),
+                            &mut decals.1,
+                            &server,
+                            &mut decals.2,
+                            &mut decals.3,
+                            &decals.4,
                         );
                     } else {
-                        if e.lighting_fraction != 0 {
-                            panic!(
-                                "Original FX {} element {i}: lighting fraction {} requires original particle light-probe inputs (005b4da0)",
-                                emitter.name, e.lighting_fraction as u8
-                            );
-                        }
                         let handle = materials.get(name).unwrap_or_else(|error| {
                             panic!("Original FX {} element {i}: {error}", emitter.name)
                         });
@@ -585,14 +630,11 @@ fn spawn(
                         particle.image = Some(native_material.color_map.clone());
                         if e.kind == 6 {
                             assert!(
-                                outdoor.is_some(),
-                                "Original particle clouds require the world's outdoorImage and outdoorLookupMatrix"
+                                !native_material.program.cloud_outdoor() || outdoor.is_some(),
+                                "Original outdoor particle clouds require the world's outdoorImage and outdoorLookupMatrix"
                             );
                             assert!(
-                                matches!(
-                                    native_material.program,
-                                    NativeEffectProgram::CloudRain | NativeEffectProgram::CloudSnow
-                                ),
+                                native_material.program.cloud(),
                                 "Original cloud element requires its selected PARTICLECLOUD program"
                             );
                             particle.cloud = Some(cloud::State {
@@ -611,6 +653,7 @@ fn spawn(
                                 NativeEffectDraw {
                                     geometry: cloud_geometry.0.clone(),
                                     material: handle,
+                                    source_world_vertices: false,
                                     vertex_byte_offset: 0,
                                     first_index,
                                     index_count,
@@ -619,19 +662,23 @@ fn spawn(
                             ));
                         } else {
                             assert!(
-                                e.kind == 5
+                                matches!(e.kind, 3 | 5)
                                     || native_material.program
                                         != NativeEffectProgram::LocalAdditiveFeather,
-                                "Original effect_737e1je4 sprite inputs require a separate source geometry port"
+                                "Original local-normal FX requires directional or trail source geometry"
                             );
                             assert!(
                                 matches!(
                                     native_material.program,
                                     NativeEffectProgram::Zfeather
+                                        | NativeEffectProgram::ZfeatherDissolve
+                                        | NativeEffectProgram::SimpleFog
+                                        | NativeEffectProgram::SimpleFogDissolve
                                         | NativeEffectProgram::Additive
                                         | NativeEffectProgram::AdditiveFeather
                                         | NativeEffectProgram::LocalAdditiveFeather
                                         | NativeEffectProgram::OutdoorFeather
+                                        | NativeEffectProgram::OutdoorFogFeather
                                         | NativeEffectProgram::SimpleFeather
                                         | NativeEffectProgram::EyeFeather
                                         | NativeEffectProgram::EyeAdditive
@@ -639,7 +686,7 @@ fn spawn(
                                 ),
                                 "Original sprite element requires its selected packed particle program"
                             );
-                            if native_material.program == NativeEffectProgram::OutdoorFeather {
+                            if native_material.program.outdoor() {
                                 assert!(
                                     outdoor.is_some(),
                                     "Original outdoor-feather FX requires the world's outdoorImage and outdoorLookupMatrix"
@@ -661,7 +708,7 @@ fn spawn(
                             }
                             let (geometry, bounds, index_count) = geometry::quad(
                                 pose.rotation * Vec3::Z,
-                                [255.; 4],
+                                [127, 127, 127, 255],
                                 Affine2::IDENTITY,
                                 e.billboard_trim
                                     .expect("billboard source trim is required")
@@ -672,6 +719,7 @@ fn spawn(
                                 NativeEffectDraw {
                                     geometry: geometries.add(geometry),
                                     material: handle,
+                                    source_world_vertices: matches!(e.kind, 3 | 5),
                                     vertex_byte_offset: 0,
                                     first_index: 0,
                                     index_count,
@@ -861,7 +909,13 @@ fn animate(
     mut geometries: ResMut<Assets<NativeEffectGeometry>>,
     collision: avian3d::prelude::SpatialQuery,
     emitters: Query<&Emitter>,
-    cameras: Query<&GlobalTransform, With<crate::rendering::GameCamera>>,
+    cameras: Query<
+        (
+            &GlobalTransform,
+            &crate::rendering::native::NativeWorldScene,
+        ),
+        With<crate::rendering::GameCamera>,
+    >,
     mut particles: Query<(
         Entity,
         &Owned,
@@ -872,10 +926,9 @@ fn animate(
         Option<&mut crate::rendering::native_light::FxOmniLight>,
     )>,
 ) {
-    let camera = cameras
-        .iter()
-        .next()
-        .map(GlobalTransform::compute_transform);
+    let view = cameras.iter().next();
+    let exposure = view.map_or(1., |(_, scene)| scene.hdr_control0.x);
+    let camera = view.map(|(pose, _)| pose.compute_transform());
     for (entity, owner, mut p, mut pose, draw, bounds, light) in &mut particles {
         let Ok(emitter) = emitters.get(owner.0) else {
             commands.entity(entity).try_despawn();
@@ -904,6 +957,11 @@ fn animate(
                 emit_child(&mut commands, child, *pose, owner.0);
             }
             commands.entity(entity).try_despawn();
+            continue;
+        }
+        // Source mark geometry is created at birth (005c6f40), retained by
+        // its receiver, and alpha-faded by 005bcb60. It is not a billboard.
+        if e.kind == 11 {
             continue;
         }
         let normalized = p.age / p.life;
@@ -996,7 +1054,12 @@ fn animate(
         let angular: [f32; 3] = std::array::from_fn(|i| {
             e.angular_velocity[i].sample(channel(&catalog, p.seed, i as i32 - 3)) * p.age * 1000.
         });
-        if e.kind == 6 {
+        if e.kind == 3 {
+            // 005b6a80 bakes its view-relative basis, rotation, size, and pivot
+            // into source-world vertices. Keep their unit normal untransformed.
+            pose.rotation = Quat::IDENTITY;
+            pose.scale = Vec3::ONE;
+        } else if e.kind == 6 {
             pose.rotation = p.initial.rotation
                 * Quat::from_euler(EulerRot::YXZ, -angular[1], angular[0], -angular[2]);
         } else if matches!(e.kind, 1 | 2 | 7) {
@@ -1009,7 +1072,7 @@ fn animate(
                 );
         } else if let Some(camera) = camera {
             pose.rotation = camera.rotation * Quat::from_rotation_z(rotation);
-            if matches!(e.kind, 3 | 4 | 5) && direction.length_squared() > 1e-8 {
+            if matches!(e.kind, 4 | 5) && direction.length_squared() > 1e-8 {
                 let y = direction.normalize();
                 let view = (camera.translation - pose.translation).normalize_or_zero();
                 let x = y.cross(view).normalize_or_zero();
@@ -1018,7 +1081,7 @@ fn animate(
                 }
             }
         }
-        if matches!(e.kind, 0..=4) && e.flags & 0x200000 != 0 {
+        if matches!(e.kind, 0..=2 | 4) && e.flags & 0x200000 != 0 {
             let pivot = pose.rotation
                 * Vec3::new(
                     e.billboard_pivot[0] * size.x * 0.0254,
@@ -1088,7 +1151,8 @@ fn animate(
                 uv.translation.x -= p.age * 1000. / trail.scroll_ms;
             }
         }
-        let (updated, updated_bounds, index_count) = if e.kind == 5 {
+        let color = lighting::pack(color, e.lighting_fraction as u8, emitter.lighting, exposure);
+        let geometry = if e.kind == 5 {
             geometry::trail(
                 e.trail.as_ref().expect("trail source validated at birth"),
                 p.initial,
@@ -1098,22 +1162,47 @@ fn animate(
                 color,
                 uv,
             )
-            .unwrap_or_else(|error| {
-                panic!(
-                    "Original FX {} element {}: {error}",
-                    emitter.name, p.element
-                )
-            })
+        } else if e.kind == 3 {
+            let camera = camera.expect("original directional sprite requires the game camera");
+            // 005b8860 scales source sizes only when the element requests it.
+            let size = if e.flags & 0x8000 != 0 {
+                size * p.initial.scale.truncate()
+            } else {
+                size
+            };
+            geometry::directional(
+                pose.translation,
+                camera.translation,
+                direction,
+                size,
+                rotation,
+                color,
+                uv,
+                e.billboard_trim
+                    .expect("billboard source trim is required")
+                    .widths(),
+                if e.flags & 0x200000 != 0 {
+                    Vec2::from_array(e.billboard_pivot)
+                } else {
+                    Vec2::ZERO
+                },
+            )
         } else {
-            geometry::quad(
+            Ok(geometry::quad(
                 pose.rotation * Vec3::Z,
                 color,
                 uv,
                 e.billboard_trim
                     .expect("billboard source trim is required")
                     .widths(),
-            )
+            ))
         };
+        let (updated, updated_bounds, index_count) = geometry.unwrap_or_else(|error| {
+            panic!(
+                "Original FX {} element {}: {error}",
+                emitter.name, p.element
+            )
+        });
         *geometries
             .get_mut(&draw.geometry)
             .expect("particle owns its native geometry") = updated;
@@ -1153,14 +1242,7 @@ fn object_constants(
     let to_eye = source_from_bevy * Mat4::from_translation(-eye);
     for (entity, transform, particle, draw, constants, cloud_constants) in &mut particles {
         if let Some(state) = &particle.cloud {
-            let updated = cloud::constants(
-                &transform,
-                &camera,
-                outdoor
-                    .as_ref()
-                    .expect("original cloud outdoor inputs are required"),
-                state,
-            );
+            let updated = cloud::constants(&transform, &camera, outdoor.as_deref(), state);
             if let Some(mut constants) = cloud_constants {
                 *constants = updated;
             } else {
@@ -1172,7 +1254,7 @@ fn object_constants(
             .get(&draw.material)
             .expect("particle owns its native material")
             .program
-            == NativeEffectProgram::OutdoorFeather;
+            .outdoor();
         if !eye_changed
             && !(needs_outdoor && camera.is_changed())
             && !transform.is_changed()
@@ -1181,9 +1263,9 @@ fn object_constants(
         {
             continue;
         }
-        // Trail vertices already carry source-axis inches and world-oriented
-        // normals (005b6000). Apply only the emitter-origin translation here.
-        let input_world = if particle.trail_start.is_some() {
+        // Source directional/trail vertices already carry their orientation
+        // and size. Apply only the particle-origin translation here.
+        let input_world = if draw.source_world_vertices {
             Mat4::from_translation(transform.translation())
                 * crate::rendering::world::source_frame()
         } else {

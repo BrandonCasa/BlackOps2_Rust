@@ -8,6 +8,7 @@ use bevy::{
     },
     mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes},
     prelude::*,
+    render::{RenderApp, extract_component::ExtractComponent, sync_world::RenderEntity},
     world_serialization::WorldInstanceReady,
 };
 use serde::Deserialize;
@@ -34,6 +35,7 @@ pub(crate) struct ModelDefinition {
     pub bounds: [[f32; 3]; 2],
     pub bone_names: Vec<String>,
     pub root_bone_count: usize,
+    pub lod_ramp_type: usize,
     pub lods: Vec<ModelLod>,
     vertices_file: String,
     indices_file: String,
@@ -54,7 +56,6 @@ pub(crate) struct ModelSurface {
     pub first_index: u32,
     pub vertex_count: u32,
     pub tri_count: u32,
-    pub flags: u32,
     pub material: String,
     pub material_file: String,
     pub material_draw_surf: u64,
@@ -130,6 +131,16 @@ impl AnimatedModel {
     fn validate(&self) -> Result<(), Error> {
         let invalid = |message| Error::new(ErrorKind::InvalidData, message);
         let bones = self.definition.bone_names.len();
+        if self.definition.lod_ramp_type > 1
+            || self.definition.lods.is_empty()
+            || self
+                .definition
+                .lods
+                .iter()
+                .any(|lod| !lod.dist.is_finite() || lod.dist <= 0.)
+        {
+            return Err(invalid("invalid native model LOD ramp or distances"));
+        }
         if bones == 0 || self.bind.len() != bones * 32 || self.definition.root_bone_count > bones {
             return Err(invalid("incomplete native animated model skeleton"));
         }
@@ -214,6 +225,122 @@ mod tests {
     use super::*;
 
     #[test]
+    fn scene_lod_preserves_source_units_scale_and_viewmodel_override() {
+        let mut app = App::new();
+        app.init_resource::<Assets<AnimatedModel>>()
+            .init_resource::<super::super::culling::SourceVisibility>()
+            .add_systems(Update, select_lods);
+        let model = app
+            .world_mut()
+            .resource_mut::<Assets<AnimatedModel>>()
+            .add(AnimatedModel {
+                definition: ModelDefinition {
+                    bounds: [[-1.; 3], [1.; 3]],
+                    bone_names: vec!["tag_origin".into()],
+                    root_bone_count: 1,
+                    lod_ramp_type: 1,
+                    lods: vec![
+                        ModelLod {
+                            dist: 100.,
+                            surfaces: vec![],
+                        },
+                        ModelLod {
+                            dist: 200.,
+                            surfaces: vec![],
+                        },
+                    ],
+                    vertices_file: String::new(),
+                    indices_file: String::new(),
+                    blends_file: String::new(),
+                    bind_file: String::new(),
+                },
+                vertices: vec![],
+                indices: vec![],
+                blends: vec![],
+                bind: vec![],
+                materials: Arc::default(),
+            });
+        app.world_mut().spawn((
+            super::super::GameCamera,
+            GlobalTransform::IDENTITY,
+            Camera {
+                computed: bevy::camera::ComputedCameraValues {
+                    clip_from_view: Mat4::from_diagonal(Vec4::new(2.118673, 2.118673, 1., 1.)),
+                    ..default()
+                },
+                ..default()
+            },
+        ));
+        let pose = |distance, scale| {
+            GlobalTransform::from(
+                Transform::from_xyz(distance * crate::assets::SOURCE_UNIT_METERS, 0., 0.)
+                    .with_scale(Vec3::splat(scale * crate::assets::SOURCE_UNIT_METERS)),
+            )
+        };
+        let mesh = app.world_mut().spawn(pose(150., 1.)).id();
+        let instance = app
+            .world_mut()
+            .spawn((
+                AnimatedModelInstance {
+                    model,
+                    lod: Some(0),
+                },
+                NativeBoneBinding {
+                    mesh,
+                    joints: vec![],
+                    inverse_bindposes: Handle::default(),
+                },
+            ))
+            .id();
+        app.update();
+        assert_eq!(
+            app.world()
+                .get::<AnimatedModelInstance>(instance)
+                .unwrap()
+                .lod,
+            Some(1)
+        );
+        app.world_mut().entity_mut(mesh).insert(pose(150., 2.));
+        app.update();
+        assert_eq!(
+            app.world()
+                .get::<AnimatedModelInstance>(instance)
+                .unwrap()
+                .lod,
+            Some(0)
+        );
+        app.world_mut().entity_mut(mesh).insert(pose(300., 1.));
+        app.update();
+        assert_eq!(
+            app.world()
+                .get::<AnimatedModelInstance>(instance)
+                .unwrap()
+                .lod,
+            None
+        );
+        app.world_mut().entity_mut(mesh).insert(pose(50., 1.));
+        app.update();
+        assert_eq!(
+            app.world()
+                .get::<AnimatedModelInstance>(instance)
+                .unwrap()
+                .lod,
+            Some(0)
+        );
+        app.world_mut()
+            .entity_mut(mesh)
+            .insert((pose(300., 1.), NoFrustumCulling));
+        app.update();
+        assert_eq!(
+            app.world()
+                .get::<AnimatedModelInstance>(instance)
+                .unwrap()
+                .lod,
+            Some(0)
+        );
+    }
+
+    #[test]
     fn native_palette_cancels_bind_pose_and_instance_scale() {
         let axes = Mat4::from_cols(Vec4::X, -Vec4::Z, Vec4::Y, Vec4::W);
         let owner = Mat4::from_scale_rotation_translation(
@@ -272,8 +399,130 @@ mod tests {
                 },
                 NativeSkinPalette(vec![Mat4::IDENTITY]),
                 InheritedVisibility::HIDDEN,
+                AnimatedModelInstance {
+                    model: Handle::default(),
+                    lod: Some(0),
+                },
             ))
             .id();
+        app.update();
+        assert_eq!(
+            app.world().get::<NativeSkinPalette>(instance).unwrap().0,
+            vec![Mat4::IDENTITY]
+        );
+    }
+
+    #[test]
+    fn returning_from_culling_refreshes_a_stationary_skin_palette() {
+        let mut app = App::new();
+        app.init_resource::<Assets<SkinnedMeshInverseBindposes>>()
+            .add_systems(Update, update_native_palettes);
+        let bind = app
+            .world_mut()
+            .resource_mut::<Assets<SkinnedMeshInverseBindposes>>()
+            .add(SkinnedMeshInverseBindposes::from(vec![Mat4::IDENTITY]));
+        let mesh = app.world_mut().spawn(GlobalTransform::IDENTITY).id();
+        let joint = app.world_mut().spawn(GlobalTransform::IDENTITY).id();
+        let instance = app
+            .world_mut()
+            .spawn((
+                NativeBoneBinding {
+                    mesh,
+                    joints: vec![joint],
+                    inverse_bindposes: bind,
+                },
+                NativeSkinPalette(vec![Mat4::IDENTITY]),
+                InheritedVisibility::VISIBLE,
+                AnimatedModelInstance {
+                    model: Handle::default(),
+                    lod: Some(0),
+                },
+            ))
+            .id();
+        app.update();
+        app.world_mut()
+            .get_mut::<AnimatedModelInstance>(instance)
+            .unwrap()
+            .lod = None;
+        let moved = Mat4::from_translation(Vec3::new(2., 3., 4.));
+        app.world_mut()
+            .entity_mut(joint)
+            .insert(GlobalTransform::from(Transform::from_matrix(moved)));
+        app.update();
+        assert_eq!(
+            app.world().get::<NativeSkinPalette>(instance).unwrap().0,
+            [Mat4::IDENTITY]
+        );
+        app.update();
+        app.world_mut()
+            .get_mut::<AnimatedModelInstance>(instance)
+            .unwrap()
+            .lod = Some(0);
+        app.update();
+        assert_eq!(
+            app.world().get::<NativeSkinPalette>(instance).unwrap().0,
+            [source_skin_matrix(Mat4::IDENTITY, moved, Mat4::IDENTITY)]
+        );
+    }
+
+    #[test]
+    fn rigid_native_model_binds_without_a_scene_skin() {
+        let mut app = App::new();
+        app.init_resource::<Assets<AnimatedModel>>()
+            .init_resource::<Assets<SkinnedMeshInverseBindposes>>()
+            .add_systems(Update, (bind_native_bones, update_native_palettes).chain());
+        let model = app
+            .world_mut()
+            .resource_mut::<Assets<AnimatedModel>>()
+            .add(AnimatedModel {
+                definition: ModelDefinition {
+                    bounds: [[-1.; 3], [1.; 3]],
+                    bone_names: vec!["tag_weapon".into()],
+                    root_bone_count: 1,
+                    lod_ramp_type: 0,
+                    lods: vec![ModelLod {
+                        dist: 100.,
+                        surfaces: vec![],
+                    }],
+                    vertices_file: String::new(),
+                    indices_file: String::new(),
+                    blends_file: String::new(),
+                    bind_file: String::new(),
+                },
+                vertices: vec![],
+                indices: vec![],
+                blends: vec![],
+                bind: vec![],
+                materials: Arc::default(),
+            });
+        let instance = app
+            .world_mut()
+            .spawn((
+                AnimatedModelInstance {
+                    model,
+                    lod: Some(0),
+                },
+                Transform::from_xyz(10., 2., -3.),
+                InheritedVisibility::VISIBLE,
+            ))
+            .id();
+        let mesh = app
+            .world_mut()
+            .spawn((ChildOf(instance), Mesh3d::default(), Transform::IDENTITY))
+            .id();
+        app.update();
+        assert_eq!(
+            app.world().get::<NativeBoneBinding>(instance).unwrap().mesh,
+            mesh
+        );
+        assert_eq!(
+            app.world().get::<NativeSkinPalette>(instance).unwrap().0,
+            vec![Mat4::IDENTITY]
+        );
+        app.world_mut()
+            .get_mut::<Transform>(instance)
+            .unwrap()
+            .translation += Vec3::X;
         app.update();
         assert_eq!(
             app.world().get::<NativeSkinPalette>(instance).unwrap().0,
@@ -381,7 +630,7 @@ mod tests {
 #[derive(Component)]
 pub(crate) struct AnimatedModelInstance {
     pub model: Handle<AnimatedModel>,
-    pub lod: usize,
+    pub lod: Option<usize>,
 }
 
 #[derive(Component)]
@@ -394,6 +643,77 @@ struct NativeBoneBinding {
 #[derive(Component, Default)]
 pub(crate) struct NativeSkinPalette(pub Vec<Mat4>);
 
+/// 004597d0/0043eef0 select scene-model LOD by source-origin distance divided
+/// by the instance scale. 00792bd0 selects the model's rigid/skinned FOV ramp.
+fn select_lods(
+    cameras: Query<(&Camera, &GlobalTransform), With<super::GameCamera>>,
+    models: Res<Assets<AnimatedModel>>,
+    mut instances: Query<(&mut AnimatedModelInstance, &NativeBoneBinding)>,
+    meshes: Query<(&GlobalTransform, Has<NoFrustumCulling>)>,
+    world: Option<Res<super::culling::VisibilityWorld>>,
+    visible: Res<super::culling::SourceVisibility>,
+    mut history: Local<[Option<f32>; 2]>,
+) {
+    let Ok((camera, transform)) = cameras.single() else {
+        return;
+    };
+    let frame_inverse = super::world::source_frame().inverse();
+    let eye = frame_inverse.transform_point3(transform.translation());
+    let requested = camera.clip_from_view().x_axis.x.recip() * 2.118673;
+    assert!(requested.is_finite() && requested > 0.);
+    for (ramp, limit) in [1.25, 0.4].into_iter().enumerate() {
+        let previous = history[ramp].unwrap_or(requested);
+        history[ramp] = Some(if previous <= requested || previous / requested > limit {
+            requested
+        } else {
+            previous
+        });
+    }
+    let axes = Mat4::from_rotation_x(-std::f32::consts::FRAC_PI_2);
+    for (mut instance, binding) in &mut instances {
+        let (Some(model), Ok((mesh, no_culling))) =
+            (models.get(&instance.model), meshes.get(binding.mesh))
+        else {
+            continue;
+        };
+        // Source viewmodels use their explicitly bound view LOD.
+        if no_culling {
+            continue;
+        }
+        let pose = frame_inverse * mesh.to_matrix() * axes;
+        let scale = pose.to_scale_rotation_translation().0.abs().max_element();
+        let center = pose.transform_point3(
+            (Vec3::from_array(model.definition.bounds[0])
+                + Vec3::from_array(model.definition.bounds[1]))
+                * 0.5,
+        );
+        let extents = Mat3::from_mat4(pose).abs()
+            * (Vec3::from_array(model.definition.bounds[1])
+                - Vec3::from_array(model.definition.bounds[0]))
+            * 0.5;
+        let bounds = [(center - extents).to_array(), (center + extents).to_array()];
+        let selected = if scale <= 0.
+            || world
+                .as_ref()
+                .is_some_and(|world| !visible.dynamic_visible(world, &bounds))
+        {
+            None
+        } else {
+            assert!(scale.is_finite(), "Original scene model scale");
+            let raw = eye.distance(pose.transform_point3(Vec3::ZERO)) / scale;
+            let adjusted = raw * history[model.definition.lod_ramp_type].unwrap();
+            super::models::source_lod(
+                model.definition.lods.iter().map(|lod| lod.dist),
+                adjusted,
+                raw,
+            )
+        };
+        if instance.lod != selected {
+            instance.lod = selected;
+        }
+    }
+}
+
 fn bind_native_bones(
     mut commands: Commands,
     instances: Query<(Entity, &AnimatedModelInstance), Without<NativeBoneBinding>>,
@@ -401,20 +721,45 @@ fn bind_native_bones(
     inverse_bindposes: Res<Assets<SkinnedMeshInverseBindposes>>,
     children: Query<&Children>,
     skins: Query<&SkinnedMesh>,
+    meshes: Query<(), With<Mesh3d>>,
     names: Query<&Name>,
 ) {
     for (entity, instance) in &instances {
         let Some(model) = models.get(&instance.model) else {
             continue;
         };
+        let lod = instance.lod.expect("initial native scene LOD");
         assert!(
-            instance.lod < model.definition.lods.len(),
+            lod < model.definition.lods.len(),
             "native scene LOD is missing"
         );
-        let (mesh, skin) = children
+        let skinned = children
             .iter_descendants(entity)
-            .find_map(|e| skins.get(e).ok().map(|skin| (e, skin)))
-            .expect("native animated instance must retain its Bevy skin");
+            .find_map(|e| skins.get(e).ok().map(|skin| (e, skin)));
+        let Some((mesh, skin)) = skinned else {
+            // Rigid GLB exports bake the bind pose into their vertices and omit
+            // a skin. Their original PACKED32 streams use an identity palette.
+            assert!(
+                model.definition.lods[lod]
+                    .surfaces
+                    .iter()
+                    .all(|surface| surface.blend_vertex_counts == [0; 4]),
+                "blended native model must retain its Bevy skin"
+            );
+            let mesh = children
+                .iter_descendants(entity)
+                .find(|&e| meshes.contains(e))
+                .expect("native model instance must retain its Bevy mesh");
+            commands.entity(entity).insert((
+                NativeBoneBinding {
+                    mesh,
+                    joints: Vec::new(),
+                    inverse_bindposes: Handle::default(),
+                },
+                NativeSkinPalette(vec![Mat4::IDENTITY; model.definition.bone_names.len()]),
+            ));
+            continue;
+        };
         let Some(bind) = inverse_bindposes.get(&skin.inverse_bindposes) else {
             continue;
         };
@@ -459,17 +804,19 @@ fn update_native_palettes(
         &NativeBoneBinding,
         &mut NativeSkinPalette,
         Ref<InheritedVisibility>,
+        Ref<AnimatedModelInstance>,
     )>,
     transforms: Query<Ref<GlobalTransform>>,
     inverse_bindposes: Res<Assets<SkinnedMeshInverseBindposes>>,
 ) {
-    for (binding, mut palette, visibility) in &mut instances {
-        if !visibility.get() {
+    for (binding, mut palette, visibility, instance) in &mut instances {
+        if !visibility.get() || instance.lod.is_none() || binding.joints.is_empty() {
             continue;
         }
         let mesh = transforms.get(binding.mesh).expect("bound native mesh");
         if !palette.is_added()
             && !visibility.is_changed()
+            && !instance.is_changed()
             && !inverse_bindposes.is_changed()
             && !mesh.is_changed()
             && !binding.joints.iter().any(|&joint| {
@@ -514,6 +861,14 @@ impl Plugin for AnimatedModelPlugin {
             .add_systems(Update, bind_native_bones)
             .add_systems(
                 PostUpdate,
+                select_lods
+                    .after(bevy::transform::TransformSystems::Propagate)
+                    .after(bevy::camera::CameraUpdateSystems)
+                    .after(super::culling::update_visibility)
+                    .before(bind_animated_draws),
+            )
+            .add_systems(
+                PostUpdate,
                 bind_animated_draws
                     .after(bevy::transform::TransformSystems::Propagate)
                     .before(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate)
@@ -532,7 +887,7 @@ fn load_native_instance(
     event: On<WorldInstanceReady>,
     roots: Query<&WorldAssetRoot>,
     children: Query<&Children>,
-    skins: Query<(), With<SkinnedMesh>>,
+    meshes: Query<(), With<Mesh3d>>,
     server: Res<AssetServer>,
     definition: Res<crate::assets::GameDefinition>,
     mut commands: Commands,
@@ -542,7 +897,7 @@ fn load_native_instance(
     };
     if !children
         .iter_descendants(event.entity)
-        .any(|e| skins.contains(e))
+        .any(|e| meshes.contains(e))
     {
         return;
     }
@@ -579,11 +934,13 @@ fn load_native_instance(
         )>()
         .insert(AnimatedModelInstance {
             model: server.load(format!("model_export/{name}.native_model")),
-            lod,
+            lod: Some(lod),
         });
 }
 
-#[derive(Component)]
+#[derive(Component, Clone, Copy, ExtractComponent)]
+#[extract_app(RenderApp)]
+#[extract_component_filter(Or<(Changed<Self>, Changed<RenderEntity>)>)]
 pub(crate) struct DynamicLightingOrigin(pub Vec3);
 
 #[derive(Component)]
@@ -600,13 +957,14 @@ fn bind_animated_draws(
     probes: Option<Res<super::reflection::ReflectionWorld>>,
     server: Res<AssetServer>,
     mut materials: ResMut<Assets<super::native_model::NativeModelMaterial>>,
-    instances: Query<(
+    mut instances: Query<(
         Entity,
         &AnimatedModelInstance,
         &NativeBoneBinding,
         &GlobalTransform,
         &InheritedVisibility,
         Option<&AnimatedDraws>,
+        Option<&mut DynamicLightingOrigin>,
     )>,
     meshes: Query<(
         &GlobalTransform,
@@ -619,10 +977,21 @@ fn bind_animated_draws(
     };
     let source_frame = super::world::source_frame().inverse();
     let axes = Transform::from_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2));
-    for (entity, instance, binding, root_transform, visibility, draws) in &instances {
+    for (entity, instance, binding, root_transform, visibility, draws, lighting_origin) in
+        &mut instances
+    {
         if !visibility.get() {
             continue;
         }
+        let Some(lod) = instance.lod else {
+            if let Some(draws) = draws {
+                for &surface in &draws.surfaces {
+                    commands.entity(surface).try_despawn();
+                }
+                commands.entity(entity).remove::<AnimatedDraws>();
+            }
+            continue;
+        };
         let Some(model) = models.get(&instance.model) else {
             continue;
         };
@@ -630,13 +999,24 @@ fn bind_animated_draws(
             continue;
         };
         let origin = source_frame.transform_point3(root_transform.translation());
-        commands
-            .entity(entity)
-            .insert(DynamicLightingOrigin(origin));
-        let probe = probes.select(origin);
-        if draws.is_some_and(|d| {
-            d.model == instance.model.id() && d.lod == instance.lod && d.probe == probe
-        }) && !models.is_changed()
+        let origin_changed = lighting_origin
+            .as_ref()
+            .is_none_or(|current| current.0 != origin);
+        if origin_changed {
+            if let Some(mut current) = lighting_origin {
+                current.0 = origin;
+            } else {
+                commands
+                    .entity(entity)
+                    .insert(DynamicLightingOrigin(origin));
+            }
+        }
+        let probe = draws
+            .filter(|_| !origin_changed && !probes.is_changed())
+            .map_or_else(|| probes.select(origin), |draws| draws.probe);
+        if draws.is_some_and(|d| d.model == instance.model.id() && d.lod == lod && d.probe == probe)
+            && !models.is_changed()
+            && !probes.is_changed()
         {
             continue;
         }
@@ -650,11 +1030,7 @@ fn bind_animated_draws(
         let sh =
             std::array::from_fn(|i| Vec4::from_slice(&source_probe.lighting_sh[i * 4..i * 4 + 4]));
         let mut surfaces = Vec::new();
-        for (index, surface) in model.definition.lods[instance.lod]
-            .surfaces
-            .iter()
-            .enumerate()
-        {
+        for (index, surface) in model.definition.lods[lod].surfaces.iter().enumerate() {
             let source = &model.materials[&surface.material_file];
             let (material, state) =
                 source
@@ -684,7 +1060,7 @@ fn bind_animated_draws(
                     geometry: super::native_model::ModelGeometry::Animated {
                         model: instance.model.clone(),
                         instance: entity,
-                        lod: instance.lod,
+                        lod,
                         surface: index,
                     },
                     material: materials.add(material),
@@ -704,7 +1080,7 @@ fn bind_animated_draws(
         }
         commands.entity(entity).insert(AnimatedDraws {
             model: instance.model.id(),
-            lod: instance.lod,
+            lod,
             probe,
             surfaces,
         });

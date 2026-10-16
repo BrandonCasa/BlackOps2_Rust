@@ -391,23 +391,24 @@ fn extract_instances(
     mut instances: Query<&mut ExtractedSkin>,
 ) {
     for (entity, input, palette, visibility) in &inputs {
+        let visible = visibility.get() && input.lod.is_some();
         if let Ok(mut extracted) = instances.get_mut(entity) {
-            let became_visible = visibility.get() && !extracted.visible;
-            if extracted.visible != visibility.get() {
-                extracted.visible = visibility.get();
+            let became_visible = visible && !extracted.visible;
+            if extracted.visible != visible {
+                extracted.visible = visible;
             }
             if input.is_changed() {
                 extracted.model = input.model.id();
-                extracted.lod = input.lod;
+                extracted.lod = input.lod.unwrap_or(0);
             }
-            if visibility.get() && (palette.is_changed() || became_visible) {
+            if visible && (palette.is_changed() || became_visible) {
                 extracted.palette.clone_from(&palette.0);
             }
         } else {
             commands.entity(entity).insert(ExtractedSkin {
                 model: input.model.id(),
-                lod: input.lod,
-                visible: visibility.get(),
+                lod: input.lod.unwrap_or(0),
+                visible,
                 palette: palette.0.clone(),
             });
         }

@@ -1,6 +1,7 @@
 import package::rendering::native_fx::NativeFxFrame;
 import package::rendering::native_cloud::{NativeCloudObject, NativeCloudVaryings,
-    native_cloud_rain_vertex, native_cloud_snow_vertex, native_cloud_fragment};
+    native_cloud_rain_vertex, native_cloud_snow_vertex, native_cloud_fragment,
+    native_cloud_simple_vertex, native_cloud_simple_fragment, native_cloud_additive_fragment};
 
 @group(0) @binding(0) var<uniform> frame: NativeFxFrame;
 @group(0) @binding(1) var outdoor_map: texture_2d<f32>;
@@ -15,6 +16,11 @@ struct Output {
     @location(1) outdoor: vec3<f32>,
 }
 
+struct SimpleOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+}
+
 fn output(source: NativeCloudVaryings) -> Output {
     return Output(source.clip_position, source.uv, source.outdoor);
 }
@@ -27,6 +33,26 @@ fn vertex_rain(@location(0) packed: vec4<f32>) -> Output {
 @vertex
 fn vertex_snow(@location(0) packed: vec4<f32>) -> Output {
     return output(native_cloud_snow_vertex(packed, frame, object));
+}
+
+@vertex
+fn vertex_simple(@location(0) packed: vec4<f32>) -> SimpleOutput {
+    let source = native_cloud_simple_vertex(packed, frame, object);
+    return SimpleOutput(source.clip_position, source.uv);
+}
+
+@fragment
+fn fragment_simple(input: SimpleOutput) -> @location(0) vec4<f32> {
+    let result = native_cloud_simple_fragment(input.uv, object, color_map, color_sampler);
+    // All particlecloud_9337w7f6 materials use alphaTest=gt0.
+    if result.w <= 0.0 { discard; }
+    return result;
+}
+
+@fragment
+fn fragment_additive(input: SimpleOutput) -> @location(0) vec4<f32> {
+    // All particlecloud_w7046j83 materials disable alpha testing.
+    return native_cloud_additive_fragment(input.uv, object, color_map, color_sampler);
 }
 
 @fragment

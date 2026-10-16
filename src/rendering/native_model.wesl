@@ -84,7 +84,7 @@ fn native_model_vertex_lighting_with_basis(
             input.packed_normal, input.packed_tangent, vec2<f32>(0.0)),
         decoded_normal, decoded_tangent, scene.world,
         NativeWorldObject(object.world_rows, object.reflection_lighting_sh0,
-            object.reflection_lighting_sh1, object.reflection_lighting_sh2),
+            object.reflection_lighting_sh1, object.reflection_lighting_sh2, vec4<f32>(1.0)),
     );
     let normal = world.normal_fog.xyz;
     let squared_yz = normal.yz * normal.yz;

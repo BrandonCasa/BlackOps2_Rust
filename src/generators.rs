@@ -20,9 +20,16 @@ pub(crate) use rewards::BoxGlowRamp;
 
 pub(crate) fn reset(world: &mut World) {
     crystals::reset(world);
+    world.resource_mut::<Messages<GeneratorCaptured>>().clear();
     world.insert_resource(Generators::default());
     world.insert_resource(GeneratorRaids::default());
     world.insert_resource(rewards::CaptureRewards::default());
+}
+
+#[derive(Message, Clone, Copy)]
+pub(crate) struct GeneratorCaptured {
+    pub player: Entity,
+    pub zombie_blood: bool,
 }
 
 pub(crate) fn use_point(origin: Vec3, eye: Vec3, box_size: f32) -> Vec3 {
@@ -242,6 +249,7 @@ impl Plugin for GeneratorPlugin {
         ))
         .init_resource::<Generators>()
         .init_resource::<raids::GeneratorRaids>()
+        .add_message::<GeneratorCaptured>()
         .add_systems(
             OnEnter(GameState::StartingSession),
             raids::reset.in_set(crate::session::SessionSetup::World),
@@ -779,6 +787,7 @@ fn tick(
     mut session: ResMut<Session>,
     effects: Res<crate::powerups::PowerupEffects>,
     players: Query<(Entity, &Player, &Transform, &Vitality)>,
+    mut captured: MessageWriter<GeneratorCaptured>,
 ) {
     let dt = time.delta_secs();
     for d in definition.content.generators.iter() {
@@ -864,6 +873,16 @@ fn tick(
         if completed && !generators.initial_reward {
             generators.initial_reward = true;
             chests.queue(2.);
+        }
+        if completed {
+            for (player, _, _, _) in &players {
+                if inside(Some(player)) {
+                    captured.write(GeneratorCaptured {
+                        player,
+                        zombie_blood: effects.zombie_blood > 0.,
+                    });
+                }
+            }
         }
         generators.completions += u32::from(completed);
         generators.abandoned += u32::from(abandoned);
@@ -1186,6 +1205,85 @@ fn fluid_bind_pose(
 #[cfg(test)]
 mod source_capture_tests {
     use super::*;
+    use bevy::ecs::system::RunSystemOnce;
+
+    #[test]
+    fn capture_credits_only_standing_participants_at_completion() {
+        let mut game: GameDefinition =
+            serde_json::from_str(include_str!("../gameplay/origins/game.json")).unwrap();
+        game.content.generators.truncate(1);
+        let generator = &game.content.generators[0];
+        let origin = Vec3::from_array(
+            game.content
+                .placements
+                .iter()
+                .find(|p| p.id == generator.placement)
+                .unwrap()
+                .position,
+        );
+        let mut generators = Generators::default();
+        generators.sites.insert(
+            generator.id.clone(),
+            Capture {
+                state: GeneratorState::Capturing,
+                progress: 0.999,
+                source_progress: 99.9,
+                ..default()
+            },
+        );
+        let mut world = World::new();
+        world.insert_resource(game);
+        world.insert_resource(generators);
+        world.insert_resource(rewards::CaptureRewards::default());
+        world.insert_resource(Session::default());
+        world.insert_resource(Time::<Fixed>::default());
+        world.insert_resource(crate::powerups::PowerupEffects {
+            zombie_blood: 0.01,
+            ..default()
+        });
+        world.init_resource::<Messages<GeneratorCaptured>>();
+        let mut participants = Vec::new();
+        for (position, standing) in [
+            (origin + Vec3::Y * 0.9, true),
+            (origin + Vec3::Y * 0.9, false),
+            (origin + Vec3::X * 100., true),
+        ] {
+            let mut health =
+                Vitality::human(100, 100, 1, crate::life::PlayerLethalPolicy::SoloSelfRevive)
+                    .unwrap();
+            if !standing {
+                health
+                    .apply(crate::life::ResolvedDamage::new(100).unwrap())
+                    .unwrap();
+            }
+            participants.push(
+                world
+                    .spawn((
+                        Player {
+                            yaw: 0.,
+                            pitch: 0.,
+                            velocity: Vec3::ZERO,
+                            height: 1.8,
+                            grounded: true,
+                            crouched: false,
+                            prone: false,
+                            eye_height: 1.6,
+                        },
+                        Transform::from_translation(position),
+                        health,
+                    ))
+                    .id(),
+            );
+        }
+        world.run_system_once(tick).unwrap();
+        let credits: Vec<_> = world
+            .resource_mut::<Messages<GeneratorCaptured>>()
+            .drain()
+            .collect();
+        assert_eq!(credits.len(), 1);
+        assert_eq!(credits[0].player, participants[0]);
+        assert!(credits[0].zombie_blood);
+    }
 
     #[test]
     fn capture_rewards_preserve_source_round_cap_and_reset() {

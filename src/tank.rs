@@ -15,6 +15,9 @@ mod source;
 
 #[derive(Component)]
 pub(crate) struct TankBody;
+pub(crate) fn panzer_goals(pose: Transform) -> [Vec3; 4] {
+    source::MECH_TAGS.map(|point| pose.transform_point(Vec3::from_array(point)))
+}
 #[derive(Component)]
 struct TankTriggerLink {
     local: Transform,
@@ -407,6 +410,7 @@ fn movement(
     rescues: Query<&TankRescue>,
     mut damage: ResMut<crate::damage::DamageQueue>,
     triggers: Query<(&TankTriggerLink, &Collider)>,
+    panzers: Query<(Entity, &Vitality), With<crate::panzer::Panzer>>,
 ) {
     let Ok((entity, mut pose, emitter)) = bodies.single_mut() else {
         return;
@@ -481,6 +485,15 @@ fn movement(
             )
         })
         .unwrap_or_default();
+    for (target, health) in &panzers {
+        if health.state() == LifeState::ActorAlive && kill_targets.contains(&target) {
+            commands
+                .entity(target)
+                .insert(crate::panzer::KnockdownRequest(
+                    crate::panzer::KnockdownKind::Tank,
+                ));
+        }
+    }
     for (target, position, health, collider, disabled) in &actors {
         if health.state() != LifeState::Standing || roof_targets.contains(&target) {
             continue;

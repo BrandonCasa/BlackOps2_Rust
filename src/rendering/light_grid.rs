@@ -127,10 +127,6 @@ impl GridDefinition {
 }
 
 impl LightGrid {
-    pub(crate) fn origin_offset(&self) -> f32 {
-        self.definition.offset
-    }
-
     fn validate_rows(&self) {
         for &row in &self.rows {
             if row == u16::MAX {
@@ -253,6 +249,16 @@ impl LightGrid {
     }
 
     pub(crate) fn sample(&self, origin: Vec3) -> GridSample {
+        self.sample_inner(origin, false)
+    }
+
+    /// 0044d160 retains corner weights and raw visible-light coverage, unlike
+    /// the model atlas path which normalizes both after removing empty corners.
+    pub(crate) fn sample_particle(&self, origin: Vec3) -> GridSample {
+        self.sample_inner(origin, true)
+    }
+
+    fn sample_inner(&self, origin: Vec3, particle: bool) -> GridSample {
         assert!(origin.is_finite());
         let source = origin.to_array();
         let mut cell: [u32; 3] = std::array::from_fn(|i| {
@@ -350,6 +356,10 @@ impl LightGrid {
                 output.count += 1;
             }
         }
+        if particle {
+            output.visibility = visible * 0.003921569;
+            return output;
+        }
         output.visibility = visible / (visible_weight * 255.);
         if output.count == 1 {
             output.coefficients[0].1 = 1.;
@@ -418,6 +428,8 @@ mod tests {
         let sample = grid.sample(Vec3::new(3.2, 0., 0.));
         assert_eq!(sample.primary_light, 2);
         assert!((sample.visibility - 64. / 255.).abs() < 1e-6);
+        let particle = grid.sample_particle(Vec3::new(3.2, 0., 0.));
+        assert!((particle.visibility - 0.1 * 64. / 255.).abs() < 0.0001);
     }
 
     #[test]
@@ -437,6 +449,9 @@ mod tests {
             let sample = grid.sample(origin);
             assert_eq!(sample.count, 1);
             assert_eq!(sample.coefficients[0], (1, 1.));
+            let particle = grid.sample_particle(origin);
+            assert_eq!(particle.coefficients[0], (1, 0.5));
+            assert_eq!(particle.visibility, 0.5);
         }
     }
 

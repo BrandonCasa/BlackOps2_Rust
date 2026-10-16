@@ -238,7 +238,7 @@ impl Zombie {
         mut self,
         spawner: &crate::access::ActorSpawnerDefinition,
         spawn: &crate::navigation::Admission,
-        entrance: crate::access::SpawnEntranceDefinition,
+        entrance: Option<crate::access::SpawnEntranceDefinition>,
         rise: Option<usize>,
     ) -> Self {
         let desired = spawn
@@ -257,7 +257,7 @@ impl Zombie {
             rise,
             rise_rotation: Quat::from_rotation_y(spawn.yaw),
         });
-        self.source_entrance = Some(entrance);
+        self.source_entrance = entrance;
         if rise.is_some() {
             self.eye_spawn = eyes::EyeSpawn::Ground;
         }
@@ -499,6 +499,14 @@ pub(crate) struct ActorRig {
     sockets: HashMap<String, Entity>,
 }
 impl ActorRig {
+    pub(crate) fn ready_for(&self, owner: Entity) -> bool {
+        self.owner == owner && self.primary && self.ready && self.attached
+    }
+    pub(crate) fn claw_socket(&self, owner: Entity) -> Option<Entity> {
+        (self.owner == owner && self.presentation.0 == "actor.c_zom_mech_claw")
+            .then(|| self.sockets.get("tag_claw").copied())
+            .flatten()
+    }
     pub(crate) fn joint(&self, owner: Entity, name: &str) -> Option<Entity> {
         (self.owner == owner && !self.replacement)
             .then(|| self.sockets.get(name).copied())
@@ -1313,7 +1321,7 @@ pub(crate) fn lifecycle(
                 let Some(attack_spot) = barriers.attack_spot(&window.id, slot) else {
                     continue;
                 };
-                if (attack_spot - feet).length_squared() > (2. * 0.0254_f32).powi(2) {
+                if !at_window_slot(feet, attack_spot, definition.tuning.step_height) {
                     zombie.destination = attack_spot + Vec3::Y * half_height;
                     approaching_barrier = true;
                 }
@@ -1632,6 +1640,12 @@ pub(crate) fn lifecycle(
             zombie.transition(EnemyAnimation::Idle);
         }
     }
+}
+fn at_window_slot(feet: Vec3, slot: Vec3, step_height: f32) -> bool {
+    let delta = slot - feet;
+    // The source goal radius is planar; grounded collision can leave the actor
+    // slightly above the ground trace used to place a window's attack slot.
+    delta.xz().length_squared() <= (2. * 0.0254_f32).powi(2) && delta.y.abs() <= step_height
 }
 fn nearby_landing(
     query: &SpatialQuery,
@@ -2158,16 +2172,34 @@ fn animate(
         let panzer = panzers.get(rig.owner).ok();
         let selected = zombie.animation_clip(enemy, &definition);
         let name = panzer
-            .map(|panzer| panzer.animation().0)
+            .map(|panzer| {
+                if rig.presentation.0 == "actor.c_zom_mech_claw" {
+                    if matches!(panzer.phase, crate::panzer::PanzerPhase::Claw { .. }) {
+                        "ai_zombie_mech_grapple_arm_open_idle"
+                    } else {
+                        "ai_zombie_mech_grapple_arm_closed_idle"
+                    }
+                } else {
+                    panzer.animation().0
+                }
+            })
             .or_else(|| selected.and_then(|clip| clip.id.0.rsplit('.').next()));
         let Some(name) = name else { continue };
-        let Some(path) = crate::animation::clip_path(&definition, &rig.source, name) else {
-            assert!(
-                !rig.primary,
-                "Required actor animation {name} missing from {:?}",
-                rig.source.path()
-            );
-            continue;
+        let path = match crate::animation::clip_binding(&definition, &rig.source, name) {
+            Some(Some(path)) => path,
+            Some(None) => {
+                player.stop_all();
+                clips.retain([], &graph, &mut assets);
+                continue;
+            }
+            None => {
+                assert!(
+                    !rig.primary,
+                    "Required actor animation {name} missing from {:?}",
+                    rig.source.path()
+                );
+                continue;
+            }
         };
         let looping = panzer.map_or_else(
             || selected.is_some_and(|clip| clip.looping),
@@ -2194,17 +2226,25 @@ fn follow_sockets(
         Query<(&Transform, Option<&ChildOf>)>,
         Query<(Entity, &ActorRig, &mut Transform)>,
     )>,
+    panzers: Query<(&crate::panzer::Panzer, &GlobalTransform)>,
 ) {
     let attachments: Vec<_> = poses
         .p1()
         .iter()
         .filter(|(_, rig, _)| rig.ready && rig.attached)
-        .filter_map(|(entity, rig, _)| Some((entity, rig.socket_entity?, rig.owner)))
+        .filter_map(|(entity, rig, _)| {
+            Some((
+                entity,
+                rig.socket_entity?,
+                rig.owner,
+                rig.presentation.0 == "actor.c_zom_mech_claw",
+            ))
+        })
         .collect();
     let transforms = poses.p0();
     let followed: Vec<_> = attachments
         .into_iter()
-        .filter_map(|(entity, socket, owner)| {
+        .filter_map(|(entity, socket, owner, claw)| {
             let mut cursor = socket;
             let mut local = Mat4::IDENTITY;
             while cursor != owner {
@@ -2214,11 +2254,23 @@ fn follow_sockets(
                 local = pose.to_matrix() * local;
                 cursor = parent.parent();
             }
-            Some((
-                entity,
+            let mut followed =
                 Transform::from_matrix(local * Mat4::from_rotation_x(std::f32::consts::FRAC_PI_2))
-                    .with_scale(Vec3::ONE),
-            ))
+                    .with_scale(Vec3::ONE);
+            if claw && let Ok((panzer, origin)) = panzers.get(owner) {
+                let tip = match panzer.phase {
+                    crate::panzer::PanzerPhase::Claw { tip, .. } => Some(tip),
+                    crate::panzer::PanzerPhase::Pulling(_) => panzer
+                        .captured
+                        .and_then(|player| transforms.get(player).ok())
+                        .map(|(pose, _)| pose.translation),
+                    _ => None,
+                };
+                if let Some(tip) = tip {
+                    followed.translation = origin.affine().inverse().transform_point3(tip);
+                }
+            }
+            Some((entity, followed))
         })
         .collect();
     for (entity, followed) in followed {
@@ -2258,10 +2310,7 @@ fn replace_distant(
 ) {
     for hit in hits.read() {
         if let Ok((_, mut zombie, _, _, _)) = enemies.get_mut(hit.impact.target) {
-            zombie.known_damage = matches!(
-                hit.impact.source,
-                crate::damage::ImpactSource::Weapon(_) | crate::damage::ImpactSource::Projectile(_)
-            );
+            zombie.known_damage |= hit.impact.source.player_attributed();
         }
     }
     let Ok((entity, player, body)) = players.single() else {
@@ -2479,6 +2528,13 @@ fn wounded_joints(
 #[cfg(test)]
 mod native_motion_tests {
     use super::*;
+
+    #[test]
+    fn window_goal_keeps_source_radius_without_stalling_on_ground_clearance() {
+        assert!(at_window_slot(Vec3::Y * 0.1, Vec3::ZERO, 18. * 0.0254));
+        assert!(!at_window_slot(Vec3::X * 0.06, Vec3::ZERO, 18. * 0.0254));
+        assert!(!at_window_slot(Vec3::Y, Vec3::ZERO, 18. * 0.0254));
+    }
 
     #[test]
     fn source_corpse_slots_prefer_free_then_behind_then_outside_view_then_distance() {

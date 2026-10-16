@@ -545,6 +545,7 @@ fn actors(
         Option<&crate::generators::GeneratorDefender>,
         Option<&crate::rounds::PopulationKind>,
         Option<&AudioJoints>,
+        Option<&crate::panzer::Panzer>,
     )>,
     joints: Query<&GlobalTransform>,
     spatial: SpatialQuery,
@@ -557,8 +558,9 @@ fn actors(
         .collect::<BTreeSet<_>>();
     let alive = zombies
         .iter()
-        .filter(|(_, _, _, health, defender, population, _)| {
+        .filter(|(_, _, _, health, defender, population, _, panzer)| {
             health.state() == LifeState::ActorAlive
+                && panzer.is_none()
                 && defender.is_none()
                 && population
                     .is_none_or(|kind| *kind != crate::rounds::PopulationKind::GeneratorDefender)
@@ -573,7 +575,7 @@ fn actors(
     if footstep_frame.0 != mixer.native_frame {
         *footstep_frame = (mixer.native_frame, 0);
     }
-    for (owner, zombie, pose, health, defender, population, bound_joints) in &zombies {
+    for (owner, zombie, pose, health, defender, population, bound_joints, panzer) in &zombies {
         let capture_actor = defender.is_some()
             || population
                 .is_some_and(|kind| *kind == crate::rounds::PopulationKind::GeneratorDefender);
@@ -588,30 +590,40 @@ fn actors(
         {
             clock.talking = None;
         }
-        if let Some(animation) = game
-            .content
-            .enemies
-            .iter()
-            .find(|enemy| enemy.id == zombie.definition)
-            .and_then(|enemy| zombie.animation_clip(enemy, &game))
-        {
+        let animation = if let Some(panzer) = panzer {
+            game.content.animations.iter().find(|clip| {
+                clip.skeleton.0 == "actor.c_zom_mech_body"
+                    && clip.id.0.rsplit('.').next() == Some(panzer.animation().0)
+            })
+        } else {
+            game.content
+                .enemies
+                .iter()
+                .find(|enemy| enemy.id == zombie.definition)
+                .and_then(|enemy| zombie.animation_clip(enemy, &game))
+        };
+        if let Some(animation) = animation {
+            let elapsed = panzer.map_or(zombie.elapsed, |p| p.animation_elapsed);
+            let looping = panzer.map_or(animation.looping, |p| p.animation().1);
             let clock = &mut clock.animation;
             if clock.key != animation.id.0
                 || clock.sequence != zombie.animation_sequence()
-                || zombie.elapsed < clock.sampled
+                || elapsed < clock.sampled
             {
                 clock.key = animation.id.0.clone();
                 clock.sequence = zombie.animation_sequence();
                 clock.sampled = -0.001;
             }
-            if let Some(notes) = game.audio.timelines.get(&animation.id.0) {
+            if panzer.is_none()
+                && let Some(notes) = game.audio.timelines.get(&animation.id.0)
+            {
                 for note in notes {
                     let count = note_crossings(
                         note.seconds,
                         clock.sampled,
-                        zombie.elapsed,
+                        elapsed,
                         animation.seconds,
-                        animation.looping,
+                        looping,
                     );
                     for _ in 0..count {
                         emit(
@@ -629,9 +641,9 @@ fn actors(
                 let count = note_crossings(
                     note.seconds,
                     clock.sampled,
-                    zombie.elapsed,
+                    elapsed,
                     animation.seconds,
-                    animation.looping,
+                    looping,
                 );
                 if count == 0 || footstep_frame.1 >= 16 {
                     continue;
@@ -676,7 +688,10 @@ fn actors(
                     }
                 }
             }
-            clock.sampled = zombie.elapsed;
+            clock.sampled = elapsed;
+        }
+        if panzer.is_some() {
+            continue;
         }
         if health.state() != LifeState::ActorAlive {
             continue;

@@ -593,9 +593,11 @@ pub const REPAIR_TRIGGER_LAYER: u32 = 32;
 #[derive(Component)]
 #[require(crate::animation::SceneClips)]
 pub struct BoardVisual {
-    id: ContentId,
+    window: usize,
     index: usize,
-    source: Handle<Gltf>,
+    base: Transform,
+    clips: [usize; 2],
+    _handles: [Handle<AnimationClip>; 2],
 }
 #[derive(Component)]
 struct WoodAudio;
@@ -641,7 +643,7 @@ fn assemble(
     }
     *barriers = Barriers::default();
     barriers.round = session.round;
-    for d in &definition.content.barriers {
+    for (window, d) in definition.content.barriers.iter().enumerate() {
         let Some(p) = definition
             .content
             .placements
@@ -752,18 +754,23 @@ fn assemble(
             else {
                 continue;
             };
-            let base = scene.split('#').next().unwrap_or(scene);
+            let clips = [&b.repair, &b.pull].map(|id| {
+                definition
+                    .content
+                    .animations
+                    .iter()
+                    .position(|a| a.id == *id)
+                    .expect("Required source board animation")
+            });
             commands.spawn((
                 SessionEntity,
                 BoardVisual {
-                    id: d.id.clone(),
+                    window,
                     index,
-                    source: server
-                        .load_builder()
-                        .with_settings(|settings: &mut bevy::gltf::GltfLoaderSettings| {
-                            settings.load_animations = false;
-                        })
-                        .load(base.to_owned()),
+                    base: Transform::from_translation(origin).with_rotation(rotation),
+                    clips,
+                    _handles: clips
+                        .map(|clip| server.load(definition.content.animations[clip].path.clone())),
                 },
                 WorldAssetRoot(
                     server
@@ -1020,67 +1027,83 @@ fn animate(
         return;
     };
     for (visual, mut visibility, mut pose, mut clips, mut player, mut graph) in &mut boards {
-        let Some(d) = definition
-            .content
-            .barriers
-            .iter()
-            .find(|d| d.id == visual.id)
-        else {
-            continue;
-        };
+        let d = &definition.content.barriers[visual.window];
         let Some(state) = barriers
             .windows
-            .get(&visual.id)
+            .get(&d.id)
             .and_then(|b| b.get(visual.index))
             .copied()
         else {
             continue;
         };
-        *visibility = if state == BoardState::Missing {
-            Visibility::Hidden
-        } else {
-            Visibility::Inherited
-        };
+        if state == BoardState::Missing {
+            *visibility = Visibility::Hidden;
+            continue;
+        }
+        *visibility = Visibility::Inherited;
         let board = &d.boards[visual.index];
-        let (elapsed, animation) = match state {
-            BoardState::Opening(age) => (age, &board.pull),
-            BoardState::Closing(age) => (age, &board.repair),
-            _ => (board.repair_seconds, &board.repair),
+        let (elapsed, clip) = match state {
+            BoardState::Opening(age) => (age, 1),
+            BoardState::Closing(age) => (age, 0),
+            _ => (board.repair_seconds, 0),
         };
-        let name = animation.0.rsplit('.').next().unwrap();
-        let path = crate::animation::clip_path(&definition, &visual.source, name)
-            .expect("Required barrier clip binding");
-        if !clips.sample(path, elapsed, false, &mut player, &mut graph, &mut assets) {
+        let animation = &definition.content.animations[visual.clips[clip]];
+        if !clips.sample(
+            &animation.path,
+            elapsed,
+            false,
+            &mut player,
+            &mut graph,
+            &mut assets,
+        ) {
             *visibility = Visibility::Hidden;
         }
-        let Some(placement) = definition
-            .content
-            .placements
-            .iter()
-            .find(|placement| placement.id == d.placement)
-        else {
-            continue;
-        };
-        let base_rotation = Quat::from_rotation_y(placement.yaw);
-        pose.translation = Vec3::from_array(placement.position);
-        pose.rotation = base_rotation;
-        if let Some(root) = definition
-            .content
-            .animations
-            .iter()
-            .find(|definition| definition.id == *animation)
-            .and_then(|definition| definition.root_motion.as_ref())
-        {
-            let seconds = elapsed.clamp(0., root.seconds);
-            pose.translation += base_rotation * Vec3::from_array(root.translation_at(seconds));
-            pose.rotation = base_rotation * Quat::from_array(root.rotation_at(seconds));
-        }
+        let root = animation
+            .root_motion
+            .as_ref()
+            .expect("Required source board root motion");
+        let seconds = elapsed.clamp(0., root.seconds);
+        *pose = visual.base.mul_transform(
+            Transform::from_translation(Vec3::from_array(root.translation_at(seconds)))
+                .with_rotation(Quat::from_array(root.rotation_at(seconds))),
+        );
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn repair_and_tearing_compete_per_board_and_retirement_releases_only_its_claim() {
+        let id = ContentId("barrier.test".into());
+        let mut world = World::new();
+        let zombie = world.spawn_empty().id();
+        let player = world.spawn_empty().id();
+        let mut session = Session::default();
+        let mut barriers = Barriers::default();
+        barriers
+            .windows
+            .insert(id.clone(), vec![BoardState::Closed, BoardState::Missing]);
+        let (board, _) = barriers.claim(&id, zombie, 0).unwrap();
+        barriers.begin_pull(&id, board, zombie);
+        assert_eq!(barriers.repair(&id, player, &mut session, 1.), Some(1));
+        assert_eq!(
+            barriers.windows[&id][board],
+            BoardState::Pulling(zombie, 0.)
+        );
+        assert_eq!(barriers.windows[&id][1], BoardState::Closing(0.));
+        assert!(barriers.claim(&id, player, 0).is_none());
+        assert!(barriers.destroy(&id, board, zombie));
+        assert!(barriers.obstructed(&id));
+        barriers.release(zombie);
+        assert_eq!(barriers.windows[&id][board], BoardState::Opening(0.));
+        assert_eq!(barriers.windows[&id][1], BoardState::Closing(0.));
+        barriers.windows.get_mut(&id).unwrap()[1] = BoardState::Closed;
+        assert_eq!(barriers.claim(&id, zombie, 0).unwrap().0, 1);
+        barriers.release(zombie);
+        assert_eq!(barriers.windows[&id][1], BoardState::Closed);
+    }
 
     #[test]
     fn native_reach_uses_source_slot_minus_one_and_separate_trigger_height_checks() {

@@ -54,3 +54,95 @@ pub const ALIGNMENT: &[[f32; 3]] = &[
     [0.000000, 17.272000, -95.504000],
     [0.000000, 17.272000, 44.297600],
 ];
+
+use bevy::prelude::*;
+
+pub(super) struct Footprint {
+    pub point: Vec3,
+    pub lights: Vec<Transform>,
+}
+
+/// The client script follows the map's target chains; lights within 800 source
+/// units of the next footprint stay on until one second after that foot lands.
+pub(super) fn warning_paths(bytes: &[u8]) -> [[Vec<Footprint>; 2]; 3] {
+    #[derive(serde::Deserialize)]
+    struct Map {
+        entities: Vec<Record>,
+    }
+    #[derive(serde::Deserialize)]
+    struct Record {
+        #[serde(default)]
+        targetname: String,
+        #[serde(default)]
+        target: String,
+        #[serde(default)]
+        origin: String,
+        #[serde(default)]
+        angles: String,
+    }
+    fn vector(text: &str) -> Vec3 {
+        let values: Vec<f32> = text
+            .split_whitespace()
+            .map(|v| v.parse().expect("Robot marker vector"))
+            .collect();
+        assert_eq!(values.len(), 3, "Required robot marker vector");
+        let v = Vec3::new(values[0], values[2], -values[1]) * 0.0254;
+        assert!(v.is_finite());
+        v
+    }
+    let map: Map = serde_json::from_slice(bytes).expect("Original robot map entities");
+    std::array::from_fn(|robot| {
+        let prefix = ["nml", "trench", "church"][robot];
+        let light_name = format!("{prefix}_foot_warn_light");
+        let lights: Vec<_> = map
+            .entities
+            .iter()
+            .filter(|e| e.targetname == light_name)
+            .map(|e| {
+                let mut pose = Transform::from_translation(vector(&e.origin));
+                if !e.angles.is_empty() {
+                    let angles: Vec<f32> = e
+                        .angles
+                        .split_whitespace()
+                        .map(|v| v.parse::<f32>().unwrap().to_radians())
+                        .collect();
+                    assert_eq!(angles.len(), 3);
+                    pose.rotation = Quat::from_rotation_y(-angles[1])
+                        * Quat::from_rotation_z(-angles[0])
+                        * Quat::from_rotation_x(angles[2]);
+                }
+                pose
+            })
+            .collect();
+        assert!(!lights.is_empty(), "Required robot {robot} warning lights");
+        std::array::from_fn(|side| {
+            let mut name = format!("{prefix}_warn_light_fp_ref_{}", ["left", "right"][side]);
+            let mut visited = std::collections::BTreeSet::new();
+            let mut path = Vec::new();
+            while !name.is_empty() {
+                assert!(
+                    visited.insert(name.clone()),
+                    "Robot footprint target cycle: {name}"
+                );
+                let marker = map
+                    .entities
+                    .iter()
+                    .find(|e| e.targetname == name)
+                    .unwrap_or_else(|| panic!("Required robot footprint marker {name}"));
+                let point = vector(&marker.origin);
+                path.push(Footprint {
+                    point,
+                    lights: lights
+                        .iter()
+                        .copied()
+                        .filter(|light| {
+                            light.translation.distance_squared(point) < (800_f32 * 0.0254).powi(2)
+                        })
+                        .collect(),
+                });
+                name.clone_from(&marker.target);
+            }
+            path
+        })
+    })
+}

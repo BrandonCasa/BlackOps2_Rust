@@ -1,5 +1,6 @@
 // Original model VS4876d431, replace PS49c3292c and multiply PS from
-// mc_unlit_multiply_97923qz1. See model-layered-unlit-source.json for hashes.
+// mc_unlit_multiply_97923qz1; decal blend VS/PS5c3f6d9c.
+// See model-layered-unlit-source.json for the non-decal shader hashes.
 import package::rendering::native_model::{NativeModelScene, NativeModelObject};
 import package::rendering::native_world::{NativeWorldObject};
 import package::rendering::native_world_plain::{NativeWorldGeometricVertexInput, native_world_position_fog};
@@ -25,7 +26,7 @@ fn vertex_unlit(input: Input) -> Varyings {
     // The shared transform/fog helper consumes only world_rows, position and UV.
     let output = native_world_position_fog(
         NativeWorldGeometricVertexInput(input.position, input.color, input.uv, vec3<f32>(0.0), vec2<f32>(0.0)),
-        scene.world, NativeWorldObject(object.world_rows, vec4<f32>(0.0), vec4<f32>(0.0), vec4<f32>(0.0)));
+        scene.world, NativeWorldObject(object.world_rows, vec4<f32>(0.0), vec4<f32>(0.0), vec4<f32>(0.0), vec4<f32>(1.0)));
     return Varyings(output.clip_position, input.color, vec3<f32>(input.uv, output.normal_fog.w), output.fog_color);
 }
 fn shade_replace(input: Varyings) -> vec4<f32> {
@@ -38,6 +39,13 @@ fn shade_multiply(input: Varyings) -> vec4<f32> {
     let color = textureSample(color_map, color_sampler, input.uv_fog.xy) * input.color;
     let delta = fma(color.rgb, color.rgb, vec3<f32>(-1.0));
     return vec4<f32>(fma(vec3<f32>(input.uv_fog.z), delta, vec3<f32>(1.0)), color.a);
+}
+// PS5c3f6d9c: texture/vertex alpha and fog fade toward the multiply identity.
+fn shade_decal_multiply(input: Varyings) -> vec4<f32> {
+    let sample = textureSample(color_map, color_sampler, input.uv_fog.xy);
+    let delta = fma(sample.rgb, input.color.rgb, vec3<f32>(-1.0));
+    let opacity = (sample.a * input.color.a) * input.uv_fog.z;
+    return vec4<f32>(fma(vec3<f32>(opacity), delta, vec3<f32>(1.0)), opacity);
 }
 fn attachment_srgb(encoded: vec4<f32>) -> vec4<f32> {
     let linear = select(encoded.rgb / vec3<f32>(12.92),
@@ -53,3 +61,7 @@ fn fragment_replace_srgb(input: Varyings) -> @location(0) vec4<f32> { return att
 fn fragment_multiply(input: Varyings) -> @location(0) vec4<f32> { return shade_multiply(input); }
 @fragment
 fn fragment_multiply_srgb(input: Varyings) -> @location(0) vec4<f32> { return attachment_srgb(shade_multiply(input)); }
+@fragment
+fn fragment_decal_multiply(input: Varyings) -> @location(0) vec4<f32> { return shade_decal_multiply(input); }
+@fragment
+fn fragment_decal_multiply_srgb(input: Varyings) -> @location(0) vec4<f32> { return attachment_srgb(shade_decal_multiply(input)); }

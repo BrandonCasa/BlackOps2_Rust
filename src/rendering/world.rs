@@ -17,6 +17,7 @@ use super::{material::MaterialDefinition, models::ReflectionProbe, native::*};
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WorldDrawDefinition {
+    sky: super::native_sky::SkyDefinition,
     vertex_data_file0: String,
     vertex_data_file1: String,
     index_file: String,
@@ -80,8 +81,10 @@ struct Lightmap {
 /// IO ownership ends when the geometry is handed to Bevy's render assets.
 pub(crate) struct LoadedWorld {
     definition: WorldDrawDefinition,
+    sky: super::native_sky::LoadedSky,
     geometry: NativeWorldGeometry,
     materials: BTreeMap<String, MaterialDefinition>,
+    visibility: super::culling::VisibilityWorld,
 }
 
 impl WorldDrawDefinition {
@@ -91,14 +94,21 @@ impl WorldDrawDefinition {
 
     pub(crate) fn load(mut self, root: &Path) -> LoadedWorld {
         self.reflection.validate();
+        let visibility = super::culling::VisibilityWorld::load(
+            root,
+            self.surfaces.len(),
+            self.static_model_count,
+            self.reflection.cell_count(),
+        );
         let read = |path: &str| {
             std::fs::read(root.join(path))
                 .unwrap_or_else(|error| panic!("Read original world stream {path}: {error}"))
         };
         let geometry = NativeWorldGeometry {
-            primary: read(&self.vertex_data_file0),
+            primary: read(&self.vertex_data_file0).into(),
             auxiliary: read(&self.vertex_data_file1),
-            indices: read(&self.index_file),
+            indices: read(&self.index_file).into(),
+            vertex_stride: 36,
         };
         assert_eq!(geometry.indices.len(), self.index_count * 2);
         let mut materials = BTreeMap::new();
@@ -193,10 +203,13 @@ impl WorldDrawDefinition {
             shadow_only,
             sun_casters, "Validated original world shadow inputs; depth rendering remains required"
         );
+        let sky = self.sky.load(root);
         LoadedWorld {
             definition: self,
+            sky,
             geometry,
             materials,
+            visibility,
         }
     }
 }
@@ -216,6 +229,9 @@ impl NativeWorldRoot {
 
 #[derive(Component)]
 pub(crate) struct WorldSurfaceLighting(pub(crate) [Vec4; 3]);
+
+#[derive(Component)]
+pub(crate) struct WorldSurfaceColor(pub(crate) Vec4);
 
 #[derive(Resource)]
 pub(crate) struct WorldWaterLighting(pub(crate) Arc<NativeWaterLights>);
@@ -254,6 +270,8 @@ impl LoadedWorld {
         let mut bound_water = BTreeMap::new();
         let mut missing = BTreeMap::<String, String>::new();
         let mut images = HashMap::new();
+        let sky_image = self.sky.install(commands, server, geometries);
+        images.insert(sky_image.id(), sky_image);
         for surface in &world.surfaces {
             let source = &self.materials[&surface.material_file];
             if source.world_debug_only() {
@@ -342,6 +360,9 @@ impl LoadedWorld {
             server,
         )
         .unwrap_or_else(|error| panic!("Original water lighting: {error}"));
+        commands.insert_resource(crate::native_fx::lighting::Source {
+            primary: world.primary_lights,
+        });
         for image in water_lights.images() {
             images.entry(image.id()).or_insert_with(|| image.clone());
         }
@@ -367,6 +388,11 @@ impl LoadedWorld {
             ))
             .id();
         let auxiliary_len = self.geometry.auxiliary.len() as u64;
+        let mut decal_world = crate::native_fx::decal::World {
+            primary: self.geometry.primary.clone(),
+            indices: self.geometry.indices.clone(),
+            receivers: Vec::new(),
+        };
         let geometry = geometries.add(self.geometry);
         let frame = Transform::from_matrix(source_frame());
         let mut brush_owners = BTreeMap::new();
@@ -429,6 +455,7 @@ impl LoadedWorld {
                     .unwrap_or_else(|| panic!("Original world brush {part} has no gameplay owner"))
             };
             let first = model.start_surf_index as usize;
+            let mut decal_receivers = Vec::new();
             for surface in &world.surfaces[first..first + model.surface_count] {
                 if surface.flags & 8 != 0
                     && self.materials[&surface.material_file].world_shadow_only()
@@ -441,6 +468,10 @@ impl LoadedWorld {
                             primary_offset: surface.vertex_data_offset0,
                             first_index: surface.base_index,
                             index_count: surface.tri_count * 3,
+                            bounds: Aabb::from_min_max(
+                                Vec3::from_array(surface.bounds[0]),
+                                Vec3::from_array(surface.bounds[1]),
+                            ),
                         });
                     }
                     continue;
@@ -476,6 +507,11 @@ impl LoadedWorld {
                     })),
                     Name::new(surface.material.clone()),
                 ));
+                if index == 0 {
+                    entity.insert(super::culling::BspSurface(
+                        surface.source_surface_index as usize,
+                    ));
+                }
                 if let Some((material, state)) = bound_water.get(&key) {
                     entity.insert(NativeWaterSurface {
                         geometry: geometry.clone(),
@@ -521,6 +557,25 @@ impl LoadedWorld {
                         index_count: surface.tri_count * 3,
                     });
                 }
+                if self.materials[&surface.material_file].receives_marks() {
+                    decal_receivers.push(crate::native_fx::decal::Receiver {
+                        entity: entity.id(),
+                        bounds: surface.bounds.map(Vec3::from_array),
+                        vertex_offset: surface.vertex_data_offset0 as usize,
+                        first_index: surface.base_index as usize,
+                        index_count: surface.tri_count as usize * 3,
+                        surface_type_bits: self.materials[&surface.material_file].surface_type_bits,
+                        lightmap_index: surface.lightmap_index,
+                        probe_index: surface.reflection_probe_index,
+                        primary_light_index: surface.primary_light_index,
+                        lightmap: lightmaps.get(surface.lightmap_index).cloned(),
+                        probe: probes[surface.reflection_probe_index].clone(),
+                        lighting: std::array::from_fn(|i| Vec4::from_slice(&sh[i * 4..i * 4 + 4])),
+                    });
+                }
+            }
+            if !decal_receivers.is_empty() {
+                decal_world.receivers.push(decal_receivers);
             }
         }
         if !shadow_draws.is_empty() {
@@ -532,41 +587,53 @@ impl LoadedWorld {
                 });
         }
         commands.insert_resource(world.reflection);
+        commands.insert_resource(self.visibility);
+        commands.insert_resource(decal_world);
     }
 }
 
 pub(crate) fn object_constants(
-    camera: Query<Ref<GlobalTransform>, With<super::GameCamera>>,
+    camera: Query<
+        (&GlobalTransform, &bevy::camera::visibility::VisibleEntities),
+        With<super::GameCamera>,
+    >,
     mut surfaces: Query<(
-        Entity,
-        Ref<GlobalTransform>,
-        Ref<WorldSurfaceLighting>,
+        &GlobalTransform,
+        &WorldSurfaceLighting,
+        Option<&WorldSurfaceColor>,
         Option<&mut NativeWorldObject>,
     )>,
     mut commands: Commands,
-    mut previous_eye: Local<Option<Vec3>>,
 ) {
-    let Ok(camera) = camera.single() else {
+    let Ok((camera, visible)) = camera.single() else {
         return;
     };
     let inverse_frame = source_frame().inverse();
     let eye = inverse_frame.transform_point3(camera.translation());
-    let eye_changed = *previous_eye != Some(eye);
-    *previous_eye = Some(eye);
     let to_eye = Mat4::from_translation(-eye) * inverse_frame;
-    for (entity, transform, lighting, object) in &mut surfaces {
-        if !eye_changed && !transform.is_changed() && !lighting.is_changed() && object.is_some() {
+    for &entity in [
+        std::any::TypeId::of::<NativeWorldSurface>(),
+        std::any::TypeId::of::<super::native_model::NativeModelSurface>(),
+        std::any::TypeId::of::<NativeWaterSurface>(),
+    ]
+    .into_iter()
+    .flat_map(|class| visible.iter(class))
+    {
+        let Ok((transform, lighting, color, object)) = surfaces.get_mut(entity) else {
             continue;
-        }
+        };
         let matrix = to_eye * transform.to_matrix();
         let constants = NativeWorldObject {
             world_rows: std::array::from_fn(|i| matrix.row(i)),
             reflection_lighting_sh0: lighting.0[0],
             reflection_lighting_sh1: lighting.0[1],
             reflection_lighting_sh2: lighting.0[2],
+            color: color.map_or(Vec4::ONE, |color| color.0),
         };
         if let Some(mut object) = object {
-            *object = constants;
+            if *object != constants {
+                *object = constants;
+            }
         } else {
             commands.entity(entity).insert(constants);
         }

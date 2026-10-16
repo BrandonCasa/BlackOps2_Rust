@@ -94,7 +94,15 @@ pub struct RisingPickup {
 #[derive(Component)]
 pub struct WeaponTimeout(pub f32);
 #[derive(Component)]
-struct WeaponOrigin(Vec3);
+struct WeaponOrigin {
+    position: Vec3,
+    digger: Entity,
+}
+#[derive(Message, Clone, Copy)]
+pub struct DigWeaponShared {
+    pub digger: Entity,
+    pub collector: Entity,
+}
 #[derive(Component)]
 pub struct PerkSlotBottle {
     pub owner: Entity,
@@ -114,6 +122,7 @@ pub struct DiggingPlugin;
 impl Plugin for DiggingPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Digging>()
+            .add_message::<DigWeaponShared>()
             .register_required_components::<Player, Digger>()
             .add_systems(
                 OnEnter(GameState::StartingSession),
@@ -513,7 +522,7 @@ fn interact(
     settings: Res<crate::input::ControlSettings>,
     server: Res<AssetServer>,
     spatial: SpatialQuery,
-    mut state: ResMut<Digging>,
+    (mut state, mut shared): (ResMut<Digging>, MessageWriter<DigWeaponShared>),
     weather: Res<Weather>,
     effects: Res<crate::powerups::PowerupEffects>,
     drops: Res<crate::powerups::Drops>,
@@ -526,6 +535,7 @@ fn interact(
             &Transform,
             Option<&RisingPickup>,
             Option<&WeaponTimeout>,
+            Option<&WeaponOrigin>,
         ),
         Without<Player>,
     >,
@@ -579,7 +589,7 @@ fn interact(
         * Vec3::NEG_Z;
     let candidate = targets
         .iter()
-        .filter_map(|(e, target, pose, rising, timer)| {
+        .filter_map(|(e, target, pose, rising, timer, provenance)| {
             if rising.is_some() || timer.is_some_and(|t| t.0 <= 0.) {
                 return None;
             }
@@ -624,10 +634,10 @@ fn interact(
             {
                 return None;
             }
-            Some((dot, distance, e, target, pose.translation))
+            Some((dot, distance, e, target, pose.translation, provenance))
         })
         .max_by(|a, b| a.0.total_cmp(&b.0).then_with(|| b.1.total_cmp(&a.1)));
-    let Some((_, _, entity, target, position)) = candidate else {
+    let Some((_, _, entity, target, position, provenance)) = candidate else {
         return;
     };
     focus.target = Some(entity);
@@ -824,7 +834,10 @@ fn interact(
                     commands.entity(entity).insert((
                         DigTarget::Weapon(id.clone()),
                         WeaponTimeout(12.),
-                        WeaponOrigin(point + Vec3::Y * 1.016),
+                        WeaponOrigin {
+                            position: point + Vec3::Y * 1.016,
+                            digger: owner,
+                        },
                     ));
                     sound(&mut commands, &game, "evt_weapon_digup", entity);
                     outcome = id.0;
@@ -889,6 +902,14 @@ fn interact(
             if !accepted {
                 return;
             }
+            if let Some(provenance) = provenance
+                && provenance.digger != owner
+            {
+                shared.write(DigWeaponShared {
+                    digger: provenance.digger,
+                    collector: owner,
+                });
+            }
             commands.entity(entity).despawn();
             crate::audio::binding(
                 &mut commands,
@@ -912,7 +933,7 @@ fn interact(
 
 fn sink_weapons(mut pickups: Query<(&WeaponTimeout, &WeaponOrigin, &mut Transform)>) {
     for (timer, origin, mut pose) in &mut pickups {
-        pose.translation = origin.0 - Vec3::Y * 1.016 * (1. - timer.0 / 12.).clamp(0., 1.);
+        pose.translation = origin.position - Vec3::Y * 1.016 * (1. - timer.0 / 12.).clamp(0., 1.);
     }
 }
 

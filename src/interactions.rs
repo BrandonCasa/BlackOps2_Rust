@@ -213,10 +213,7 @@ fn assemble(
                 })
                 .and_then(|p| p.scene.as_ref());
             if let Some(scene) = scene {
-                entity.insert((
-                    WorldAssetRoot(server.load(scene.clone())),
-                    crate::presentation::camo::WeaponMaterialContext(weapon.clone()),
-                ));
+                entity.insert(WorldAssetRoot(server.load(scene.clone())));
             }
         }
     }
@@ -513,18 +510,9 @@ pub(crate) fn interact(
                     .map(str::trim)
                     .filter(|flag| !flag.is_empty())
                 {
-                    access.flags.insert(flag.into());
-                    for link in definition
-                        .access
-                        .flag_links
-                        .iter()
-                        .filter(|link| link.flag == flag)
-                    {
-                        access.open.extend(link.connections.iter().cloned());
-                    }
+                    access.set_flag(&definition.content, &definition.access, flag);
                     native_flags.write(crate::access::ZoneFlagSet(flag.into()));
                 }
-                access.refresh(&definition.content);
                 if debris {
                     trigger_queue.push_and_delete(native_trigger, player_entity);
                 } else {

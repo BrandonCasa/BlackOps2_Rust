@@ -448,6 +448,14 @@ pub struct SoundRequest {
     native: Option<usize>,
     secondary_sent: bool,
 }
+#[cfg(test)]
+pub(crate) fn requested_sounds(world: &mut World) -> Vec<(String, SoundSource)> {
+    world
+        .query::<&SoundRequest>()
+        .iter(world)
+        .map(|request| (request.alias.clone(), request.source))
+        .collect()
+}
 #[derive(Component, Clone, Copy)]
 pub struct SoundControl {
     pub volume: f32,

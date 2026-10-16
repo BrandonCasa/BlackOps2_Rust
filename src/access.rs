@@ -62,6 +62,8 @@ pub struct SpawnDefinition {
     pub position: [f32; 3],
     pub rising: bool,
     #[serde(default)]
+    pub find_flesh: bool,
+    #[serde(default)]
     pub yaw: f32,
     #[serde(default)]
     pub desired_origin: Option<[f32; 3]>,
@@ -110,7 +112,7 @@ impl ZoneAccess {
     pub fn opened(&self, id: &ContentId) -> bool {
         self.open.contains(id)
     }
-    fn set_flag(
+    pub(crate) fn set_flag(
         &mut self,
         content: &ContentCatalog,
         definition: &AccessDefinition,
@@ -119,14 +121,18 @@ impl ZoneAccess {
         if !self.flags.insert(flag.to_owned()) {
             return false;
         }
-        if let Some(link) = definition.flag_links.iter().find(|link| link.flag == flag) {
-            let mut changed = false;
+        let mut changed = false;
+        for link in definition
+            .flag_links
+            .iter()
+            .filter(|link| link.flag == flag)
+        {
             for connection in &link.connections {
                 changed |= self.open.insert(connection.clone());
             }
-            if changed {
-                self.refresh(content);
-            }
+        }
+        if changed {
+            self.refresh(content);
         }
         true
     }
@@ -226,10 +232,10 @@ impl ZoneScan {
         content: &ContentCatalog,
         contacts: &BTreeSet<ZoneId>,
         access: &mut ZoneAccess,
-    ) -> Vec<NewZoneActive> {
+    ) -> (Vec<NewZoneActive>, bool) {
         self.timer.tick(delta);
         if !self.timer.is_finished() {
-            return Vec::new();
+            return (Vec::new(), false);
         }
         if self.cursor == 0 {
             self.occupied.clear();
@@ -270,7 +276,7 @@ impl ZoneScan {
             if self.choke == 3 {
                 self.choke = 0;
                 self.timer = Timer::new(std::time::Duration::from_millis(50), TimerMode::Once);
-                return events;
+                return (events, false);
             }
         }
         if self.active.is_empty()
@@ -279,6 +285,7 @@ impl ZoneScan {
             self.active.insert(initial.id.clone());
             self.occupied.insert(initial.id.clone());
         }
+        let changed = access.active != self.active || access.occupied != self.occupied;
         if access.active != self.active {
             access.active.clone_from(&self.active);
         }
@@ -287,7 +294,7 @@ impl ZoneScan {
         }
         self.cursor = 0;
         self.timer = Timer::from_seconds(1., TimerMode::Once);
-        events
+        (events, changed)
     }
 }
 
@@ -299,14 +306,14 @@ fn scan_zones(
     mut access: ResMut<ZoneAccess>,
     mut active: MessageWriter<NewZoneActive>,
 ) {
-    let previous = (access.active.clone(), access.occupied.clone());
-    active.write_batch(scan.update(
+    let (events, changed) = scan.update(
         time.delta(),
         &game.content,
         &contacts.0,
         access.bypass_change_detection(),
-    ));
-    if previous.0 != access.active || previous.1 != access.occupied {
+    );
+    active.write_batch(events);
+    if changed {
         access.set_changed();
     }
 }
@@ -628,7 +635,9 @@ fn opening(
         }
         prop.age += time.delta_secs();
         let t = (prop.age / door.seconds).clamp(0., 1.);
-        let ease = if t < 0.25 {
+        let ease = if door.seconds < 0.5 {
+            t
+        } else if t < 0.25 {
             t * t * (8. / 3.)
         } else if t > 0.75 {
             1. - (1. - t).powi(2) * (8. / 3.)
@@ -636,8 +645,11 @@ fn opening(
             (t - 0.125) * (4. / 3.)
         };
         transform.translation = prop.start + prop.offset * ease;
-        if door.debris || t >= 1. {
+        if door.debris {
             commands.entity(entity).despawn();
+            evidence.animated += 1;
+        } else if t >= 1. {
+            commands.entity(entity).remove::<DoorProp>();
             evidence.animated += 1;
         }
     }
@@ -694,27 +706,32 @@ mod tests {
         let a = ZoneId("zone.start_a".into());
         let touching = BTreeSet::from([start.clone(), a.clone()]);
         assert_eq!(
-            scan.update(Duration::ZERO, &content, &touching, &mut access),
+            scan.update(Duration::ZERO, &content, &touching, &mut access)
+                .0,
             vec![NewZoneActive(start.clone()), NewZoneActive(a.clone())]
         );
         assert!(access.active.is_empty());
         assert!(
             scan.update(Duration::from_millis(49), &content, &touching, &mut access)
+                .0
                 .is_empty()
         );
         assert!(access.occupied.is_empty());
         assert!(
             scan.update(Duration::from_millis(1), &content, &touching, &mut access)
+                .0
                 .is_empty()
         );
         assert_eq!(access.occupied, touching);
         assert_eq!(access.active, access.reachable);
         assert!(
             scan.update(Duration::from_millis(999), &content, &touching, &mut access)
+                .0
                 .is_empty()
         );
         assert_eq!(
-            scan.update(Duration::from_millis(1), &content, &touching, &mut access),
+            scan.update(Duration::from_millis(1), &content, &touching, &mut access)
+                .0,
             vec![NewZoneActive(start), NewZoneActive(a)]
         );
     }
@@ -728,10 +745,12 @@ mod tests {
         let disabled = BTreeSet::from([ZoneId("zone.deferred".into())]);
         assert!(
             scan.update(Duration::ZERO, &content, &disabled, &mut access)
+                .0
                 .is_empty()
         );
         assert!(
             scan.update(Duration::from_millis(50), &content, &disabled, &mut access)
+                .0
                 .is_empty()
         );
         assert_eq!(access.active, BTreeSet::from([start.clone()]));
@@ -742,7 +761,8 @@ mod tests {
                 &content,
                 &BTreeSet::from([start.clone()]),
                 &mut access
-            ),
+            )
+            .0,
             vec![NewZoneActive(start.clone())]
         );
         scan.update(
@@ -759,6 +779,7 @@ mod tests {
                 &BTreeSet::from([start]),
                 &mut access
             )
+            .0
             .is_empty()
         );
     }
@@ -769,13 +790,16 @@ mod tests {
         access.open.clear();
         access.refresh(&content);
         let definition = AccessDefinition {
-            flag_links: vec![ZoneFlagLinkDefinition {
-                flag: "source.activation".into(),
-                connections: vec![
-                    ContentId("connection.start_a".into()),
-                    ContentId("connection.start_b".into()),
-                ],
-            }],
+            flag_links: vec![
+                ZoneFlagLinkDefinition {
+                    flag: "source.activation".into(),
+                    connections: vec![ContentId("connection.start_a".into())],
+                },
+                ZoneFlagLinkDefinition {
+                    flag: "source.activation".into(),
+                    connections: vec![ContentId("connection.start_b".into())],
+                },
+            ],
             ..default()
         };
         assert_eq!(access.reachable.len(), 1);
@@ -785,6 +809,99 @@ mod tests {
         assert!(!access.set_flag(&content, &definition, "source.activation"));
         assert_eq!(access.flags.len(), 1);
         assert_eq!(access.purchases, 0);
+    }
+
+    #[test]
+    fn zone_scan_reports_only_changes_to_published_access() {
+        use std::time::Duration;
+        let (content, mut access) = source_zones();
+        let mut scan = ZoneScan::default();
+        let contacts = BTreeSet::from([ZoneId("zone.start".into())]);
+        assert!(
+            !scan
+                .update(Duration::ZERO, &content, &contacts, &mut access)
+                .1
+        );
+        assert!(
+            scan.update(Duration::from_millis(50), &content, &contacts, &mut access)
+                .1
+        );
+        assert!(
+            !scan
+                .update(Duration::from_secs(1), &content, &contacts, &mut access)
+                .1
+        );
+        assert!(
+            !scan
+                .update(Duration::from_millis(50), &content, &contacts, &mut access)
+                .1
+        );
+    }
+
+    #[test]
+    fn opening_keeps_sliding_doors_and_removes_debris_and_blockers_once() {
+        use bevy::ecs::system::RunSystemOnce;
+        use std::time::Duration;
+        let mut game: GameDefinition =
+            serde_json::from_str(include_str!("../gameplay/origins/game.json")).unwrap();
+        let sliding = ContentId("connection.sliding".into());
+        let debris = ContentId("connection.debris".into());
+        game.audio.bindings.clear();
+        game.access.doors = [(&sliding, false), (&debris, true)]
+            .map(|(connection, debris)| DoorDefinition {
+                connection: connection.clone(),
+                connections: vec![connection.clone()],
+                debris,
+                seconds: 1.,
+                props: Vec::new(),
+                blocks: Vec::new(),
+                sound: ContentId("sound.door.test".into()),
+            })
+            .to_vec();
+        let mut world = World::new();
+        world.insert_resource(game);
+        world.init_resource::<Time<Fixed>>();
+        world.init_resource::<DoorEvidence>();
+        world.insert_resource(ZoneAccess {
+            open: BTreeSet::from([sliding.clone(), debris.clone()]),
+            ..default()
+        });
+        let spawn_prop = |world: &mut World, connection| {
+            world
+                .spawn((
+                    DoorProp {
+                        connection,
+                        start: Vec3::ZERO,
+                        offset: Vec3::X * 2.,
+                        age: 0.,
+                    },
+                    Transform::default(),
+                ))
+                .id()
+        };
+        let door = spawn_prop(&mut world, sliding.clone());
+        let rubble = spawn_prop(&mut world, debris);
+        let blocker = world.spawn(DoorBlocker(sliding)).id();
+        world
+            .resource_mut::<Time<Fixed>>()
+            .advance_by(Duration::from_millis(500));
+        world.run_system_once(opening).unwrap();
+        assert_eq!(world.get::<Transform>(door).unwrap().translation, Vec3::X);
+        assert!(world.get_entity(rubble).is_err());
+        assert!(world.get_entity(blocker).is_err());
+        world.run_system_once(opening).unwrap();
+        assert_eq!(
+            world.get::<Transform>(door).unwrap().translation,
+            Vec3::X * 2.
+        );
+        assert!(world.get::<DoorProp>(door).is_none());
+        world.run_system_once(opening).unwrap();
+        assert_eq!(
+            world.get::<Transform>(door).unwrap().translation,
+            Vec3::X * 2.
+        );
+        assert_eq!(world.resource::<DoorEvidence>().animated, 2);
+        assert_eq!(world.resource::<DoorEvidence>().removed, 1);
     }
 
     #[test]

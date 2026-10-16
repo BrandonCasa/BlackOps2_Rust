@@ -2,6 +2,7 @@
 use super::{ShadowViewSettings, sun::SunShadowViews};
 use crate::rendering::native::{NativeWorldGeometry, PreparedNativeGeometry};
 use bevy::{
+    camera::primitives::{Aabb, Frustum},
     core_pipeline::{Core3dSystems, core_3d::main_opaque_pass_3d, schedule::Core3d},
     ecs::query::QueryItem,
     mesh::VertexBufferLayout,
@@ -22,6 +23,7 @@ pub(crate) struct DepthDraw {
     pub primary_offset: u64,
     pub first_index: u32,
     pub index_count: u32,
+    pub bounds: Aabb,
 }
 
 #[derive(Component, Clone)]
@@ -209,14 +211,14 @@ fn prepare_atlas(
 }
 
 fn render_sun_depth(
-    view: ViewQuery<(&SunShadowAtlas, &ShadowViewSettings)>,
+    view: ViewQuery<(&SunShadowAtlas, &ShadowViewSettings, &SunShadowViews)>,
     pipeline: Res<DepthPipeline>,
     cache: Res<PipelineCache>,
     casters: Query<&ShadowCasters>,
     geometries: Res<RenderAssets<PreparedNativeGeometry>>,
     mut ctx: RenderContext,
 ) {
-    let (atlas, settings) = view.into_inner();
+    let (atlas, settings, views) = view.into_inner();
     let Some(pipeline) = pipeline
         .pipeline
         .and_then(|id| cache.get_render_pipeline(id))
@@ -244,6 +246,11 @@ fn render_sun_depth(
     pass.set_render_pipeline(pipeline);
     pass.set_bind_group(1, &atlas.object_group, &[]);
     for (index, group) in atlas.groups.iter().enumerate() {
+        // Each native sun projection has its own caster volume. Camera DPVS
+        // membership cannot reject offscreen geometry that shadows the view.
+        let frustum = Frustum(bevy::shape::ViewFrustum::from_clip_from_world(
+            &views.clip_from_world[index],
+        ));
         pass.set_viewport(
             0.,
             (index as u32 * atlas.size) as f32,
@@ -259,6 +266,9 @@ fn render_sun_depth(
             };
             pass.set_index_buffer(geometry.indices.slice(..), IndexFormat::Uint16);
             for draw in caster.draws.iter() {
+                if !frustum.intersects_obb_identity(&draw.bounds) {
+                    continue;
+                }
                 pass.set_vertex_buffer(0, geometry.primary.slice(draw.primary_offset..));
                 pass.draw_indexed(
                     draw.first_index..draw.first_index + draw.index_count,

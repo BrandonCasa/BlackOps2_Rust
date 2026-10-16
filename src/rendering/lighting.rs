@@ -5,6 +5,26 @@
 //! 0044b840 reduces RGB SH, 00457430/00457530 quantize/decode object constants,
 //! and 004576d0/004189a0 supply atlas coordinates and lookup scale.
 use bevy::prelude::{Vec3, Vec4};
+use std::sync::LazyLock;
+
+// Original cube-boundary order and texel indices, shared by both consumers.
+static LIGHTING_DIRECTIONS: LazyLock<[(usize, Vec3); 56]> = LazyLock::new(|| {
+    let mut directions = [(0, Vec3::ZERO); 56];
+    let mut at = 0;
+    for z in 0..4 {
+        for y in 0..4 {
+            for x in 0..4 {
+                if (1..3).contains(&x) && (1..3).contains(&y) && (1..3).contains(&z) {
+                    continue;
+                }
+                let direction = Vec3::new(x as f32, y as f32, z as f32) * 0.6666667 - Vec3::ONE;
+                directions[at] = (z * 16 + y * 4 + x, direction.normalize());
+                at += 1;
+            }
+        }
+    }
+    directions
+});
 
 pub(crate) struct LightingCoefficients {
     coefficients: Vec<[u16; 27]>,
@@ -18,6 +38,29 @@ pub(crate) struct StaticLighting {
 }
 
 impl LightingCoefficients {
+    /// 0044d160 averages the 56 unclipped cube-boundary samples after each
+    /// weighted SH record has been evaluated and clamped independently.
+    pub(crate) fn particle_ambient(&self, samples: &[(u16, f32)]) -> Vec3 {
+        let mut directions = [Vec3::ZERO; 56];
+        for &(index, weight) in samples {
+            let packed = &self.coefficients[usize::from(index)];
+            let coefficients = std::array::from_fn(|i| {
+                Vec3::new(
+                    decode(packed[i * 3]),
+                    decode(packed[i * 3 + 1]),
+                    decode(packed[i * 3 + 2]),
+                ) * weight
+            });
+            for (rgb, &(_, direction)) in directions.iter_mut().zip(LIGHTING_DIRECTIONS.iter()) {
+                *rgb += evaluate(&coefficients, direction);
+            }
+        }
+        directions
+            .into_iter()
+            .fold(Vec3::ZERO, |sum, rgb| sum + rgb)
+            * 0.017857144
+    }
+
     pub(crate) fn from_bytes(bytes: &[u8]) -> Self {
         assert!(
             !bytes.is_empty() && bytes.len().is_multiple_of(54),
@@ -68,27 +111,17 @@ impl LightingCoefficients {
         }
 
         let mut texels = [0; 256];
-        for z in 0..4 {
-            for y in 0..4 {
-                for x in 0..4 {
-                    // The shader samples the cube boundary; all eight interior
-                    // texels remain zero, as in native 00449f70.
-                    if (1..3).contains(&x) && (1..3).contains(&y) && (1..3).contains(&z) {
-                        continue;
-                    }
-                    let direction = Vec3::new(x as f32, y as f32, z as f32) * 0.6666667 - Vec3::ONE;
-                    let direction = direction * direction.length().recip();
-                    let mut rgb = evaluate(&decoded[0], direction);
-                    for record in &decoded[1..samples.len()] {
-                        rgb += evaluate(record, direction);
-                    }
-                    let offset = (z * 16 + y * 4 + x) * 4;
-                    texels[offset] = encode_texel(rgb.x);
-                    texels[offset + 1] = encode_texel(rgb.y);
-                    texels[offset + 2] = encode_texel(rgb.z);
-                    texels[offset + 3] = 255;
-                }
+        // The eight interior texels remain zero, as in native 00449f70.
+        for &(index, direction) in LIGHTING_DIRECTIONS.iter() {
+            let mut rgb = evaluate(&decoded[0], direction);
+            for record in &decoded[1..samples.len()] {
+                rgb += evaluate(record, direction);
             }
+            let offset = index * 4;
+            texels[offset] = encode_texel(rgb.x);
+            texels[offset + 1] = encode_texel(rgb.y);
+            texels[offset + 2] = encode_texel(rgb.z);
+            texels[offset + 3] = 255;
         }
 
         // 0044b840 fits one chromaticity and nine luminance coefficients into
@@ -191,6 +224,8 @@ mod tests {
             coefficients: vec![positive, negative],
         };
         let result = source.grid_lighting(&[(0, 0.5), (1, 0.5)]);
+        let ambient = source.particle_ambient(&[(0, 0.5), (1, 0.5)]);
+        assert!((ambient - Vec3::splat(4.)).abs().max_element() < 0.001);
         for (index, texel) in result.texels.chunks_exact(4).enumerate() {
             let (x, y, z) = (index % 4, (index / 4) % 4, index / 16);
             if (1..3).contains(&x) && (1..3).contains(&y) && (1..3).contains(&z) {

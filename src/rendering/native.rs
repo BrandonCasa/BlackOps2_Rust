@@ -48,15 +48,17 @@ use bevy::{
 /// all surfaces in the source world. Surface offsets retain the native layout.
 #[derive(Asset, TypePath, Clone)]
 pub struct NativeWorldGeometry {
-    pub primary: Vec<u8>,
+    pub primary: std::sync::Arc<[u8]>,
     pub auxiliary: Vec<u8>,
-    pub indices: Vec<u8>,
+    pub indices: std::sync::Arc<[u8]>,
+    pub vertex_stride: u64,
 }
 
 pub(crate) struct PreparedNativeGeometry {
     pub(crate) primary: Buffer,
     auxiliary: Option<Buffer>,
     pub(crate) indices: Buffer,
+    vertex_stride: u64,
 }
 
 impl RenderAsset for PreparedNativeGeometry {
@@ -78,6 +80,7 @@ impl RenderAsset for PreparedNativeGeometry {
             primary: std::mem::take(&mut source.primary),
             auxiliary: std::mem::take(&mut source.auxiliary),
             indices: std::mem::take(&mut source.indices),
+            vertex_stride: source.vertex_stride,
         })
     }
 
@@ -107,6 +110,7 @@ impl RenderAsset for PreparedNativeGeometry {
             })
         };
         Ok(Self {
+            vertex_stride: source.vertex_stride,
             primary: upload(
                 "native world primary vertices",
                 &source.primary,
@@ -161,13 +165,14 @@ pub struct NativeWorldScene {
 }
 
 /// Source world-to-eye-relative transform and the surface's probe coefficients.
-#[derive(Component, Clone, Copy, ShaderType, ExtractComponent)]
+#[derive(Component, Clone, Copy, PartialEq, ShaderType, ExtractComponent)]
 #[extract_app(RenderApp)]
 pub struct NativeWorldObject {
     pub world_rows: [Vec4; 4],
     pub reflection_lighting_sh0: Vec4,
     pub reflection_lighting_sh1: Vec4,
     pub reflection_lighting_sh2: Vec4,
+    pub color: Vec4,
 }
 
 /// All four original inputs are required, with original sampler addressing.
@@ -1538,6 +1543,7 @@ pub(crate) struct NativePipelineKey {
     samples: u32,
     state: NativeWorldState,
     family: NativeWorldFamily,
+    vertex_stride: u64,
 }
 
 impl SpecializedRenderPipeline for NativePipeline {
@@ -1580,6 +1586,18 @@ impl SpecializedRenderPipeline for NativePipeline {
                 },
             ],
         };
+        // Original world marks (005bf460) use float2 UVs/lightmap UVs,
+        // rather than the packed coordinates in GfxWorld's 36-byte stream.
+        if key.vertex_stride == 44 {
+            vertex_layout.array_stride = 44;
+            vertex_layout.attributes[2].format = VertexFormat::Float32x2;
+            vertex_layout.attributes[3].offset = 28;
+            vertex_layout.attributes[4].offset = 32;
+            vertex_layout.attributes[5].offset = 36;
+            vertex_layout.attributes[5].format = VertexFormat::Float32x2;
+        } else {
+            assert_eq!(key.vertex_stride, 36, "Original world vertex layout");
+        }
         if matches!(
             key.family,
             NativeWorldFamily::GeometricGloss
@@ -1799,6 +1817,7 @@ impl SpecializedRenderPipeline for NativePipeline {
         };
         let fragment = match (key.family, key.state.blend.is_some()) {
             (NativeWorldFamily::Diffuse, true) => "fragment_diffuse_blend",
+            (NativeWorldFamily::NormalSpecular, true) => "fragment_specular_blend",
             (NativeWorldFamily::GeometricDiffuse, true) => "fragment_geometric_diffuse_blend",
             (NativeWorldFamily::GeometricSpecular, true) => "fragment_geometric_specular_blend",
             _ => fragment,
@@ -2176,9 +2195,9 @@ pub(crate) fn queue_native_world(
             let Ok(surface) = surfaces.get(entity) else {
                 continue;
             };
-            if geometries.get(surface.geometry).is_none() {
+            let Some(geometry) = geometries.get(surface.geometry) else {
                 continue;
-            }
+            };
             let Some(material) = materials.get(surface.material) else {
                 continue;
             };
@@ -2187,6 +2206,7 @@ pub(crate) fn queue_native_world(
                 samples: msaa.samples(),
                 state: surface.state,
                 family: material.family,
+                vertex_stride: geometry.vertex_stride,
             };
             let pipeline = variants.specialize(&cache, &pipeline, key);
             if surface.pass != NativeWorldPass::Opaque {
@@ -2322,6 +2342,7 @@ pub(crate) fn render_ordered<const PASS: u8>(
         &ViewTarget,
         &ViewDepthStencilTexture,
         &ExtractedCamera,
+        Option<&bevy::camera::MainPassResolutionOverride>,
         &DynamicUniformIndex<NativeWorldScene>,
         Option<(
             &super::native_effect::PreparedEffectView,
@@ -2352,7 +2373,7 @@ pub(crate) fn render_ordered<const PASS: u8>(
         }
         _ => unreachable!("ordered renderer requires an ordered source stage"),
     };
-    let (view, target, depth, camera, scene, effect_depth) = view.into_inner();
+    let (view, target, depth, camera, resolution, scene, effect_depth) = view.into_inner();
     let Some(draws) = draws
         .0
         .get(&(view.retained_view_entity, stage))
@@ -2372,8 +2393,8 @@ pub(crate) fn render_ordered<const PASS: u8>(
         occlusion_query_set: None,
         multiview_mask: None,
     });
-    if let Some(viewport) = &camera.viewport {
-        pass.set_camera_viewport(viewport);
+    if let Some(viewport) = bevy::camera::Viewport::from_viewport_and_override(camera.viewport.as_ref(), resolution) {
+        pass.set_camera_viewport(&viewport);
     }
     for draw in draws {
         if draw.model {

@@ -94,3 +94,11 @@ pub const TAGS: &[(&str, [f32; 3], [f32; 3])] = &[
         [0.0, 0.0, -1.0],
     ),
 ];
+
+// veh_t6_dlc_mkiv_tank tag_mechz_1..4, after the existing tank model offset.
+pub const MECH_TAGS: [[f32; 3]; 4] = [
+    [-2.5400007, -1., -8.1273605],
+    [2.5400007, -1., -8.1273605],
+    [-2.5400007, -1., 5.628099],
+    [2.5400007, -1., 5.628099],
+];

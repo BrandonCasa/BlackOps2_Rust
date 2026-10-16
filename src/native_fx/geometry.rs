@@ -16,31 +16,29 @@ fn packed_half(value: f32) -> u16 {
     (narrowed as u16 & 0x3fff) | ((bits >> 16) as u16 & 0xc000)
 }
 
-fn vertex(bytes: &mut Vec<u8>, position: Vec3, color: [f32; 4], uv: Vec2, normal: u32) {
+fn vertex(bytes: &mut Vec<u8>, position: Vec3, color: [u8; 4], uv: Vec2, normal: u32) {
     for value in [position.x, position.y, position.z, -1.] {
         bytes.extend_from_slice(&value.to_le_bytes());
     }
-    // 005b4da0 lightingFrac=0: source RGB bytes shift right one bit; alpha
-    // retains its original byte. Nonzero source lighting is rejected by owner.
-    let color = color.map(|value| value.clamp(0., 255.) as u8);
-    bytes.extend_from_slice(&[color[0] >> 1, color[1] >> 1, color[2] >> 1, color[3]]);
+    bytes.extend_from_slice(&color);
     bytes.extend_from_slice(&packed_half(uv.x).to_le_bytes());
     bytes.extend_from_slice(&packed_half(uv.y).to_le_bytes());
     bytes.extend_from_slice(&normal.to_le_bytes());
     bytes.extend_from_slice(&[0; 4]);
 }
 
-// 005b52a0 / 005b6000 share the same signed 10-bit truncation.
-fn pack_normal(normal: Vec3) -> u32 {
+// 005b52a0 / 005b6000 / 005bf460 use CVTPS2DQ with nearest-even MXCSR.
+// Round each full scaled product before masking, including the shifted Y/Z.
+pub(super) fn pack_normal(normal: Vec3) -> u32 {
     let normal = normal.clamp(Vec3::NEG_ONE, Vec3::ONE);
-    ((normal.x * 511.) as i32 as u32 & 0x3ff)
-        | ((normal.y * 523264.) as i32 as u32 & 0xffc00)
-        | ((normal.z * 535822336.) as i32 as u32 & 0x3ff00000)
+    ((normal.x * 511.).round_ties_even() as i32 as u32 & 0x3ff)
+        | ((normal.y * 523264.).round_ties_even() as i32 as u32 & 0xffc00)
+        | ((normal.z * 535822336.).round_ties_even() as i32 as u32 & 0x3ff00000)
 }
 
 pub(super) fn quad(
     normal: Vec3,
-    color: [f32; 4],
+    color: [u8; 4],
     uv: Affine2,
     trim: [f32; 2],
 ) -> (NativeEffectGeometry, Aabb, u32) {
@@ -92,13 +90,102 @@ pub(super) fn quad(
     )
 }
 
+/// Type 3 directional sprite (005b6bf0 / 005b6cc0 -> 005b6a80).
+/// Origin, eye and direction use engine world axes/metres; size is the source
+/// half-size in inches. Positions are source-inch offsets from origin, while
+/// bounds use engine metres. The owner supplies translation only at draw time.
+pub(super) fn directional(
+    origin: Vec3,
+    eye: Vec3,
+    direction: Vec3,
+    size: Vec2,
+    rotation: f32,
+    color: [u8; 4],
+    uv: Affine2,
+    trim: [f32; 2],
+    pivot: Vec2,
+) -> Result<(NativeEffectGeometry, Aabb, u32), String> {
+    if !origin.is_finite()
+        || !eye.is_finite()
+        || !direction.is_finite()
+        || !size.is_finite()
+        || !rotation.is_finite()
+        || !pivot.is_finite()
+        || trim.iter().any(|width| !width.is_finite())
+        || !uv.matrix2.is_finite()
+        || !uv.translation.is_finite()
+    {
+        return Err("original directional sprite has non-finite inputs".into());
+    }
+    let source_frame = crate::rendering::world::source_frame();
+    let source_from_bevy = source_frame.inverse();
+    // Both source normalizations replace an exactly zero divisor with 1.
+    // A zero direction or eye-parallel cross product stays zero, with no
+    // camera-facing substitute and no rejection of the resulting geometry.
+    let normalize = |value: Vec3| {
+        let length = value.length();
+        value * (1. / if length > 0. { length } else { 1. })
+    };
+    let up = normalize(source_from_bevy.transform_vector3(direction));
+    let center = -up * size.y;
+    let to_eye = source_from_bevy.transform_vector3(eye - origin) - center;
+    let right = normalize(up.cross(to_eye));
+    // 005b52a0 packs this world source normal before rotation/size/pivot.
+    let normal = pack_normal(right.cross(up));
+    let (sin, cos) = rotation.sin_cos();
+    let a = (right * cos + up * sin) * size.x;
+    let b = (right * sin - up * cos) * size.y;
+    let center = center + a * pivot.x + b * pivot.y;
+    let positions = [
+        center - a * trim[1] + b,
+        center - a * trim[0] - b,
+        center + a * trim[0] - b,
+        center + a * trim[1] + b,
+    ];
+    if positions.iter().any(|position| !position.is_finite()) {
+        return Err("original directional sprite has non-finite positions".into());
+    }
+    let mut vertices = Vec::with_capacity(128);
+    let mut minimum = Vec3::splat(f32::INFINITY);
+    let mut maximum = Vec3::splat(f32::NEG_INFINITY);
+    for (position, texcoord) in positions.into_iter().zip([
+        Vec2::new((1. - trim[1]) * 0.5, 1.),
+        Vec2::new((1. - trim[0]) * 0.5, 0.),
+        Vec2::new((1. + trim[0]) * 0.5, 0.),
+        Vec2::new((1. + trim[1]) * 0.5, 1.),
+    ]) {
+        let engine_position = source_frame.transform_vector3(position);
+        minimum = minimum.min(engine_position);
+        maximum = maximum.max(engine_position);
+        vertex(
+            &mut vertices,
+            position,
+            color,
+            uv.transform_point2(texcoord),
+            normal,
+        );
+    }
+    Ok((
+        NativeEffectGeometry {
+            layout: NativeEffectVertexLayout::Packed32,
+            vertices,
+            indices: [0u16, 1, 2, 2, 3, 0]
+                .into_iter()
+                .flat_map(u16::to_le_bytes)
+                .collect(),
+        },
+        Aabb::from_min_max(minimum, maximum),
+        6,
+    ))
+}
+
 pub(super) fn trail(
     source: &Trail,
     pose: Transform,
     start: Vec3,
     size: Vec2,
     rotation: f32,
-    color: [f32; 4],
+    color: [u8; 4],
     uv: Affine2,
 ) -> Result<(NativeEffectGeometry, Aabb, u32), String> {
     let local_start = pose.compute_affine().inverse().transform_point3(start);
@@ -189,6 +276,137 @@ mod tests {
     use super::*;
     use crate::native_fx::TrailVertex;
 
+    fn position(geometry: &NativeEffectGeometry, index: usize) -> Vec3 {
+        let vertex = &geometry.vertices[index * 32..];
+        Vec3::from_array(std::array::from_fn(|axis| {
+            f32::from_le_bytes(vertex[axis * 4..axis * 4 + 4].try_into().unwrap())
+        }))
+    }
+
+    #[test]
+    fn packed_normal_rounds_the_full_source_products_before_masking() {
+        assert_eq!(
+            pack_normal(Vec3::splat(0.5)),
+            256 | (255 << 10) | (255 << 20)
+        );
+        assert_eq!(
+            pack_normal(Vec3::splat(-0.5)),
+            768 | (768 << 10) | (768 << 20)
+        );
+    }
+
+    #[test]
+    fn directional_starts_at_origin_and_extends_back_by_two_half_sizes() {
+        let origin = Vec3::new(100., 200., 300.);
+        let (geometry, bounds, count) = directional(
+            origin,
+            origin + Vec3::Z,
+            Vec3::Y,
+            Vec2::new(2., 3.),
+            0.,
+            [1, 2, 3, 4],
+            Affine2::IDENTITY,
+            [1., 1.],
+            Vec2::ZERO,
+        )
+        .unwrap();
+        assert_eq!(count, 6);
+        assert!(position(&geometry, 0).abs_diff_eq(Vec3::new(-2., 0., -6.), 1e-5));
+        assert!(position(&geometry, 2).abs_diff_eq(Vec3::new(2., 0., 0.), 1e-5));
+        assert!(Vec3::from(bounds.center).abs_diff_eq(Vec3::new(0., -0.0762, 0.), 1e-5));
+        assert!(Vec3::from(bounds.half_extents).abs_diff_eq(Vec3::new(0.0508, 0.0762, 0.), 1e-5));
+    }
+
+    #[test]
+    fn directional_ribbon_pivot_and_pi_rotation_anchor_its_front_at_origin() {
+        let (geometry, _, _) = directional(
+            Vec3::ZERO,
+            Vec3::Z,
+            Vec3::Y,
+            Vec2::new(2., 3.),
+            std::f32::consts::PI,
+            [255; 4],
+            Affine2::IDENTITY,
+            [1., 1.],
+            Vec2::new(0., 2.),
+        )
+        .unwrap();
+        assert!(position(&geometry, 0).abs_diff_eq(Vec3::new(2., 0., 6.), 1e-5));
+        assert!(position(&geometry, 2).abs_diff_eq(Vec3::new(-2., 0., 0.), 1e-5));
+        // Sprite rotation changes the geometry, while the source normal stays -Y.
+        for vertex in geometry.vertices.chunks_exact(32) {
+            assert_eq!(
+                u32::from_le_bytes(vertex[24..28].try_into().unwrap()),
+                0x80400
+            );
+        }
+    }
+
+    #[test]
+    fn directional_preserves_trim_atlas_winding_color_and_unit_normal() {
+        let (geometry, _, _) = directional(
+            Vec3::ZERO,
+            Vec3::Z,
+            Vec3::Y * 17.,
+            Vec2::new(20., 30.),
+            0.,
+            [1, 2, 3, 4],
+            Affine2::from_scale_angle_translation(Vec2::new(0.5, 0.25), 0., Vec2::new(0.25, 0.5)),
+            [0.5, 1.],
+            Vec2::ZERO,
+        )
+        .unwrap();
+        assert!(position(&geometry, 1).abs_diff_eq(Vec3::new(-10., 0., 0.), 1e-4));
+        assert_eq!(geometry.indices, [0, 0, 1, 0, 2, 0, 2, 0, 3, 0, 0, 0]);
+        let expected_uv = [
+            [0x3400u16, 0x3a00],
+            [0x3600, 0x3800],
+            [0x3900, 0x3800],
+            [0x3a00, 0x3a00],
+        ];
+        for (vertex, uv) in geometry.vertices.chunks_exact(32).zip(expected_uv) {
+            assert_eq!(&vertex[16..20], &[1, 2, 3, 4]);
+            assert_eq!(
+                u16::from_le_bytes(vertex[20..22].try_into().unwrap()),
+                uv[0]
+            );
+            assert_eq!(
+                u16::from_le_bytes(vertex[22..24].try_into().unwrap()),
+                uv[1]
+            );
+            assert_eq!(
+                u32::from_le_bytes(vertex[24..28].try_into().unwrap()),
+                0x80400
+            );
+        }
+    }
+
+    #[test]
+    fn directional_zero_and_eye_parallel_directions_keep_source_degeneracy() {
+        for (direction, expected_first) in
+            [(Vec3::ZERO, Vec3::ZERO), (Vec3::Y, Vec3::new(0., 0., -6.))]
+        {
+            let (geometry, _, count) = directional(
+                Vec3::ZERO,
+                Vec3::Y,
+                direction,
+                Vec2::new(2., 3.),
+                0.,
+                [255; 4],
+                Affine2::IDENTITY,
+                [1., 1.],
+                Vec2::ZERO,
+            )
+            .unwrap();
+            assert_eq!(count, 6);
+            assert!(position(&geometry, 0).abs_diff_eq(expected_first, 1e-5));
+            assert!(position(&geometry, 0).abs_diff_eq(position(&geometry, 3), 1e-5));
+            for vertex in geometry.vertices.chunks_exact(32) {
+                assert_eq!(u32::from_le_bytes(vertex[24..28].try_into().unwrap()), 0);
+            }
+        }
+    }
+
     #[test]
     fn trail_preserves_source_uv_axes_normal_and_position_units() {
         let source = Trail {
@@ -209,7 +427,7 @@ mod tests {
             pose.translation + Vec3::Z * 0.0254,
             Vec2::ONE,
             0.,
-            [255.; 4],
+            [127, 127, 127, 255],
             Affine2::IDENTITY,
         )
         .unwrap();
@@ -246,7 +464,7 @@ mod tests {
             Vec3::ZERO,
             Vec2::ONE,
             std::f32::consts::FRAC_PI_2,
-            [255.; 4],
+            [127, 127, 127, 255],
             Affine2::IDENTITY,
         )
         .unwrap();

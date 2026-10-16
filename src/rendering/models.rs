@@ -155,9 +155,10 @@ impl StaticModelDefinition {
                 })
             };
             let packed = NativeWorldGeometry {
-                primary: read(&model.vertex_file),
+                primary: read(&model.vertex_file).into(),
                 auxiliary: Vec::new(),
-                indices: read(&model.index_file),
+                indices: read(&model.index_file).into(),
+                vertex_stride: 32,
             };
             assert!(
                 !packed.primary.is_empty()
@@ -330,7 +331,7 @@ struct ModelDraws {
 
 #[derive(Component)]
 pub(crate) struct StaticModelInstance {
-    source_index: u32,
+    pub(crate) source_index: u32,
     primary_light_index: u8,
     vertex_lighting: Handle<ModelVertexLighting>,
     lighting_ranges: [VertexLightingRange; 4],
@@ -389,19 +390,25 @@ impl StaticModelInstance {
         let distance = inverse_scale * distance;
         // 00792c70: first strict upper distance threshold; retry raw distance
         // only if adjusted selection ran out and the two distances differ.
-        let selected = self
-            .model
-            .lods
-            .iter()
-            .position(|lod| adjusted < lod.distance);
-        if selected.is_some() || adjusted == distance {
-            selected
-        } else {
-            self.model
-                .lods
-                .iter()
-                .position(|lod| distance < lod.distance)
-        }
+        source_lod(
+            self.model.lods.iter().map(|lod| lod.distance),
+            adjusted,
+            distance,
+        )
+    }
+}
+
+/// Original 00792c70, shared by static and scene-model submission.
+pub(crate) fn source_lod(
+    mut distances: impl Iterator<Item = f32> + Clone,
+    adjusted: f32,
+    raw: f32,
+) -> Option<usize> {
+    let selected = distances.clone().position(|limit| adjusted < limit);
+    if selected.is_some() || adjusted == raw {
+        selected
+    } else {
+        distances.position(|limit| raw < limit)
     }
 }
 
@@ -604,6 +611,7 @@ pub(crate) fn select_lods(
     mut instances: Query<(Entity, &mut StaticModelInstance)>,
     mut surfaces: Query<&mut NativeModelSurface>,
     mut previous: Local<LodView>,
+    visibility: Res<super::culling::SourceVisibility>,
 ) {
     let Ok((camera, camera_transform)) = cameras.single() else {
         return;
@@ -627,6 +635,7 @@ pub(crate) fn select_lods(
     }
     let changed = previous.eye != Some(eye)
         || previous.fov_scale != Some(fov_scale)
+        || visibility.is_changed()
         || roots.iter().any(|root| root.is_added());
     previous.eye = Some(eye);
     previous.fov_scale = Some(fov_scale);
@@ -634,6 +643,9 @@ pub(crate) fn select_lods(
         return;
     }
     for (owner, mut instance) in &mut instances {
+        if visibility.models.get(instance.source_index as usize) == Some(&false) {
+            continue;
+        }
         let selected = instance.select(eye, fov_scale);
         if instance.selected == selected {
             continue;

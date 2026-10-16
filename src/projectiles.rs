@@ -372,7 +372,6 @@ pub(crate) fn flight(
             distance.min(impact_distance),
         );
         if !projectile.detonate && !impact_distance.is_finite() && projectile.remaining > 0. {
-            
             pose.translation += delta;
             projectile.traveled += distance;
             continue;
@@ -497,7 +496,11 @@ fn remote_revive(
             .collect();
         eligible.sort_by_key(|e| e.to_bits());
         if let Some(player) = eligible.last().copied() {
-            revive.write(crate::solo_revive::RemoteRevive { player });
+            revive.write(crate::solo_revive::RemoteRevive {
+                player,
+                reviver: impact.owner,
+                method: crate::solo_revive::ReviveMethod::Staff,
+            });
             crate::audio::emit(
                 &mut commands,
                 "wpn_revivestaff_revive_plr",

@@ -31,6 +31,8 @@ pub(crate) struct MaterialDefinition {
     technique_set: String,
     camera_region: String,
     game_flags: Vec<String>,
+    pub(crate) surface_type_bits: u32,
+    pub(crate) sort_key: u8,
     state_bits_entry: Vec<i8>,
     state_bits: Vec<StateDefinition>,
     textures: Vec<TextureDefinition>,
@@ -112,6 +114,17 @@ impl MaterialDefinition {
         &self.technique_set
     }
 
+    pub(crate) fn receives_marks(&self) -> bool {
+        self.sort_key != 24 && !self.game_flags.iter().any(|flag| flag == "4")
+    }
+
+    pub(crate) fn mark_lighting(&self) -> (bool, bool) {
+        (
+            self.game_flags.iter().any(|flag| flag == "2"),
+            self.game_flags.iter().any(|flag| flag == "10"),
+        )
+    }
+
     pub(crate) fn casts_shadow(&self) -> bool {
         // Material.info.gameFlags bit 0x40, decoded by the T6 exporter.
         self.game_flags.iter().any(|flag| flag == "CASTS_SHADOW")
@@ -179,6 +192,134 @@ impl MaterialDefinition {
         };
         let bind = || {
             let family = self.technique_set();
+            if family == "mc_sw4_3d_player_icon_jef08712" {
+                let (color_map, color_sampler) = self.texture(server, "colorMap", "colorMap")?;
+                let (normal_map, normal_sampler) =
+                    self.texture(server, "NormalDetailMap", "normalMap")?;
+                let (specular_map, specular_sampler) =
+                    self.texture_key(server, "Specular_Map", "specularMap", Some(3532398796))?;
+                return Ok((
+                    NativeModelMaterial::TransparentPhong {
+                        player_icon: true,
+                        base: NativeModelTextures {
+                            color_map,
+                            color_sampler,
+                            normal_map,
+                            normal_sampler,
+                            reflection_probe: probe,
+                            reflection_sampler: code_sampler(MipmapFilterMode::Linear),
+                        },
+                        specular_map,
+                        specular_sampler,
+                        controls: Vec4::new(
+                            self.constant("ReflectionAmount")?.x,
+                            self.constant_hash("Specular_Amount", 1307013020)?.x,
+                            self.constant_hash("Detail_Normal_Tile", 2210134934)?.x,
+                            0.,
+                        ),
+                    },
+                    self.world_state("gt0")?,
+                ));
+            }
+            if family == "mc_sw4_3d_phong_simple_emissive_flicker_9j5f25q3" {
+                let (color_map, color_sampler) =
+                    self.texture_key(server, "DiffuseAndGloss", "colorMap", Some(3574481249))?;
+                let (normal_map, normal_sampler) =
+                    self.texture_key(server, "Normal_Map", "normalMap", Some(2485960688))?;
+                let (flicker_map, flicker_sampler) =
+                    self.texture_key(server, "FlickerMap", "colorMap", Some(23340576))?;
+                let (emissive_map, emissive_sampler) =
+                    self.texture_key(server, "EmissiveMap", "colorMap", Some(878789447))?;
+                return Ok((
+                    NativeModelMaterial::Flicker {
+                        base: NativeModelTextures {
+                            color_map,
+                            color_sampler,
+                            normal_map,
+                            normal_sampler,
+                            reflection_probe: probe,
+                            reflection_sampler: code_sampler(MipmapFilterMode::Linear),
+                        },
+                        flicker_map,
+                        flicker_sampler,
+                        emissive_map,
+                        emissive_sampler,
+                        constants: super::native_model::NativeFlickerConstants {
+                            controls: Vec4::new(
+                                self.constant("hdrAmount")?.x,
+                                self.constant("FlickerSpeed")?.x,
+                                self.constant("FlickerMin")?.x,
+                                self.constant("FlickerMax")?.x,
+                            ),
+                            map_column: Vec4::new(
+                                self.constant_hash("FlickerMapCol", 1271696416)?.x,
+                                0.,
+                                0.,
+                                0.,
+                            ),
+                        },
+                    },
+                    self.lit_state()?,
+                ));
+            }
+            if family == "mc_sw4_3d_clan_tag_fq631zzu" {
+                let (color_map, color_sampler) = self.texture(server, "colorMap", "colorMap")?;
+                let (normal_map, normal_sampler) =
+                    self.texture(server, "normalMap", "normalMap")?;
+                let (detail_map, detail_sampler) =
+                    self.texture(server, "NormalDetailMap", "normalMap")?;
+                let size = self.constant("Char_Size")?;
+                let constants = super::native_model::NativeClanTagConstants {
+                    controls: Vec4::new(
+                        self.constant("ReflectionAmount")?.x,
+                        self.constant_hash("Detail_Normal_Tile", 2210134934)?.x,
+                        self.constant_hash("Specular_Amount", 1307013020)?.x,
+                        self.constant("Row_Chars_")?.x,
+                    ),
+                    atlas: Vec4::new(
+                        size.x,
+                        size.y,
+                        self.constant("DDXScale")?.x,
+                        self.constant("DDYScale")?.x,
+                    ),
+                    // 0052c1d0 initializes weaponParam1 to zero without a tag.
+                    characters: Vec4::ZERO,
+                };
+                return Ok((
+                    NativeModelMaterial::ClanTag {
+                        base: NativeModelTextures {
+                            color_map,
+                            color_sampler,
+                            normal_map,
+                            normal_sampler,
+                            reflection_probe: probe,
+                            reflection_sampler: code_sampler(MipmapFilterMode::Linear),
+                        },
+                        detail_map,
+                        detail_sampler,
+                        constants,
+                    },
+                    self.world_state("gt0")?,
+                ));
+            }
+
+            if family == "mc_sw4_3d_model_unlit_cheap_zombie_eyes_jq3e7eqw" {
+                if self.camera_region != "emissiveOpaque" {
+                    return Err(format!(
+                        "Zombie eyes require original emissiveOpaque, got {}",
+                        self.camera_region
+                    ));
+                }
+                let (color_map, color_sampler) = self.texture(server, "colorMap", "colorMap")?;
+                return Ok((
+                    NativeModelMaterial::ZombieEyes(NativeModelColorTexture {
+                        color_map,
+                        color_sampler,
+                    }),
+                    self.state_bits_for(3, "disabled")?,
+                ));
+            }
+
             if matches!(
                 family,
                 "mc_sw4_3d_cod7_tile_blend_spec_8w40z341"
@@ -461,6 +602,16 @@ impl MaterialDefinition {
                     state,
                 ));
             }
+            if family == "mc_unlitdecalblend_multiply_34w7q3jw" {
+                let (color_map, color_sampler) = self.texture(server, "colorMap", "colorMap")?;
+                return Ok((
+                    NativeModelMaterial::DecalMultiply(NativeModelColorTexture {
+                        color_map,
+                        color_sampler,
+                    }),
+                    self.state_bits_for(3, "disabled")?,
+                ));
+            }
             if matches!(
                 family,
                 "mc_unlit_replace_3j970129" | "mc_unlit_multiply_97923qz1"
@@ -648,15 +799,16 @@ impl MaterialDefinition {
                     state,
                 ));
             }
-            if family == "mc_sw4_3d_char_cloth_4z8fq5wu" {
+            if family == "mc_sw4_3d_viewmodel_transparent_z9z0z75f" {
                 let (color_map, color_sampler) =
-                    self.texture_key(server, "Diffuse_Map", "colorMap", Some(4030327853))?;
+                    self.texture_key(server, "Color_Map", "colorMap", Some(3053961470))?;
                 let (normal_map, normal_sampler) =
                     self.texture_key(server, "Normal_Map", "normalMap", Some(2485960688))?;
                 let (specular_map, specular_sampler) =
                     self.texture(server, "SpecularAndGloss", "specularMap")?;
                 return Ok((
-                    NativeModelMaterial::CharCloth {
+                    NativeModelMaterial::TransparentPhong {
+                        player_icon: false,
                         base: NativeModelTextures {
                             color_map,
                             color_sampler,
@@ -667,6 +819,101 @@ impl MaterialDefinition {
                         },
                         specular_map,
                         specular_sampler,
+                        controls: Vec4::new(
+                            self.constant_hash("Reflection_Amount", 211931156)?.x,
+                            self.constant_hash("Specular_Amount", 1307013020)?.x,
+                            1.,
+                            0.,
+                        ),
+                    },
+                    self.world_state("gt0")?,
+                ));
+            }
+            if matches!(
+                family,
+                "mc_sw4_3d_char_cloth_reveal2_9z738w66" | "mc_sw4_3d_char_cloth_reveal2_727ej010"
+            ) {
+                use super::native_model::NativeClothRevealConstants;
+                let (color_map, color_sampler) =
+                    self.texture_key(server, "Diffuse_Map", "colorMap", Some(4030327853))?;
+                let (normal_map, normal_sampler) =
+                    self.texture_key(server, "Normal_Map", "normalMap", Some(2485960688))?;
+                let (specular_map, specular_sampler) =
+                    self.texture(server, "SpecularAndGloss", "specularMap")?;
+                let (temporal_map, temporal_sampler) =
+                    self.texture_key(server, "Temporal_Map", "colorMap", Some(2782436735))?;
+                let edge1 = self.constant_hash("State_1_Leading_Edge_Color", 3218137492)?;
+                let edge2 = self.constant_hash("State_2_Leading_Edge_Color", 348546551)?;
+                let alter1 = self.constant_hash("State_1_Alteration", 3105072277)?;
+                let alter2 = self.constant_hash("State_2_Alteration", 1288488438)?;
+                let alpha_test = family == "mc_sw4_3d_char_cloth_reveal2_727ej010";
+                return Ok((
+                    NativeModelMaterial::ClothReveal {
+                        base: NativeModelTextures {
+                            color_map,
+                            color_sampler,
+                            normal_map,
+                            normal_sampler,
+                            reflection_probe: probe,
+                            reflection_sampler: code_sampler(MipmapFilterMode::Linear),
+                        },
+                        specular_map,
+                        specular_sampler,
+                        temporal_map,
+                        temporal_sampler,
+                        alpha_test,
+                        constants: NativeClothRevealConstants {
+                            source: [
+                                Vec4::new(
+                                    self.constant_hash("Leading_Edge_Brightness", 3228582790)?.x,
+                                    edge1.x,
+                                    edge1.y,
+                                    edge1.z,
+                                ),
+                                edge2,
+                                alter1,
+                                alter2
+                                    .truncate()
+                                    .extend(self.constant_hash("Specular_Amount", 1307013020)?.x),
+                            ],
+                        },
+                    },
+                    self.world_state(if alpha_test { "ge128" } else { "disabled" })?,
+                ));
+            }
+            if matches!(
+                family,
+                "mc_sw4_3d_char_cloth_4z8fq5wu" | "mc_sw4_3d_char_skin_j92387z3"
+            ) {
+                let (color_map, color_sampler) =
+                    self.texture_key(server, "Diffuse_Map", "colorMap", Some(4030327853))?;
+                let (normal_map, normal_sampler) =
+                    self.texture_key(server, "Normal_Map", "normalMap", Some(2485960688))?;
+                let (specular_map, specular_sampler) =
+                    self.texture(server, "SpecularAndGloss", "specularMap")?;
+                return Ok((
+                    NativeModelMaterial::Character {
+                        base: NativeModelTextures {
+                            color_map,
+                            color_sampler,
+                            normal_map,
+                            normal_sampler,
+                            reflection_probe: probe,
+                            reflection_sampler: code_sampler(MipmapFilterMode::Linear),
+                        },
+                        specular_map,
+                        specular_sampler,
+                        skin_controls: if family == "mc_sw4_3d_char_skin_j92387z3" {
+                            Some(Vec4::new(
+                                self.constant_hash("Reflection_Amount", 211931156)?.x,
+                                self.constant_hash("Specular_Amount", 1307013020)?.x,
+                                self.constant_hash("Diffuse_Normal_Height_Facing", 1012612089)?
+                                    .x,
+                                0.,
+                            ))
+                        } else {
+                            None
+                        },
                     },
                     self.lit_state()?,
                 ));
@@ -681,12 +928,15 @@ impl MaterialDefinition {
                     | "mc_sw4_3d_phong_emissive_alcatraz_8q551153"
                     | "mc_sw4_3d_emissive_tomb_qww536q2"
                     | "mc_sw4_3d_phong_emissive_script_multi_j05zz52w"
+                    | "mc_sw4_3d_phong_emissive_script_multi_72q2fj2u"
             ) {
                 use super::native_model::{EmissiveProgram, NativeModelEmissiveConstants};
                 let transparent = family == "mc_sw4_3d_phong_emissive_alcatraz_8q551153";
                 let scripted_glow = family == "mc_sw4_3d_emissive_tomb_qww536q2";
-                let multi = family == "mc_sw4_3d_phong_emissive_script_multi_j05zz52w";
-                let state = if multi {
+                let multi_alpha = family == "mc_sw4_3d_phong_emissive_script_multi_j05zz52w";
+                let multi =
+                    multi_alpha || family == "mc_sw4_3d_phong_emissive_script_multi_72q2fj2u";
+                let state = if multi_alpha {
                     self.lit_state_with_alpha("ge128")?
                 } else if transparent {
                     self.world_state("gt0")?
@@ -729,7 +979,9 @@ impl MaterialDefinition {
                 return Ok((
                     NativeModelMaterial::PhongEmissive {
                         program: if multi {
-                            EmissiveProgram::ScriptMulti
+                            EmissiveProgram::ScriptMulti {
+                                alpha_test: multi_alpha,
+                            }
                         } else if scripted_glow {
                             EmissiveProgram::ScriptedGlow
                         } else if transparent {
@@ -897,7 +1149,10 @@ impl MaterialDefinition {
                     state,
                 ));
             }
-            if family == "mc_lit_sm_r0c0n0s0o0_3z86zq2z" {
+            if matches!(
+                family,
+                "mc_lit_sm_r0c0n0s0o0_3z86zq2z" | "mc_lit_sm_r0c0n0s0o0_909j993q"
+            ) {
                 let (color_map, color_sampler) = self.texture(server, "colorMap", "colorMap")?;
                 let (normal_map, normal_sampler) =
                     self.texture(server, "normalMap", "normalMap")?;
@@ -912,6 +1167,7 @@ impl MaterialDefinition {
                             map,
                             sampler,
                             parameters: Vec4::ZERO,
+                            hero_lighting: family == "mc_lit_sm_r0c0n0s0o0_909j993q",
                         }),
                         base: NativeModelTextures {
                             color_map,
@@ -1034,6 +1290,36 @@ impl MaterialDefinition {
                         occlusion_amount: self.constant("occlusionAmount")?,
                         vertex_lit: family.starts_with("mlv_"),
                         transparent,
+                    },
+                    state,
+                ));
+            }
+            if matches!(
+                family,
+                "mc_lit_sm_b0c0n0s0_91j5z9q9" | "mc_lit_sm_b0c0n0s0_21fz2e61"
+            ) {
+                let state = self.world_state("gt0")?;
+                let (color_map, color_sampler) = self.texture(server, "colorMap", "colorMap")?;
+                let (normal_map, normal_sampler) =
+                    self.texture(server, "normalMap", "normalMap")?;
+                let (specular_map, specular_sampler) =
+                    self.texture(server, "specularMap", "specularMap")?;
+                return Ok((
+                    NativeModelMaterial::NormalSpecular {
+                        program: super::native_model::NormalSpecularProgram::Blended {
+                            unattenuated_reflection: family == "mc_lit_sm_b0c0n0s0_21fz2e61",
+                        },
+                        base: NativeModelTextures {
+                            color_map,
+                            color_sampler,
+                            normal_map,
+                            normal_sampler,
+                            reflection_probe: probe,
+                            reflection_sampler: code_sampler(MipmapFilterMode::Linear),
+                        },
+                        specular_map,
+                        specular_sampler,
+                        occlusion_amount: self.constant("occlusionAmount")?,
                     },
                     state,
                 ));
@@ -1373,7 +1659,11 @@ impl MaterialDefinition {
             }
             if matches!(
                 family,
-                "wpc_lit_sm_t0c0_2w3887e6" | "wpc_lit_sm_b0c0_6j30z67q"
+                "wpc_lit_sm_t0c0_2w3887e6"
+                    | "wpc_lit_sm_b0c0_6j30z67q"
+                    // World marks select the wc material from FxElemMarkVisuals.
+                    // Its LIT technique uses the same VS bfa6d365 / PS 212e3fab.
+                    | "wc_lit_sm_b0c0_jj25624z"
             ) {
                 let state = self.world_state(if family == "wpc_lit_sm_t0c0_2w3887e6" {
                     "ge128"
@@ -1402,6 +1692,9 @@ impl MaterialDefinition {
                     | "wpc_lit_sm_b0c0n0v0_ew347fe3"
                     | "wpc_lit_sm_b0c0s0_3f3q946z"
                     | "wpc_lit_sm_b0c0n0s0v0_efz5w56f"
+                    | "wc_lit_sm_b0c0n0_73wq744q"
+                    | "wc_lit_sm_b0c0s0_12947e33"
+                    | "wc_lit_sm_b0c0n0s0_w16w6e35"
                     | "wpc_lit_sm_r0c0s0_qfqz7850"
                     | "lit_sm_r0c0n0x0_m1c1"
                     | "lit_sm_r0c0n0x0_b1c1_b2c2"
@@ -1446,7 +1739,10 @@ impl MaterialDefinition {
                 "wpc_lit_sm_b0c0n0_19f3588f"
                 | "wpc_lit_sm_b0c0n0v0_ew347fe3"
                 | "wpc_lit_sm_b0c0s0_3f3q946z"
-                | "wpc_lit_sm_b0c0n0s0v0_efz5w56f" => "gt0",
+                | "wpc_lit_sm_b0c0n0s0v0_efz5w56f"
+                | "wc_lit_sm_b0c0n0_73wq744q"
+                | "wc_lit_sm_b0c0s0_12947e33"
+                | "wc_lit_sm_b0c0n0s0_w16w6e35" => "gt0",
                 _ => "disabled",
             })?;
             let reveal = match family {
@@ -1460,7 +1756,10 @@ impl MaterialDefinition {
             let (color_map, color_sampler) = self.texture(server, "colorMap", "colorMap")?;
             if matches!(
                 family,
-                "wpc_lit_sm_r0c0s0_qfqz7850" | "wpc_lit_sm_b0c0s0_3f3q946z" | "lit_sm_r0c0s0_b1c1"
+                "wpc_lit_sm_r0c0s0_qfqz7850"
+                    | "wpc_lit_sm_b0c0s0_3f3q946z"
+                    | "wc_lit_sm_b0c0s0_12947e33"
+                    | "lit_sm_r0c0s0_b1c1"
             ) {
                 let (specular_map, specular_sampler) =
                     self.texture(server, "specularMap", "specularMap")?;
@@ -1492,6 +1791,7 @@ impl MaterialDefinition {
                 family,
                 "wpc_lit_sm_r0c0n0_80fe30wz"
                     | "wpc_lit_sm_b0c0n0_19f3588f"
+                    | "wc_lit_sm_b0c0n0_73wq744q"
                     | "wpc_lit_sm_b0c0n0v0_ew347fe3"
                     | "wpc_lit_sm_t0c0n0_9ew0jz24"
                     | "lit_sm_r0c0n0_m1c1_m2c2"
@@ -1561,6 +1861,7 @@ impl MaterialDefinition {
                     "wpc_lit_sm_r0c0n0_80fe30wz"
                         | "wpc_lit_sm_t0c0n0_9ew0jz24"
                         | "wpc_lit_sm_b0c0n0_19f3588f"
+                        | "wc_lit_sm_b0c0n0_73wq744q"
                         | "wpc_lit_sm_b0c0n0v0_ew347fe3"
                 ) {
                     if family == "wpc_lit_sm_b0c0n0v0_ew347fe3" {
@@ -1621,7 +1922,9 @@ impl MaterialDefinition {
             }
             if matches!(
                 family,
-                "wpc_lit_sm_r0c0n0s0_1zzj1138" | "wpc_lit_sm_t0c0n0s0_weef63f3"
+                "wpc_lit_sm_r0c0n0s0_1zzj1138"
+                    | "wpc_lit_sm_t0c0n0s0_weef63f3"
+                    | "wc_lit_sm_b0c0n0s0_w16w6e35"
             ) {
                 let (specular_map, specular_sampler) =
                     self.texture(server, "specularMap", "specularMap")?;
@@ -2350,4 +2653,277 @@ pub(crate) fn image(server: &AssetServer, name: &str) -> Handle<Image> {
             settings.asset_usage = RenderAssetUsages::RENDER_WORLD;
         })
         .load(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "requires the authorized local Origins export"]
+    fn exported_model_glass_materials_bind() {
+        use super::super::native_model::{NativeModelMaterial, NormalSpecularProgram};
+
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/assets");
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            bevy::asset::AssetPlugin {
+                file_path: root.to_string_lossy().into_owned(),
+                ..default()
+            },
+        ))
+        .init_asset::<Image>();
+        let server = app.world().resource::<AssetServer>();
+        let mut counts = [0; 2];
+        let mut names = std::collections::BTreeSet::new();
+        for entry in std::fs::read_dir(root.join("materials/mc")).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().is_none_or(|extension| extension != "json") {
+                continue;
+            }
+            let definition = MaterialDefinition::read(&path).unwrap();
+            let reflection = match definition.technique_set() {
+                "mc_lit_sm_b0c0n0s0_91j5z9q9" => false,
+                "mc_lit_sm_b0c0n0s0_21fz2e61" => true,
+                _ => continue,
+            };
+            counts[usize::from(reflection)] += 1;
+            let name = path.file_stem().unwrap().to_string_lossy().into_owned();
+            names.insert(name.clone());
+            let (material, state) = definition.model(server, Handle::default()).unwrap();
+            let NativeModelMaterial::NormalSpecular {
+                program,
+                base,
+                specular_map,
+                occlusion_amount,
+                ..
+            } = material
+            else {
+                panic!("{name} must retain normal, specular, model atlas and reflection inputs");
+            };
+            assert!(matches!(program, NormalSpecularProgram::Blended {
+                unattenuated_reflection,
+            } if unattenuated_reflection == reflection));
+            assert_eq!(occlusion_amount.y, 1.0);
+            assert_eq!(occlusion_amount.z, 1.0);
+            for (semantic, handle) in [
+                ("colorMap", &base.color_map),
+                ("normalMap", &base.normal_map),
+                ("specularMap", &specular_map),
+            ] {
+                let source = definition
+                    .textures
+                    .iter()
+                    .find(|t| t.semantic == semantic)
+                    .unwrap();
+                let expected =
+                    PathBuf::from(format!("images/{}.dds", source.image.replace('*', "_")));
+                assert_eq!(handle.path().unwrap().path(), expected);
+                assert!(root.join(expected).is_file());
+            }
+            assert!(definition.world_pass() == super::super::native::NativeWorldPass::Translucent);
+            assert!(!state.depth_write);
+            assert_eq!(state.depth_compare, CompareFunction::GreaterEqual);
+            assert_eq!(state.color_write, ColorWrites::ALL);
+            assert_eq!(
+                state.cull_mode,
+                if name == "gfx_impact_glass01_riotshield" {
+                    None
+                } else {
+                    Some(Face::Back)
+                }
+            );
+            assert_eq!(
+                state.polygon_offset,
+                if matches!(name.as_str(), "dec_glass02" | "com_glass_shattered_outside") {
+                    1
+                } else if name.starts_with("gfx_impact_") && name != "gfx_impact_glass01_riotshield"
+                {
+                    2
+                } else {
+                    0
+                }
+            );
+            assert_eq!(
+                state.blend.unwrap(),
+                BlendState {
+                    color: BlendComponent {
+                        src_factor: BlendFactor::One,
+                        dst_factor: BlendFactor::OneMinusSrcAlpha,
+                        operation: BlendOperation::Add,
+                    },
+                    alpha: BlendComponent {
+                        src_factor: BlendFactor::OneMinusDstAlpha,
+                        dst_factor: BlendFactor::One,
+                        operation: BlendOperation::Add,
+                    },
+                }
+            );
+        }
+        assert_eq!(
+            counts,
+            [12, 1],
+            "check both complete exported shader families"
+        );
+        for name in [
+            "com_glass_shattered_outside",
+            "mtl_zombie_vending_sleight_glass",
+            "mtl_p6_zm_tm_staff_projectile_ice",
+            "dec_glass02",
+        ] {
+            assert!(
+                names.contains(name),
+                "missing startup glass or adjacent reflection variant {name}"
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "requires the authorized local Origins export"]
+    fn exported_model_multiply_decal_binds() {
+        use super::super::native_model::NativeModelMaterial;
+
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/assets");
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            bevy::asset::AssetPlugin {
+                file_path: root.to_string_lossy().into_owned(),
+                ..default()
+            },
+        ))
+        .init_asset::<Image>();
+        let definition =
+            MaterialDefinition::read(&root.join("materials/mc/zm_tm_decal_quaternary.json"))
+                .unwrap();
+        let (material, state) = definition
+            .model(app.world().resource::<AssetServer>(), Handle::default())
+            .unwrap();
+        assert!(matches!(material, NativeModelMaterial::DecalMultiply(_)));
+        assert_eq!(state.polygon_offset, 1);
+        assert_eq!(state.depth_compare, CompareFunction::GreaterEqual);
+        assert!(!state.depth_write);
+        assert_eq!(
+            state.blend.unwrap(),
+            BlendState {
+                color: BlendComponent {
+                    src_factor: BlendFactor::Zero,
+                    dst_factor: BlendFactor::Src,
+                    operation: BlendOperation::Add,
+                },
+                alpha: BlendComponent {
+                    src_factor: BlendFactor::OneMinusDstAlpha,
+                    dst_factor: BlendFactor::One,
+                    operation: BlendOperation::Add,
+                },
+            }
+        );
+    }
+
+    #[test]
+    #[ignore = "requires the authorized local Origins export"]
+    fn exported_world_decal_materials_bind() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/assets");
+        let catalog: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(root.join("fx_catalog.json")).unwrap()).unwrap();
+        // FxElemMarkVisuals has model material first, world material second.
+        let visual = &catalog["effects"]["explosions/fx_grenadeexp_default"]["elements"][2];
+        assert_eq!(visual["type"], 11);
+        let name = visual["visuals"][0]["decal_materials"][1].as_str().unwrap();
+        assert_eq!(name, "wc/gfx_crater_blacktop");
+        let mut names = std::collections::BTreeSet::new();
+        for effect in catalog["effects"].as_object().unwrap().values() {
+            for element in effect["elements"].as_array().unwrap() {
+                if element["type"] != 11 {
+                    continue;
+                }
+                for visual in element["visuals"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|v| !v.is_null())
+                {
+                    names.insert(
+                        visual["decal_materials"][1]
+                            .as_str()
+                            .unwrap()
+                            .trim_start_matches(','),
+                    );
+                }
+            }
+        }
+        assert_eq!(
+            names.len(),
+            27,
+            "Check the full exported world decal material inventory"
+        );
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            bevy::asset::AssetPlugin {
+                file_path: root.to_string_lossy().into_owned(),
+                ..default()
+            },
+        ))
+        .init_asset::<Image>();
+        for name in names {
+            let definition =
+                MaterialDefinition::read(&root.join(format!("materials/{name}.json"))).unwrap();
+            let (material, state) = definition
+                .world(
+                    app.world().resource::<AssetServer>(),
+                    Some(Handle::default()),
+                    Handle::default(),
+                )
+                .unwrap_or_else(|error| panic!("{name}: {error}"));
+            assert!(matches!(
+                material,
+                NativeWorldMaterial::GeometricDiffuse { .. }
+                    | NativeWorldMaterial::Diffuse(_)
+                    | NativeWorldMaterial::GeometricSpecular(_)
+                    | NativeWorldMaterial::NormalSpecular { .. }
+            ));
+            assert!(matches!(
+                definition.world_pass(),
+                super::super::native::NativeWorldPass::Translucent
+            ));
+            let source = &definition.state_bits[definition.state_bits_entry[4] as usize];
+            assert_eq!(
+                state.polygon_offset,
+                if source.polygon_offset == "offset2" {
+                    2
+                } else {
+                    0
+                }
+            );
+            assert_eq!(
+                state.cull_mode,
+                if source.cull_face == "none" {
+                    None
+                } else {
+                    Some(Face::Back)
+                }
+            );
+            assert!(!state.depth_write);
+            assert_eq!(state.depth_compare, CompareFunction::GreaterEqual);
+            assert_eq!(
+                state.blend.unwrap().color,
+                BlendComponent {
+                    src_factor: BlendFactor::One,
+                    dst_factor: BlendFactor::OneMinusSrcAlpha,
+                    operation: BlendOperation::Add,
+                }
+            );
+            for texture in &definition.textures {
+                assert!(
+                    root.join(format!("images/{}.dds", texture.image.replace('*', "_")))
+                        .is_file(),
+                    "{name}: missing {}",
+                    texture.image
+                );
+            }
+        }
+        println!("Bound all 27 original world decal materials and checked their image files");
+    }
 }

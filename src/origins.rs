@@ -3,6 +3,7 @@ use serde::Deserialize;
 use std::path::Path;
 pub(crate) mod actors;
 pub(crate) mod audio;
+mod barriers;
 pub mod content;
 pub(crate) mod navigation;
 pub(crate) mod weapons;
@@ -141,9 +142,9 @@ pub(crate) fn read<T: serde::de::DeserializeOwned>(path: &Path) -> T {
 impl GameDefinition {
     pub fn load_from_root(root: &Path) -> Self {
         let mut definition: Self = read(&root.join("game.json"));
+        audio::bind(&mut definition, root);
         weapons::bind(&mut definition, root)
             .unwrap_or_else(|error| panic!("Weapon bindings: {error}"));
-        audio::bind(&mut definition, root);
         match (&definition.entity_metadata, &definition.brush_hulls) {
             (Some(entities), Some(hulls)) => {
                 let bytes = |name: &str| {

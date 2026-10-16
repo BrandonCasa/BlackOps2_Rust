@@ -93,6 +93,36 @@ pub struct PlayerDowned {
 #[derive(Message)]
 pub(crate) struct RemoteRevive {
     pub player: Entity,
+    pub reviver: Entity,
+    pub method: ReviveMethod,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ReviveMethod {
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "co-op revive methods are covered by achievement tests"
+        )
+    )]
+    Normal,
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "co-op revive methods are covered by achievement tests"
+        )
+    )]
+    QuickRevive,
+    Drone,
+    Staff,
+}
+#[derive(Message, Clone, Copy)]
+pub(crate) struct PlayerRevived {
+    pub player: Entity,
+    pub reviver: Entity,
+    pub method: ReviveMethod,
+    pub zombie_blood: bool,
 }
 #[derive(Component)]
 pub struct SoloEpisode {
@@ -104,10 +134,11 @@ pub struct SoloEpisode {
     downed_weapon: WeaponId,
     given_ammo: u32,
     bleedout: BleedoutClock,
-    remote: bool,
+    remote: Option<(Entity, ReviveMethod)>,
 }
 pub(crate) fn reset(world: &mut World) {
     world.resource_mut::<Messages<RemoteRevive>>().clear();
+    world.resource_mut::<Messages<PlayerRevived>>().clear();
     world.insert_resource(crate::player_health::HealthEvidence::default());
     world.insert_resource(crate::perks::PerkEvidence::default());
 }
@@ -116,6 +147,7 @@ impl Plugin for SoloRevivePlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<PlayerDowned>()
             .add_message::<RemoteRevive>()
+            .add_message::<PlayerRevived>()
             .add_systems(
                 FixedUpdate,
                 eligibility
@@ -135,15 +167,12 @@ impl Plugin for SoloRevivePlugin {
 }
 pub(crate) fn eligibility(
     definition: Res<GameDefinition>,
-    drone: Res<crate::buildables::BuildableState>,
     mut players: Query<(&PerkInventory, &mut Vitality), With<Player>>,
 ) {
     for (perks, mut health) in &mut players {
         if health.state() == LifeState::Standing {
             health.set_player_policy(
-                if (perks.solo_charges > 0 && perks.owned.contains(&definition.solo_revive.perk))
-                    || drone.drone.is_some()
-                {
+                if perks.solo_charges > 0 && perks.owned.contains(&definition.solo_revive.perk) {
                     PlayerLethalPolicy::SoloSelfRevive
                 } else {
                     PlayerLethalPolicy::SoloOrLastEligiblePlayer
@@ -207,7 +236,7 @@ fn begin(
             downed_weapon: weapon.id.clone(),
             given_ammo,
             bleedout,
-            remote: false,
+            remote: None,
         });
     }
 }
@@ -215,6 +244,7 @@ pub(crate) fn finish(
     time: Res<Time<Fixed>>,
     mut remote: MessageReader<RemoteRevive>,
     definition: Res<GameDefinition>,
+    effects: Res<crate::powerups::PowerupEffects>,
     mut commands: Commands,
     mut players: Query<
         (
@@ -228,10 +258,13 @@ pub(crate) fn finish(
         With<Player>,
     >,
     mut deaths: MessageWriter<PlayerDeath>,
+    mut revived: MessageWriter<PlayerRevived>,
 ) {
     for request in remote.read() {
-        if let Ok((_, _, mut episode, _, _, _)) = players.get_mut(request.player) {
-            episode.remote = true;
+        if let Ok((_, _, mut episode, _, _, _)) = players.get_mut(request.player)
+            && episode.remote.is_none()
+        {
+            episode.remote = Some((request.reviver, request.method));
             episode.remaining = 0.;
         }
     }
@@ -281,7 +314,14 @@ pub(crate) fn finish(
         *inventory = std::mem::take(&mut episode.backup);
         inventory.cancel_action();
         inventory.set_third_slot(false, &definition.content.weapons);
-        if !episode.remote {
+        if let Some((reviver, method)) = episode.remote {
+            revived.write(PlayerRevived {
+                player: entity,
+                reviver,
+                method,
+                zombie_blood: effects.zombie_blood > 0.,
+            });
+        } else {
             perks.solo_charges = perks.solo_charges.saturating_sub(1);
         }
         *recovery = Recovery::default();
@@ -294,5 +334,56 @@ fn retire(mut commands: Commands, players: Query<(Entity, &Vitality, &SoloEpisod
         if health.downed_episode() != Some(episode.episode) {
             commands.entity(entity).remove::<SoloEpisode>();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::ecs::system::RunSystemOnce;
+
+    #[test]
+    fn solo_drone_does_not_replace_quick_revive() {
+        let game: GameDefinition =
+            serde_json::from_str(include_str!("../gameplay/origins/game.json")).unwrap();
+        let quick_revive = game.solo_revive.perk.clone();
+        let mut world = World::new();
+        world.insert_resource(game);
+        let drone = world.spawn_empty().id();
+        let mut buildables = crate::buildables::BuildableState::default();
+        buildables.drone = Some(drone);
+        world.insert_resource(buildables);
+        let player = world
+            .spawn((
+                Player {
+                    yaw: 0.,
+                    pitch: 0.,
+                    velocity: Vec3::ZERO,
+                    height: 1.8,
+                    grounded: true,
+                    crouched: false,
+                    prone: false,
+                    eye_height: 1.6,
+                },
+                Vitality::human(100, 100, 1, PlayerLethalPolicy::SoloSelfRevive).unwrap(),
+            ))
+            .id();
+        world.run_system_once(eligibility).unwrap();
+        let mut without_perk = *world.get::<Vitality>(player).unwrap();
+        assert!(matches!(
+            without_perk.apply(ResolvedDamage::new(100).unwrap()),
+            Ok(DamageOutcome::HumanDied { .. })
+        ));
+        {
+            let mut perks = world.get_mut::<PerkInventory>(player).unwrap();
+            perks.owned.insert(quick_revive);
+            perks.solo_charges = 1;
+        }
+        world.run_system_once(eligibility).unwrap();
+        let mut with_perk = *world.get::<Vitality>(player).unwrap();
+        assert!(matches!(
+            with_perk.apply(ResolvedDamage::new(100).unwrap()),
+            Ok(DamageOutcome::Downed { .. })
+        ));
     }
 }

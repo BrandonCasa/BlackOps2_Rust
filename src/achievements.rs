@@ -7,11 +7,46 @@ pub struct Achievements {
     pub notification: String,
     pub persistence_error: Option<String>,
     notification_seconds: f32,
-    staffs: BTreeSet<String>,
+    progress: MatchProgress,
     pending: std::collections::VecDeque<String>,
     ride_start: Option<usize>,
     ride_departed: bool,
     path: Option<std::path::PathBuf>,
+}
+#[derive(Default)]
+struct MatchProgress {
+    staffs: [bool; 4],
+    claw_releases: [bool; 2],
+    revives: [bool; 4],
+    blood_revives: u32,
+    blood_capture: bool,
+}
+impl MatchProgress {
+    fn release_claw(&mut self, player: Entity, captive: Entity) -> bool {
+        self.claw_releases[usize::from(player != captive)] = true;
+        self.claw_releases.iter().all(|released| *released)
+    }
+
+    fn revive(&mut self, event: &crate::solo_revive::PlayerRevived) {
+        // The source tracks reviving another player, never solo Quick Revive.
+        if event.player == event.reviver {
+            return;
+        }
+        let index = match event.method {
+            crate::solo_revive::ReviveMethod::Normal => 0,
+            crate::solo_revive::ReviveMethod::QuickRevive => 1,
+            crate::solo_revive::ReviveMethod::Drone => 2,
+            crate::solo_revive::ReviveMethod::Staff => 3,
+        };
+        self.revives[index] = true;
+        self.blood_revives = self
+            .blood_revives
+            .saturating_add(u32::from(event.zombie_blood));
+    }
+
+    fn master_of_disguise(&self) -> bool {
+        self.blood_capture && self.blood_revives >= 3
+    }
 }
 pub struct AchievementPlugin;
 impl Plugin for AchievementPlugin {
@@ -44,7 +79,7 @@ fn load(mut state: ResMut<Achievements>) {
     }
 }
 fn reset(mut state: ResMut<Achievements>) {
-    state.staffs.clear();
+    state.progress = default();
     state.pending.clear();
     state.ride_start = None;
     state.ride_departed = false;
@@ -86,6 +121,9 @@ fn observe(
     session: Res<crate::gameplay::Session>,
     tank: Res<crate::tank::Tank>,
     mut releases: MessageReader<crate::panzer::PanzerClawReleased>,
+    mut shared: MessageReader<crate::environment::digging::DigWeaponShared>,
+    mut revives: MessageReader<crate::solo_revive::PlayerRevived>,
+    mut captures: MessageReader<crate::generators::GeneratorCaptured>,
     players: Query<
         (
             Entity,
@@ -107,15 +145,51 @@ fn observe(
         return;
     };
     for release in releases.read() {
-        if release.releaser == player {
+        if release.releaser == player && state.progress.release_claw(player, release.captive) {
             earn(&mut state, "ZM_DLC4_KUNG_FU_GRIP", "Kung Fu Grip");
         }
     }
+    for pickup in shared.read() {
+        if pickup.digger == player && pickup.collector != player {
+            earn(&mut state, "ZM_DLC4_NOT_A_GOLD_DIGGER", "Not a Gold Digger");
+        }
+    }
+    for revive in revives.read() {
+        if revive.reviver == player {
+            state.progress.revive(revive);
+        }
+    }
+    for capture in captures.read() {
+        if capture.player == player && capture.zombie_blood {
+            state.progress.blood_capture = true;
+        }
+    }
+    if state.progress.revives.iter().all(|revived| *revived) {
+        earn(
+            &mut state,
+            "ZM_DLC4_SAVING_THE_DAY_ALL_DAY",
+            "Saving the Day... All Day",
+        );
+    }
+    if state.progress.master_of_disguise() {
+        earn(
+            &mut state,
+            "ZM_DLC4_MASTER_OF_DISGUISE",
+            "Master of Disguise",
+        );
+    }
     if let Some(weapon) = weapons.active()
-        && weapon.definition.0.starts_with("weapon.staff_")
-        && weapon.definition.0.ends_with("_upgraded_zm")
+        && health.state() == crate::life::LifeState::Standing
+        && let Some(index) = [
+            "weapon.staff_water_upgraded_zm",
+            "weapon.staff_lightning_upgraded_zm",
+            "weapon.staff_fire_upgraded_zm",
+            "weapon.staff_air_upgraded_zm",
+        ]
+        .iter()
+        .position(|id| *id == weapon.definition.0)
     {
-        state.staffs.insert(weapon.definition.0.clone());
+        state.progress.staffs[index] = true;
     }
     if quest.stage == crate::quests::QuestStage::Complete {
         earn(&mut state, "ZM_DLC4_TOMB_SIDEQUEST", "Little Lost Girl");
@@ -145,7 +219,7 @@ fn observe(
     {
         earn(&mut state, "ZM_DLC4_OVERACHIEVER", "Overachiever");
     }
-    if state.staffs.len() >= 4 {
+    if state.progress.staffs.iter().all(|staff| *staff) {
         earn(&mut state, "ZM_DLC4_MASTER_WIZARD", "Master Wizard");
     }
     let moving = matches!(
@@ -207,5 +281,81 @@ fn notification(
                 ..default()
             },
         ));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::solo_revive::{PlayerRevived, ReviveMethod};
+
+    fn revive(
+        reviver: Entity,
+        player: Entity,
+        method: ReviveMethod,
+        zombie_blood: bool,
+    ) -> PlayerRevived {
+        PlayerRevived {
+            player,
+            reviver,
+            method,
+            zombie_blood,
+        }
+    }
+
+    #[test]
+    fn kung_fu_grip_requires_self_and_friendly_releases_in_either_order() {
+        let mut world = World::new();
+        let player = world.spawn_empty().id();
+        let friend = world.spawn_empty().id();
+        let mut progress = MatchProgress::default();
+        assert!(!progress.release_claw(player, player));
+        assert!(!progress.release_claw(player, player));
+        assert!(progress.release_claw(player, friend));
+        let mut progress = MatchProgress::default();
+        assert!(!progress.release_claw(player, friend));
+        assert!(progress.release_claw(player, player));
+    }
+
+    #[test]
+    fn saving_the_day_requires_four_distinct_teammate_revive_methods() {
+        let mut world = World::new();
+        let player = world.spawn_empty().id();
+        let friend = world.spawn_empty().id();
+        let mut progress = MatchProgress::default();
+        progress.revive(&revive(player, player, ReviveMethod::QuickRevive, false));
+        assert_eq!(progress.revives, [false; 4]);
+        for method in [
+            ReviveMethod::Normal,
+            ReviveMethod::Normal,
+            ReviveMethod::Drone,
+            ReviveMethod::Staff,
+        ] {
+            progress.revive(&revive(player, friend, method, false));
+        }
+        assert!(!progress.revives.iter().all(|revived| *revived));
+        progress.revive(&revive(player, friend, ReviveMethod::QuickRevive, false));
+        assert!(progress.revives.iter().all(|revived| *revived));
+    }
+
+    #[test]
+    fn disguise_counts_only_completed_actions_during_blood_across_pickups() {
+        let mut world = World::new();
+        let player = world.spawn_empty().id();
+        let friend = world.spawn_empty().id();
+        let mut progress = MatchProgress::default();
+        progress.blood_capture = true;
+        for _ in 0..3 {
+            progress.revive(&revive(player, friend, ReviveMethod::Normal, false));
+        }
+        assert!(!progress.master_of_disguise());
+        for _ in 0..2 {
+            progress.revive(&revive(player, friend, ReviveMethod::Drone, true));
+        }
+        assert!(!progress.master_of_disguise());
+        progress.revive(&revive(player, friend, ReviveMethod::Staff, true));
+        assert!(progress.master_of_disguise());
+        progress.blood_capture = false;
+        assert!(!progress.master_of_disguise());
     }
 }

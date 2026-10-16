@@ -81,6 +81,8 @@ pub struct PrimaryLightDefinition {
     pub use_cookie: i8,
     pub dir: Vec3,
     pub origin: Vec3,
+    pub radius: f32,
+    pub cos_half_fov_inner: f32,
     pub cos_half_fov_outer: f32,
     pub d_attenuation: f32,
     pub roundness: f32,
@@ -122,8 +124,6 @@ impl SunLightDefinition {
 #[serde(rename_all = "camelCase")]
 pub struct LightDefinition {
     pub attenuation_image: Option<String>,
-    pub attenuation_sampler_state: u8,
-    pub lmap_lookup_start: i32,
 }
 
 #[derive(Deserialize)]
@@ -387,7 +387,7 @@ struct WaterLightConstants {
 }
 
 impl WaterLight {
-    fn constants(&self, eye: Vec3, time: f32) -> WaterLightConstants {
+    fn constants(&self, eye: Vec3, time: f32, sun: &SunLightDefinition) -> WaterLightConstants {
         let light = &self.source;
         let mut out = WaterLightConstants {
             position: (light.origin - eye).extend(1.0),
@@ -396,7 +396,10 @@ impl WaterLight {
             ..default()
         };
         if self.kind == WaterLightKind::Sun {
-            out.position = light.dir.extend(0.0);
+            // 0043f830 rebuilds this source light from the current refdef sun;
+            // the authored primary-light metadata is not its live RGB owner.
+            out.position = sun.dir.extend(0.0);
+            out.diffuse = sun.diffuse_color;
             return out;
         }
         if self.kind == WaterLightKind::Lit {
@@ -475,7 +478,7 @@ pub struct NativeWaterView {
 
 #[derive(Component, Clone, Copy, ShaderType)]
 pub struct WaterScene {
-    world: NativeWorldScene,
+    pub(crate) world: NativeWorldScene,
     game_time: Vec4,
     z_near: Vec4,
     render_target_size: Vec4,
@@ -488,6 +491,7 @@ pub struct ExtractedWaterView {
     depth_sampler: SamplerDescriptor<'static>,
     eye: Vec3,
     time: f32,
+    sun: SunLightDefinition,
     lights: Arc<NativeWaterLights>,
 }
 
@@ -516,6 +520,11 @@ impl ExtractComponent<RenderApp> for NativeWaterView {
                 depth_sampler: frame.float_z_sampler.clone(),
                 eye: view.eye_position,
                 time: view.game_time_seconds,
+                sun: SunLightDefinition {
+                    kind: 1,
+                    dir: world.sun_position.truncate(),
+                    diffuse_color: world.sun_diffuse,
+                },
                 lights: view.lights.clone(),
             },
             WaterScene {
@@ -656,10 +665,14 @@ pub(crate) struct WaterPipelineKey {
 impl SpecializedRenderPipeline for WaterPipeline {
     type Key = WaterPipelineKey;
     fn specialize(&self, key: Self::Key) -> RenderPipelineDescriptor {
-        assert_eq!(
-            key.target,
-            TextureFormat::Rgba8Unorm,
-            "Original water requires the encoded UNORM scene"
+        // The DLSS main attachment stores the same encoded scene in float16;
+        // its conversion to linear color runs after water and other native draws.
+        assert!(
+            matches!(
+                key.target,
+                TextureFormat::Rgba8Unorm | TextureFormat::Rgba16Float
+            ),
+            "Original water requires the encoded non-sRGB scene"
         );
         let mut layout = vec![
             self.scene_layout.clone(),
@@ -923,8 +936,8 @@ fn prepare_water(
         );
         assert_eq!(
             scene.texture_descriptor.format,
-            TextureFormat::Rgba8Unorm,
-            "Water code9 requires the native encoded scene snapshot"
+            target.main_texture_format(),
+            "Water code9 snapshot must match the encoded main attachment"
         );
         assert_eq!(
             scene.texture_descriptor.sample_count, 1,
@@ -1020,7 +1033,8 @@ fn prepare_water(
                         .as_ref()
                         .is_none_or(|old| old.cookie != cookie.map(|image| image.texture_view.id()))
                     {
-                        let mut buffer = UniformBuffer::from(light.constants(view.eye, view.time));
+                        let mut buffer =
+                            UniformBuffer::from(light.constants(view.eye, view.time, &view.sun));
                         buffer.write_buffer(&device, &queue);
                         let group = if let Some(cookie) = cookie {
                             let sampler = device.create_sampler(&source_cookie_sampler());
@@ -1049,13 +1063,18 @@ fn prepare_water(
                             eye: view.eye,
                             time: view.time,
                         });
-                    } else if light.kind != WaterLightKind::Sun
-                        && existing
-                            .as_ref()
-                            .is_some_and(|light| light.eye != view.eye || light.time != view.time)
-                    {
+                    } else if existing.as_ref().is_some_and(|old| {
+                        if light.kind == WaterLightKind::Sun {
+                            old.buffer.get().position != view.sun.dir.extend(0.)
+                                || old.buffer.get().diffuse != view.sun.diffuse_color
+                        } else {
+                            old.eye != view.eye || old.time != view.time
+                        }
+                    }) {
                         let existing = existing.as_mut().expect("existing water light");
-                        existing.buffer.set(light.constants(view.eye, view.time));
+                        existing
+                            .buffer
+                            .set(light.constants(view.eye, view.time, &view.sun));
                         existing.buffer.write_buffer(&device, &queue);
                         existing.eye = view.eye;
                         existing.time = view.time;
@@ -1095,6 +1114,7 @@ pub(crate) fn render_water(
         &ExtractedCamera,
         &DynamicUniformIndex<WaterScene>,
         &PreparedWaterView,
+        Option<&bevy::camera::MainPassResolutionOverride>,
     )>,
     cache: Res<PipelineCache>,
     objects: Res<WaterObjectGroup>,
@@ -1103,7 +1123,7 @@ pub(crate) fn render_water(
     surfaces: Query<(&NativeWaterSurface, &DynamicUniformIndex<NativeWorldObject>)>,
     mut ctx: RenderContext,
 ) {
-    let (target, depth, camera, scene, prepared) = view.into_inner();
+    let (target, depth, camera, scene, prepared, resolution) = view.into_inner();
     let Some((_, object_group)) = &objects.0 else {
         return;
     };
@@ -1120,8 +1140,10 @@ pub(crate) fn render_water(
         multiview_mask: None,
     });
     pass.set_bind_group(0, &prepared.group, &[scene.index()]);
-    if let Some(viewport) = &camera.viewport {
-        pass.set_camera_viewport(viewport);
+    if let Some(viewport) =
+        bevy::camera::Viewport::from_viewport_and_override(camera.viewport.as_ref(), resolution)
+    {
+        pass.set_camera_viewport(&viewport);
     }
     for draw in &prepared.draws {
         let (Some(pipeline), Ok((surface, object))) = (

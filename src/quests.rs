@@ -1,4 +1,5 @@
 use crate::{GameState, frontend::Difficulty, gameplay::GameStep};
+use avian3d::prelude::*;
 use bevy::prelude::*;
 use std::collections::BTreeSet;
 
@@ -26,6 +27,7 @@ pub enum Element {
 #[derive(Resource, Default)]
 pub struct MainQuest {
     pub enabled: bool,
+    started: bool,
     pub stage: QuestStage,
     pub upgraded: BTreeSet<Element>,
     pub placed: BTreeSet<Element>,
@@ -41,7 +43,10 @@ impl MainQuest {
     }
 
     pub fn transition(&mut self, expected: QuestStage, next: QuestStage) -> bool {
-        if !self.enabled || self.stage != expected {
+        if !self.enabled
+            || self.stage != expected
+            || expected == QuestStage::UpgradeStaffs && !self.started
+        {
             return false;
         }
         let valid = matches!(
@@ -62,6 +67,12 @@ impl MainQuest {
         true
     }
 
+    pub(crate) fn update_prerequisites(&mut self, staffs_crafted: bool, generators_powered: bool) {
+        // sidequest_logic waits for all crafted staffs, then all_zones_captured.
+        // Once step 1 begins, later generator raids do not restart that wait.
+        self.started |= self.enabled && staffs_crafted && generators_powered;
+    }
+
     pub fn authorize_strike(&mut self) -> bool {
         if !self.enabled || self.stage != QuestStage::BreakSeal {
             return false;
@@ -72,6 +83,27 @@ impl MainQuest {
 
     pub fn strike_authorized(&self) -> bool {
         self.enabled && self.stage == QuestStage::BreakSeal && self.strike_remaining > 0.
+    }
+}
+
+#[cfg(test)]
+mod main_quest_tests {
+    use super::*;
+
+    #[test]
+    fn staff_placement_waits_for_initial_prerequisites_and_survives_later_raids() {
+        let mut quest = MainQuest {
+            enabled: true,
+            ..default()
+        };
+        quest.update_prerequisites(false, true);
+        assert!(!quest.transition(QuestStage::UpgradeStaffs, QuestStage::PlaceStaffs));
+        quest.update_prerequisites(true, false);
+        assert!(!quest.transition(QuestStage::UpgradeStaffs, QuestStage::PlaceStaffs));
+        quest.update_prerequisites(true, true);
+        quest.update_prerequisites(true, false);
+        assert!(quest.transition(QuestStage::UpgradeStaffs, QuestStage::PlaceStaffs));
+        assert!(quest.transition(QuestStage::PlaceStaffs, QuestStage::BreakSeal));
     }
 }
 
@@ -197,6 +229,7 @@ impl Plugin for QuestPlugin {
                 souls
                     .in_set(GameStep::Rewards)
                     .after(crate::damage::reward_deaths)
+                    .after(crate::rituals::track)
                     .run_if(in_state(GameState::Playing)),
             );
     }
@@ -207,18 +240,58 @@ fn strike_window(time: Res<Time<Fixed>>, mut quest: ResMut<MainQuest>) {
 }
 
 pub(crate) fn souls(
+    mut commands: Commands,
     mut deaths: MessageReader<crate::damage::EnemyDeath>,
-    enemies: Query<(&Transform, &crate::rounds::PopulationKind)>,
+    enemies: Query<(&Transform, &Collider, &crate::rounds::PopulationKind)>,
     mut collectors: Query<(Entity, &Transform, &mut SoulCollector)>,
     mut collected: MessageWriter<SoulCollected>,
+    quest: Res<MainQuest>,
+    upgrades: Res<crate::staff_upgrades::StaffUpgrades>,
+    mut finale: ResMut<crate::finale::Finale>,
+    mut rituals: ResMut<crate::rituals::Rituals>,
+    spatial: SpatialQuery,
+    game: Res<crate::assets::GameDefinition>,
+    volumes: Query<(
+        &crate::environment::triggers::MapTrigger,
+        &crate::environment::triggers::TriggerState,
+    )>,
+    mut boxes: Query<(
+        Entity,
+        &crate::rituals::SoulChest,
+        &mut crate::rituals::SoulBoxGlow,
+    )>,
 ) {
     for death in deaths.read() {
         if !death.0.can_supply_soul() {
             continue;
         }
-        let Ok((pose, kind)) = enemies.get(death.0.impact.target) else {
+        let Ok((pose, shape, kind)) = enemies.get(death.0.impact.target) else {
             continue;
         };
+        // zm_tomb_main_quest::zombie_killed_override dispatches one soul:
+        // active finale first, unfinished footprint chest next, then staff.
+        if finale.collect_soul(&mut commands, &quest, &upgrades, pose.translation) {
+            continue;
+        }
+        if rituals.chests < 4 {
+            let touched = spatial.shape_intersections(
+                shape,
+                pose.translation,
+                pose.rotation,
+                &SpatialQueryFilter::from_mask(crate::environment::triggers::TRIGGER_LAYER),
+            );
+            if crate::rituals::collect_soul(
+                &mut commands,
+                &mut rituals,
+                pose,
+                &touched,
+                &volumes,
+                &game,
+                &mut boxes,
+            ) {
+                continue;
+            }
+        }
         let selected = collectors
             .iter()
             .filter(|(_, center, collector)| {

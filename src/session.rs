@@ -112,6 +112,8 @@ pub(crate) fn teardown(world: &mut World) {
     crate::solo_revive::reset(world);
     crate::enemies::reset(world);
     crate::generators::reset(world);
+    crate::robots::reset_session(world);
+    world.insert_resource(crate::panzer::PanzerWaves::default());
     world.resource_mut::<crate::damage::DamageQueue>().0.clear();
     world
         .resource_mut::<crate::equipment::BlastQueue>()
@@ -138,11 +140,14 @@ pub(crate) fn teardown(world: &mut World) {
     clear::<crate::rounds::RoundStarted>(world);
     clear::<crate::rounds::RoundEnding>(world);
     clear::<crate::environment::support::EnvironmentalHit>(world);
+    clear::<crate::environment::digging::DigWeaponShared>(world);
     clear::<crate::access::ZoneFlagSet>(world);
     crate::environment::triggers::reset(world);
     clear::<crate::quests::SoulCollected>(world);
     clear::<crate::projectiles::ProjectileImpact>(world);
     clear::<crate::robots::RobotStomp>(world);
+    clear::<crate::panzer::PanzerDestroyed>(world);
+    clear::<crate::panzer::PanzerClawReleased>(world);
     clear::<crate::tablets::BeaconStrike>(world);
 }
 

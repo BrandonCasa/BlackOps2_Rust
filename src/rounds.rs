@@ -205,10 +205,11 @@ pub(crate) fn advance(
         Res<crate::robots::Robots>,
         Local<CharacterSelections>,
         Query<Entity, With<crate::enemies::ActorCorpse>>,
+        Res<crate::access::ZoneAccess>,
     ),
 ) {
     let (mut started, mut ending) = events;
-    let (quest, panzer_waves, robots, mut characters, corpses) = special;
+    let (quest, panzer_waves, robots, mut characters, corpses, access) = special;
     if characters.session != Some(*session_id) {
         characters.session = Some(*session_id);
         characters.groups.clear();
@@ -382,7 +383,11 @@ pub(crate) fn advance(
             .filter(|spawner| spawner.archetype == enemy.archetype)
             .collect();
         let spawner = *spawners.get(session.random() as usize % spawners.len().max(1))?;
-        let entrance = navigation.choose_entrance(admission, spawner, &mut session)?;
+        let entrance = if admission.find_flesh {
+            None
+        } else {
+            Some(navigation.choose_entrance(admission, spawner, &access, &mut session)?)
+        };
         let gait = session
             .difficulty
             .gait(profile, session.round, session.random());

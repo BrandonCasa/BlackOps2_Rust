@@ -5,7 +5,10 @@ use crate::{
     player::Player,
 };
 use avian3d::prelude::*;
-use bevy::prelude::*;
+use bevy::{
+    prelude::*,
+    world_serialization::{WorldAssetRoot, WorldInstanceReady},
+};
 #[derive(Component, Clone, Copy)]
 struct Secret(Target);
 #[derive(Clone, Copy)]
@@ -28,29 +31,72 @@ pub struct Secrets {
     poster_damage: u32,
     aiming: f32,
     scare_seconds: f32,
-    music: f32,
     latched: bool,
     playing: [bool; 6],
-    pending: std::collections::BTreeMap<Entity, (Entity, Target, Vec3)>,
     song: Option<Song>,
 }
 impl Secrets {
     pub(crate) fn logs_playing(&self, robot: usize) -> bool {
         self.playing.get(3 + robot).copied().unwrap_or(false)
     }
+
+    fn available(&self, target: Target, prone: bool, music_busy: bool) -> bool {
+        match target {
+            Target::Rock(i) => !self.rocks[i] && !music_busy,
+            Target::Radio(i) => !self.radios[i] && !music_busy,
+            Target::Log(i) => !self.playing[i],
+            Target::Floor(i) => {
+                !self.floors[i]
+                    && !music_busy
+                    && prone
+                    && self.floors.iter().filter(|used| **used).count() < 3
+                    && (i < 2 || self.floors[..2].iter().all(|used| *used))
+            }
+        }
+    }
+
+    fn activate(&mut self, target: Target) -> Option<(&'static str, f32)> {
+        match target {
+            Target::Rock(i) => {
+                self.rocks[i] = true;
+                self.rocks
+                    .iter()
+                    .all(|used| *used)
+                    .then_some(("mus_zmb_secret_song", 310.))
+            }
+            Target::Radio(i) => {
+                self.radios[i] = true;
+                self.radios
+                    .iter()
+                    .all(|used| *used)
+                    .then_some(("mus_zmb_secret_song_a7x", 352.))
+            }
+            Target::Floor(i) => {
+                self.floors[i] = true;
+                (self.floors.iter().filter(|used| **used).count() == 3)
+                    .then_some(("mus_zmb_secret_song_aether", 135.))
+            }
+            Target::Log(i) => {
+                self.logs[i] = true;
+                self.playing[i] = true;
+                None
+            }
+        }
+    }
 }
 struct Song {
-    alias: String,
+    alias: &'static str,
     owner: Entity,
     origin: Vec3,
     delay: f32,
     request: Option<Entity>,
     started: bool,
+    remaining: f32,
 }
 #[derive(Component)]
-struct PendingSecret;
-#[derive(Component)]
 struct RockLoop(Entity);
+#[derive(Component)]
+struct Poster;
 #[derive(Component)]
 struct LogSequence {
     index: usize,
@@ -68,7 +114,7 @@ impl Plugin for SecretPlugin {
             )
             .add_systems(
                 FixedUpdate,
-                (rock_loops, tick, poster)
+                (rock_loops, tick, bind_poster, poster.after(bind_poster))
                     .in_set(GameStep::Rewards)
                     .run_if(in_state(GameState::Playing)),
             )
@@ -81,89 +127,92 @@ impl Plugin for SecretPlugin {
             );
     }
 }
-fn setup(mut commands: Commands, mut state: ResMut<Secrets>) {
+fn setup(
+    mut commands: Commands,
+    mut state: ResMut<Secrets>,
+    game: Res<GameDefinition>,
+    server: Res<AssetServer>,
+) {
     *state = default();
-    commands.spawn((
-        SessionEntity,
-        Secret(Target::Log(4)),
-        Transform::from_translation(Vec3::from_array([-162.840162, 4.0132, 167.189658])),
-    ));
-    commands.spawn((
-        SessionEntity,
-        Secret(Target::Log(3)),
-        Transform::from_translation(Vec3::from_array([-166.955724, 4.0005, 166.742872])),
-    ));
-    commands.spawn((
-        SessionEntity,
-        Secret(Target::Log(5)),
-        Transform::from_translation(Vec3::from_array([-149.065234, 4.0132, 163.519612])),
-    ));
-    commands.spawn((
-        SessionEntity,
-        Secret(Target::Log(1)),
-        Transform::from_translation(Vec3::from_array([62.516766, -8.636, -131.839716])),
-    ));
-    commands.spawn((
-        SessionEntity,
-        Secret(Target::Log(0)),
-        Transform::from_translation(Vec3::from_array([55.78475, -6.81355, -115.539266])),
-    ));
-    commands.spawn((
-        SessionEntity,
-        Secret(Target::Log(2)),
-        Transform::from_translation(Vec3::from_array([-17.872202, -6.2992, -59.365388])),
-    ));
-    commands.spawn((
-        SessionEntity,
-        Secret(Target::Radio(0)),
-        Transform::from_translation(Vec3::from_array([-140.779246, 3.8227, 163.552632])),
-    ));
-    commands.spawn((
-        SessionEntity,
-        Secret(Target::Radio(1)),
-        Transform::from_translation(Vec3::from_array([243.573808, -11.7729, 206.118968])),
-    ));
-    commands.spawn((
-        SessionEntity,
-        Secret(Target::Radio(2)),
-        Transform::from_translation(Vec3::from_array([3.340608, -12.7127, -4.72313])),
-    ));
-    commands.spawn((
-        SessionEntity,
-        Secret(Target::Rock(0)),
-        Transform::from_translation(Vec3::from_array([68.128642, -7.679741, -113.18621])),
-    ));
-    commands.spawn((
-        SessionEntity,
-        Secret(Target::Rock(1)),
-        Transform::from_translation(Vec3::from_array([18.314492, 7.264044, 2.227753])),
-    ));
-    commands.spawn((
-        SessionEntity,
-        Secret(Target::Rock(2)),
-        Transform::from_translation(Vec3::from_array([-17.120819, -2.857068, -64.431418])),
-    ));
-    commands.spawn((
-        SessionEntity,
-        Secret(Target::Floor(0)),
-        Transform::from_translation(Vec3::from_array([55.0672, -7.3406, -117.2718])),
-    ));
-    commands.spawn((
-        SessionEntity,
-        Secret(Target::Floor(1)),
-        Transform::from_translation(Vec3::from_array([55.118, -7.3406, -125.8062])),
-    ));
-    commands.spawn((
-        SessionEntity,
-        Secret(Target::Floor(2)),
-        Transform::from_translation(Vec3::from_array([-62.4586, 6.1722, -4.4704])),
-    ));
-    commands.spawn((
-        SessionEntity,
-        Secret(Target::Floor(3)),
-        Transform::from_translation(Vec3::from_array([-70.9168, 6.1722, -4.445])),
-    ));
+    for (target, position) in [
+        (Target::Log(4), [-162.840162, 4.0132, 167.189658]),
+        (Target::Log(3), [-166.955724, 4.0005, 166.742872]),
+        (Target::Log(5), [-149.065234, 4.0132, 163.519612]),
+        (Target::Log(1), [62.516766, -8.636, -131.839716]),
+        (Target::Log(0), [55.78475, -6.81355, -115.539266]),
+        (Target::Log(2), [-17.872202, -6.2992, -59.365388]),
+        (Target::Radio(0), [-140.779246, 3.8227, 163.552632]),
+        (Target::Radio(1), [243.573808, -11.7729, 206.118968]),
+        (Target::Radio(2), [3.340608, -12.7127, -4.72313]),
+        (Target::Rock(0), [68.128642, -7.679741, -113.18621]),
+        (Target::Rock(1), [18.314492, 7.264044, 2.227753]),
+        (Target::Rock(2), [-17.120819, -2.857068, -64.431418]),
+        (Target::Floor(0), [55.0672, -7.3406, -117.2718]),
+        (Target::Floor(1), [55.118, -7.3406, -125.8062]),
+        (Target::Floor(2), [-62.4586, 6.1722, -4.4704]),
+        (Target::Floor(3), [-70.9168, 6.1722, -4.445]),
+    ] {
+        let mut site = commands.spawn((
+            SessionEntity,
+            Secret(target),
+            Transform::from_translation(Vec3::from_array(position)),
+        ));
+        if let Target::Radio(i) = target {
+            let yaw: f32 = [215., 9.99998, 272.6][i];
+            site.insert(
+                Transform::from_translation(Vec3::from_array(position))
+                    .with_rotation(Quat::from_rotation_y(yaw.to_radians())),
+            );
+            if let Some(scene) = crate::assets::native_scene(&game, "p6_zm_tm_radio_01") {
+                site.insert(WorldAssetRoot(server.load(scene.clone())))
+                    .observe(radio_ready);
+            } else {
+                warn!("Hidden radio is missing its original p6_zm_tm_radio_01 model");
+            }
+        }
+    }
+    if scare_image(&game).is_none() {
+        warn!("Church jumpscare is missing the original zm_tm_wth_dog UI image");
+    }
 }
+
+fn radio_ready(
+    event: On<WorldInstanceReady>,
+    mut commands: Commands,
+    game: Res<GameDefinition>,
+    server: Res<AssetServer>,
+    children: Query<&Children>,
+    names: Query<&Name>,
+) {
+    let Some(cover) = children.iter_descendants(event.entity).find(|entity| {
+        names
+            .get(*entity)
+            .is_ok_and(|name| name.as_str() == "tag_j_cover")
+    }) else {
+        warn!("Hidden radio model is missing its original tag_j_cover attachment");
+        return;
+    };
+    if let Some(scene) = crate::assets::native_scene(&game, "p6_zm_tm_radio_01_panel2_blood") {
+        commands.spawn((
+            ChildOf(cover),
+            WorldAssetRoot(server.load(scene.clone())),
+            // The exported socket already contains the source-to-Y-up rotation.
+            // Native panel geometry applies that rotation when it is drawn.
+            Transform::from_rotation(Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)),
+        ));
+    } else {
+        warn!("Hidden radio is missing its original blood-covered panel model");
+    }
+}
+
+fn scare_image(game: &GameDefinition) -> Option<&str> {
+    game.content
+        .ui_assets
+        .iter()
+        .find(|image| image.id.0 == "ui.zm_tm_wth_dog" || image.path.contains("zm_tm_wth_dog"))
+        .map(|image| image.path.as_str())
+}
+
 fn rock_loops(
     mut commands: Commands,
     game: Res<GameDefinition>,
@@ -188,6 +237,7 @@ fn interact(
     settings: Res<crate::input::ControlSettings>,
     mut state: ResMut<Secrets>,
     mut focus: ResMut<crate::interactions::InteractionFocus>,
+    mut music: ResMut<crate::audio::MusicOverride>,
     game: Res<GameDefinition>,
     spatial: SpatialQuery,
     sites: Query<
@@ -195,8 +245,8 @@ fn interact(
             Entity,
             &Secret,
             &Transform,
-            Option<&PendingSecret>,
             Option<&LogSequence>,
+            Option<&RockLoop>,
         ),
         Without<Player>,
     >,
@@ -215,85 +265,122 @@ fn interact(
         return;
     }
     let eye = pose.translation + Vec3::Y * (player.eye_height - player.height * 0.5);
+    let feet = pose.translation - Vec3::Y * player.height * 0.5;
     let forward = Quat::from_euler(EulerRot::YXZ, player.yaw, player.pitch, 0.) * Vec3::NEG_Z;
     let candidate = sites
         .iter()
-        .filter(|(_, secret, _, pending, log)| {
-            pending.is_none()
-                && log.is_none()
-                && match secret.0 {
-                    Target::Rock(i) => !state.rocks[i] && state.music <= 0.,
-                    Target::Radio(i) => !state.radios[i] && state.music <= 0.,
-                    Target::Log(i) => !state.playing[i],
-                    Target::Floor(i) => {
-                        !state.floors[i]
-                            && state.music <= 0.
-                            && player.prone
-                            && (i < 2 || state.floors[..2].iter().all(|v| *v))
-                    }
-                }
+        .filter(|(_, secret, _, log, _)| {
+            log.is_none() && state.available(secret.0, player.prone, music.0.is_some())
         })
-        .filter_map(|(entity, secret, location, ..)| {
+        .filter_map(|(entity, secret, location, _, looping)| {
             let delta = location.translation - eye;
-            let direction = Dir3::new(delta).ok()?;
-            (delta.length() < 2.
-                && forward.dot(*direction) > 0.8
-                && spatial
-                    .cast_ray(
-                        eye,
-                        direction,
-                        (delta.length() - 0.1).max(0.),
-                        true,
-                        &crate::environment::solids([owner]),
-                    )
-                    .is_none())
-            .then_some((entity, secret.0, location.translation, delta.length()))
+            let usable = match secret.0 {
+                // fake_use uses a 64-inch origin sphere and horizontal facing,
+                // independent of view pitch and line of sight.
+                Target::Rock(_) | Target::Floor(_) => {
+                    feet.distance_squared(location.translation) < 1.6256_f32.powi(2)
+                        && forward
+                            .with_y(0.)
+                            .normalize_or_zero()
+                            .dot((location.translation - feet).with_y(0.).normalize_or_zero())
+                            > 0.9
+                }
+                Target::Radio(_) | Target::Log(_) => {
+                    let direction = Dir3::new(delta).ok()?;
+                    let radius: f32 = if matches!(secret.0, Target::Radio(_)) {
+                        50.
+                    } else {
+                        36.
+                    };
+                    let offset = feet - location.translation;
+                    // _zm_unitrigger uses script_height, which defaults to 64 inches.
+                    // The side scripts' height field does not override that value.
+                    offset.xz().length_squared() < (radius * 0.0254).powi(2)
+                        && offset.y < 1.6256
+                        && offset.y + player.height > 0.
+                        && forward.dot(*direction) > 0.8
+                        && spatial
+                            .cast_ray(
+                                eye,
+                                direction,
+                                (delta.length() - 0.1).max(0.),
+                                true,
+                                &crate::environment::solids([owner]),
+                            )
+                            .is_none()
+                }
+            };
+            usable.then_some((
+                entity,
+                secret.0,
+                location.translation,
+                looping,
+                delta.length_squared(),
+            ))
         })
-        .min_by(|a, b| a.3.total_cmp(&b.3));
-    let Some((entity, target, position, _)) = candidate else {
+        .min_by(|a, b| a.4.total_cmp(&b.4));
+    let Some((entity, target, position, looping, _)) = candidate else {
         return;
     };
     focus.target = Some(entity);
-    focus.prompt = format!(
-        "Press {} to investigate",
-        settings.label(crate::input::Action::Interact)
-    );
+    focus.prompt = if matches!(target, Target::Log(_)) {
+        format!(
+            "Press {} to play Maxis audio log",
+            settings.label(crate::input::Action::Interact)
+        )
+    } else {
+        String::new()
+    };
     if !input.use_held || state.latched {
         return;
     }
     state.latched = true;
-    let alias = match target {
-        Target::Log(i) => format!("vox_maxi_audio_log_{}_1_0", i + 1),
-        _ => "zmb_meteor_activate".into(),
-    };
-    if crate::audio::resolve_alias(&game, &alias).is_none() {
-        return;
-    }
-    let song = match target {
-        Target::Rock(_) => Some("mus_zmb_secret_song"),
-        Target::Radio(_) => Some("mus_zmb_secret_song_a7x"),
-        Target::Floor(_) => Some("mus_zmb_secret_song_aether"),
-        _ => None,
-    };
-    if song.is_some_and(|alias| crate::audio::resolve_alias(&game, alias).is_none()) {
-        return;
-    }
-    let request = crate::audio::emit(
-        &mut commands,
-        alias,
-        crate::audio::SoundSource::World(position),
-    );
-    state.pending.insert(request, (entity, target, position));
-    commands.entity(entity).insert(PendingSecret);
     if let Target::Log(i) = target {
+        let lines: std::collections::VecDeque<_> = (1..=if i == 1 || i == 5 { 2 } else { 3 })
+            .map(|part| format!("vox_maxi_audio_log_{}_{}_0", i + 1, part))
+            .collect();
+        if lines
+            .iter()
+            .any(|alias| crate::audio::resolve_alias(&game, alias).is_none())
+        {
+            warn!(
+                "Maxis audio log {} is missing a required original voice line",
+                i + 1
+            );
+            return;
+        }
         commands.entity(entity).insert(LogSequence {
             index: i,
-            lines: (1..=if i == 1 || i == 5 { 2 } else { 3 })
-                .map(|part| format!("vox_maxi_audio_log_{}_{}_0", i + 1, part))
-                .collect(),
-            request: Some(request),
+            lines,
+            request: None,
             retry: 0.,
         });
+    } else {
+        crate::audio::emit(
+            &mut commands,
+            "zmb_meteor_activate",
+            crate::audio::SoundSource::attached(owner),
+        );
+    }
+    if let Some(looping) = looping {
+        commands.entity(looping.0).try_despawn();
+    }
+    focus.accepted += 1;
+    if let Some((alias, seconds)) = state.activate(target) {
+        state.song = Some(Song {
+            alias,
+            owner: entity,
+            origin: if matches!(target, Target::Radio(_)) {
+                Vec3::ZERO
+            } else {
+                position
+            },
+            delay: 1.,
+            request: None,
+            started: false,
+            remaining: seconds,
+        });
+        music.0 = Some(entity);
     }
 }
 fn tick(
@@ -307,72 +394,19 @@ fn tick(
     mut music: ResMut<crate::audio::MusicOverride>,
     mut events: MessageReader<crate::audio::PlaybackEvent>,
     mut logs: Query<(Entity, &Transform, &mut LogSequence)>,
-    rock_loops: Query<&RockLoop>,
     sounds: Query<(Entity, &crate::audio::PlayingSound)>,
-    mut focus: ResMut<crate::interactions::InteractionFocus>,
-    players: Query<(&Player, &Transform, &crate::weapons::WeaponInventory)>,
+    players: Query<(
+        Entity,
+        &Player,
+        &Transform,
+        &crate::weapons::WeaponInventory,
+    )>,
     cameras: Query<Entity, With<crate::rendering::GameCamera>>,
     scares: Query<Entity, With<Scare>>,
 ) {
     use crate::audio::PlaybackStatus;
     let dt = time.delta_secs();
     for event in events.read() {
-        if let Some((site, target, position)) = state.pending.remove(&event.entity) {
-            if event.status == PlaybackStatus::Accepted {
-                commands.entity(site).remove::<PendingSecret>();
-                focus.accepted += 1;
-                let mut song = None;
-                match target {
-                    Target::Rock(i) => {
-                        state.rocks[i] = true;
-                        if let Ok(looping) = rock_loops.get(site) {
-                            commands.entity(looping.0).try_despawn();
-                        }
-                        if state.rocks.iter().all(|v| *v) {
-                            song = Some(("mus_zmb_secret_song", 310.));
-                        }
-                    }
-                    Target::Radio(i) => {
-                        state.radios[i] = true;
-                        if state.radios.iter().all(|v| *v) {
-                            song = Some(("mus_zmb_secret_song_a7x", 352.));
-                        }
-                    }
-                    Target::Floor(i) => {
-                        state.floors[i] = true;
-                        if state.floors.iter().filter(|v| **v).count() == 3 {
-                            song = Some(("mus_zmb_secret_song_aether", 135.));
-                        }
-                    }
-                    Target::Log(i) => {
-                        state.logs[i] = true;
-                        state.playing[i] = true;
-                    }
-                }
-                if let Some((alias, seconds)) = song {
-                    state.music = seconds;
-                    state.song = Some(Song {
-                        alias: alias.into(),
-                        owner: site,
-                        origin: position,
-                        delay: 1.,
-                        request: None,
-                        started: false,
-                    });
-                    music.0 = Some(site);
-                }
-            } else if matches!(
-                event.status,
-                PlaybackStatus::Rejected | PlaybackStatus::Cancelled
-            ) {
-                commands.entity(site).remove::<PendingSecret>();
-                if matches!(target, Target::Log(_)) {
-                    commands.entity(site).remove::<LogSequence>();
-                }
-            } else {
-                state.pending.insert(event.entity, (site, target, position));
-            }
-        }
         for (entity, _, mut log) in &mut logs {
             if log.request == Some(event.entity) {
                 match event.status {
@@ -400,13 +434,12 @@ fn tick(
             && song.request == Some(event.entity)
         {
             match event.status {
-                PlaybackStatus::Accepted => song.started = true,
                 PlaybackStatus::Rejected => {
                     song.request = None;
                     song.delay = 0.25;
                 }
                 PlaybackStatus::Cancelled => {
-                    state.music = 0.;
+                    song.remaining = 0.;
                 }
                 _ => {}
             }
@@ -437,15 +470,16 @@ fn tick(
             }
             song.request = Some(crate::audio::emit(
                 &mut commands,
-                song.alias.clone(),
+                song.alias,
                 crate::audio::SoundSource::World(song.origin),
             ));
+            song.started = true;
         }
         if song.started {
-            state.music = (state.music - dt).max(0.);
+            song.remaining = (song.remaining - dt).max(0.);
         }
     }
-    if state.music == 0.
+    if state.song.as_ref().is_some_and(|song| song.remaining == 0.)
         && let Some(song) = state.song.take()
     {
         if let Some(request) = song.request {
@@ -455,12 +489,13 @@ fn tick(
             music.0 = None;
         }
     }
-    let Ok((player, pose, inventory)) = players.single() else {
+    let Ok((owner, player, pose, inventory)) = players.single() else {
         return;
     };
+    let held = actions.state(crate::input::Action::Aim).held;
     if state.scare_seconds > 0. {
         state.scare_seconds -= dt;
-        if state.scare_seconds <= 0. || inventory.ads < 0.9 {
+        if state.scare_seconds <= 0. || !held {
             state.scare_seconds = 0.;
             for entity in &scares {
                 commands.entity(entity).despawn();
@@ -472,7 +507,6 @@ fn tick(
     }
     let eye = pose.translation + Vec3::Y * (player.eye_height - player.height * 0.5);
     let forward = Quat::from_euler(EulerRot::YXZ, player.yaw, player.pitch, 0.) * Vec3::NEG_Z;
-    let held = actions.state(crate::input::Action::Aim).held;
     state.aiming = if held { state.aiming + dt } else { 0. };
     let valid = held
         && state.aiming >= 1.25
@@ -490,21 +524,17 @@ fn tick(
     crate::audio::emit(
         &mut commands,
         "zmb_easteregg_scarydog",
-        crate::audio::SoundSource::World(eye),
+        crate::audio::SoundSource::attached(owner),
     );
     if let Ok(camera) = cameras.single()
-        && let Some(image) = game
-            .content
-            .ui_assets
-            .iter()
-            .find(|a| a.id.0.contains("zm_tm_wth_dog") || a.path.contains("zm_tm_wth_dog"))
+        && let Some(image) = scare_image(&game)
     {
         commands.spawn((
             SessionEntity,
             Scare,
             UiTargetCamera(camera),
             GlobalZIndex(1000),
-            ImageNode::new(server.load(image.path.clone())),
+            ImageNode::new(server.load(image.to_owned())),
             Node {
                 position_type: PositionType::Absolute,
                 width: percent(100.),
@@ -514,35 +544,102 @@ fn tick(
         ));
     }
 }
-fn poster(
+fn bind_poster(
     mut commands: Commands,
-    mut state: ResMut<Secrets>,
-    mut hits: MessageReader<crate::environment::support::EnvironmentalHit>,
-    brushes: Query<(Entity, &crate::environment::brushes::MapBrush)>,
+    brushes: Query<
+        (Entity, &crate::environment::brushes::MapBrush),
+        Added<crate::environment::brushes::MapBrush>,
+    >,
 ) {
-    if state.poster_removed {
-        return;
-    }
     for (entity, brush) in &brushes {
         if brush.id == "brush.4423f73c.58b0fe1348ff1365bedbfb88.0" {
             commands.entity(entity).insert((
+                Poster,
                 crate::environment::support::ShootableEnvironment,
                 crate::environment::support::EnvironmentOwner::Quest,
             ));
         }
     }
+}
+
+fn poster(
+    mut commands: Commands,
+    mut state: ResMut<Secrets>,
+    mut hits: MessageReader<crate::environment::support::EnvironmentalHit>,
+    posters: Query<(), With<Poster>>,
+) {
+    if state.poster_removed {
+        return;
+    }
     for hit in hits.read() {
-        if brushes
-            .get(hit.target)
-            .is_ok_and(|(_, brush)| brush.id == "brush.4423f73c.58b0fe1348ff1365bedbfb88.0")
-        {
+        if posters.contains(hit.target) {
             state.poster_damage = state.poster_damage.saturating_add(hit.amount);
             if state.poster_damage >= 1000 {
                 state.poster_removed = true;
                 commands
                     .entity(hit.target)
-                    .insert((Visibility::Hidden, ColliderDisabled));
+                    .remove::<(Sensor, crate::environment::support::ShootableEnvironment)>()
+                    .insert((RigidBody::Dynamic, CollisionLayers::new(1, LayerMask::ALL)));
+                break;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn aether_requires_two_ones_then_either_five_and_cannot_replay() {
+        for five in [2, 3] {
+            let mut state = Secrets::default();
+            assert!(!state.available(Target::Floor(five), true, false));
+            assert!(!state.available(Target::Floor(0), false, false));
+            assert!(!state.available(Target::Floor(0), true, true));
+            assert_eq!(state.activate(Target::Floor(1)), None);
+            assert!(!state.available(Target::Floor(five), true, false));
+            assert_eq!(state.activate(Target::Floor(0)), None);
+            assert!(state.available(Target::Floor(five), true, false));
+            assert_eq!(
+                state.activate(Target::Floor(five)),
+                Some(("mus_zmb_secret_song_aether", 135.))
+            );
+            for floor in 0..4 {
+                assert!(!state.available(Target::Floor(floor), true, false));
+            }
+        }
+    }
+
+    #[test]
+    fn meteorites_and_radios_complete_once_in_any_order() {
+        let mut state = Secrets::default();
+        assert_eq!(state.activate(Target::Rock(2)), None);
+        assert_eq!(state.activate(Target::Rock(0)), None);
+        assert_eq!(
+            state.activate(Target::Rock(1)),
+            Some(("mus_zmb_secret_song", 310.))
+        );
+        assert!(!state.available(Target::Rock(0), false, false));
+        assert!(!state.available(Target::Radio(0), false, true));
+        assert_eq!(state.activate(Target::Radio(1)), None);
+        assert_eq!(state.activate(Target::Radio(0)), None);
+        assert_eq!(
+            state.activate(Target::Radio(2)),
+            Some(("mus_zmb_secret_song_a7x", 352.))
+        );
+        assert!(!state.available(Target::Radio(1), false, false));
+    }
+
+    #[test]
+    fn maxis_logs_are_replayable_after_the_full_sequence() {
+        let mut state = Secrets::default();
+        assert!(state.available(Target::Log(3), false, true));
+        state.activate(Target::Log(3));
+        assert!(state.logs_playing(0));
+        assert!(!state.available(Target::Log(3), false, false));
+        state.playing[3] = false;
+        assert!(state.logs[3]);
+        assert!(state.available(Target::Log(3), false, true));
     }
 }

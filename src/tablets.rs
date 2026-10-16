@@ -16,6 +16,15 @@ pub struct Tablet {
     pub reclean: bool,
     reward_delay: f32,
 }
+impl Tablet {
+    fn accepts_soul(&self, owner: Entity, death: &crate::damage::DamageReceipt) -> bool {
+        matches!(self.stage, 2 | 5)
+            && death.impact.attacker == owner
+            && death.can_supply_soul()
+            && (matches!(death.impact.category, crate::origins::DamageCategory::Melee)
+                || death.impact.source.id() == "weapon.tomb_shield_zm")
+    }
+}
 #[derive(Clone, Copy)]
 enum Target {
     Bunker,
@@ -25,6 +34,7 @@ enum Target {
 struct TabletModel {
     index: usize,
     church: bool,
+    clean: bool,
 }
 #[derive(Component, Default)]
 struct Barrage {
@@ -155,14 +165,27 @@ fn setup(
         .iter()
         .filter_map(|p| p.scene.as_ref())
         .find(|p| p.contains("p6_zm_tm_tablet_muddy_lod0"));
-    for (index, x) in [-3.6957, -3.4417, -4.0005, -3.1369].into_iter().enumerate() {
+    for (index, (x, z, yaw)) in [
+        (-3.6957, -113.4364, 258.48_f32),
+        (-3.4417, -113.3856, 98.48),
+        (-4.0005, -113.3856, 298.48),
+        (-3.1369, -113.3856, 183.48),
+    ]
+    .into_iter()
+    .enumerate()
+    {
         let mut entity = commands.spawn((
             SessionEntity,
             TabletModel {
                 index,
                 church: false,
+                clean: false,
             },
-            Transform::from_translation(Vec3::new(x, -8.1915, -113.3856)),
+            Transform::from_translation(Vec3::new(x, -8.1915, z)).with_rotation(
+                Quat::from_rotation_y(yaw.to_radians())
+                    * Quat::from_rotation_z(-270_f32.to_radians())
+                    * Quat::from_rotation_x(11.5202_f32.to_radians()),
+            ),
             Visibility::Inherited,
         ));
         if let Some(scene) = scene {
@@ -174,8 +197,10 @@ fn setup(
         TabletModel {
             index: 3,
             church: true,
+            clean: false,
         },
-        Transform::from_translation(Vec3::new(23.3045, 8.8773, 67.3481)),
+        Transform::from_translation(Vec3::new(23.3045, 8.8773, 67.3481))
+            .with_rotation(Quat::from_rotation_y(25_f32.to_radians())),
         Visibility::Hidden,
     ));
     if let Some(scene) = scene {
@@ -187,16 +212,25 @@ fn track(
     time: Res<Time<Fixed>>,
     mut deaths: MessageReader<crate::damage::EnemyDeath>,
     game: Res<crate::assets::GameDefinition>,
+    server: Res<AssetServer>,
     spatial: SpatialQuery,
     volumes: Query<(
         &crate::environment::triggers::MapTrigger,
         &crate::environment::triggers::TriggerState,
     )>,
-    enemies: Query<&Transform, With<crate::enemies::Zombie>>,
-    mut players: Query<(&mut Tablet, &Vitality, &crate::environment::TerrainMotion), With<Player>>,
-    mut models: Query<(&TabletModel, &mut Visibility)>,
+    enemies: Query<(&Transform, &Collider), With<crate::enemies::Zombie>>,
+    mut players: Query<
+        (
+            Entity,
+            &mut Tablet,
+            &Vitality,
+            &crate::environment::TerrainMotion,
+        ),
+        With<Player>,
+    >,
+    mut models: Query<(Entity, &mut TabletModel, &mut Visibility)>,
 ) {
-    let Ok((mut tablet, health, motion)) = players.single_mut() else {
+    let Ok((owner, mut tablet, health, motion)) = players.single_mut() else {
         return;
     };
     if health.state() == LifeState::HumanTerminal && tablet.stage < 6 {
@@ -213,16 +247,10 @@ fn track(
     }
     tablet.reward_delay = (tablet.reward_delay - time.delta_secs()).max(0.);
     for death in deaths.read() {
-        if !matches!(tablet.stage, 2 | 5)
-            || !death.0.can_supply_soul()
-            || !matches!(
-                death.0.impact.category,
-                crate::origins::DamageCategory::Melee
-            )
-        {
+        if !tablet.accepts_soul(owner, &death.0) {
             continue;
         }
-        let Ok(pose) = enemies.get(death.0.impact.target) else {
+        let Ok((pose, shape)) = enemies.get(death.0.impact.target) else {
             continue;
         };
         let name = if tablet.stage == 2 {
@@ -232,9 +260,9 @@ fn track(
         };
         let inside = spatial
             .shape_intersections(
-                &Collider::sphere(0.3),
+                shape,
                 pose.translation,
-                Quat::IDENTITY,
+                pose.rotation,
                 &SpatialQueryFilter::from_mask(crate::environment::triggers::TRIGGER_LAYER),
             )
             .iter()
@@ -275,7 +303,25 @@ fn track(
             }
         }
     }
-    for (model, mut visibility) in &mut models {
+    for (entity, mut model, mut visibility) in &mut models {
+        let clean = if model.church {
+            tablet.stage == 3
+        } else {
+            model.index == 3 && tablet.stage >= 5
+        };
+        if model.clean != clean {
+            let model_name = if clean {
+                "p6_zm_tm_tablet"
+            } else {
+                "p6_zm_tm_tablet_muddy"
+            };
+            let scene = crate::assets::native_scene(&game, model_name)
+                .expect("Origins G-Strike tablet model");
+            commands
+                .entity(entity)
+                .insert(WorldAssetRoot(server.load(scene.clone())));
+            model.clean = clean;
+        }
         *visibility = if model.church && matches!(tablet.stage, 2 | 3)
             || !model.church && (model.index != 3 || matches!(tablet.stage, 0 | 5 | 6))
         {
@@ -802,5 +848,53 @@ fn beacon_presentation(
             );
             commands.entity(entity).despawn();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::damage::{DamageReceipt, Impact, ImpactSource};
+    use crate::origins::{DamageCategory, WeaponId};
+
+    #[test]
+    fn tablet_souls_belong_to_the_killer_and_accept_shield_kills() {
+        let mut world = World::new();
+        let owner = world.spawn_empty().id();
+        let other = world.spawn_empty().id();
+        let mut death = DamageReceipt {
+            impact: Impact {
+                point: None,
+                attacker: owner,
+                target: world.spawn_empty().id(),
+                source: ImpactSource::Weapon(WeaponId("weapon.knife_zm".into())),
+                category: DamageCategory::Melee,
+                region: crate::weapons::HitRegion::Torso,
+                amount: 100,
+            },
+            base_amount: 100,
+            lethal: true,
+            points: 0,
+            aimed_bullet: false,
+            insta_kill: false,
+        };
+        for stage in [2, 5] {
+            let tablet = Tablet { stage, ..default() };
+            assert!(tablet.accepts_soul(owner, &death));
+            assert!(!tablet.accepts_soul(other, &death));
+        }
+        for stage in [0, 1, 3, 4, 6, 7] {
+            assert!(!Tablet { stage, ..default() }.accepts_soul(owner, &death));
+        }
+        let tablet = Tablet {
+            stage: 2,
+            ..default()
+        };
+        death.impact.category = DamageCategory::Bullet;
+        assert!(!tablet.accepts_soul(owner, &death));
+        death.impact.source = ImpactSource::Weapon(WeaponId("weapon.tomb_shield_zm".into()));
+        assert!(tablet.accepts_soul(owner, &death));
+        death.lethal = false;
+        assert!(!tablet.accepts_soul(owner, &death));
     }
 }

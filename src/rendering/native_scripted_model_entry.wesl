@@ -1,9 +1,12 @@
 import package::rendering::native_model::{NativeModelScene, NativeModelObject, NativeModelVertexInput};
 import package::rendering::native_scripted_model::{
     NativeModelScriptedScene, NativeModelScriptInputs, NativeModelParallaxConstants,
-    NativeModelEmissiveConstants, NativeScriptedVaryings, NativeEyeVaryings,
+    NativeFlickerConstants, native_model_flicker_fragment,
+    NativeClothRevealConstants, native_model_cloth_reveal_fragment,
+    native_model_player_icon_fragment,
+    NativeClanTagConstants, native_model_clan_tag_fragment, NativeModelEmissiveConstants, NativeScriptedVaryings, NativeEyeVaryings,
     native_scripted_model_vertex, native_scripted_model_vertex_lighting, native_model_crystal_fragment, native_model_phong_emissive_fragment,
-    native_model_emissive_multi_fragment, native_model_cloth_fragment, native_model_eye_vertex, native_model_eye_fragment, native_scripted_layer_uv, native_scripted_bitangent,
+    native_model_emissive_multi_fragment, native_model_phong_fragment, native_model_eye_vertex, native_model_eye_fragment, native_scripted_layer_uv, native_scripted_bitangent,
     native_scripted_parallax_basis, native_scripted_three_layer_uvs,
 };
 import package::rendering::native_camo::{NativeModelCamoParameters, native_model_camo_fragment};
@@ -27,6 +30,9 @@ import package::rendering::native_camo::{NativeModelCamoParameters, native_model
 @group(2) @binding(12) var<uniform> parallax: NativeModelParallaxConstants;
 @group(2) @binding(13) var<uniform> disc: NativeModelEmissiveConstants;
 @group(2) @binding(14) var<uniform> camo: NativeModelCamoParameters;
+@group(2) @binding(20) var<uniform> flicker: NativeFlickerConstants;
+@group(2) @binding(21) var<uniform> phong_controls: vec4<f32>;
+@group(2) @binding(22) var<uniform> cloth_reveal: NativeClothRevealConstants;
 @group(3) @binding(0) var model_lighting: texture_3d<f32>;
 @group(3) @binding(1) var model_lighting_sampler: sampler;
 
@@ -362,25 +368,63 @@ fn fragment_falloff_coverage(input: FalloffVaryings) -> @location(0) vec4<f32> {
 @fragment
 fn fragment_falloff_coverage_srgb(input: FalloffVaryings) -> @location(0) vec4<f32> { return attachment_srgb(shade_falloff(input, 1u)); }
 
-fn shade_cloth(input: Varyings) -> vec4<f32> {
-    return native_model_cloth_fragment(source(input), scene, view, scripts,
+fn shade_character(input: Varyings, controls: vec3<f32>) -> vec4<f32> {
+    return native_model_phong_fragment(source(input), scene, view, scripts.vectors[0].x, controls, false,
         input0, sampler0, input1, sampler1, input2, sampler2,
         model_lighting, model_lighting_sampler, probe, probe_sampler);
 }
 @fragment
-fn fragment_cloth(input: Varyings) -> @location(0) vec4<f32> { return shade_cloth(input); }
+fn fragment_cloth(input: Varyings) -> @location(0) vec4<f32> { return shade_character(input, vec3<f32>(1.0)); }
 @fragment
-fn fragment_cloth_srgb(input: Varyings) -> @location(0) vec4<f32> { return attachment_srgb(shade_cloth(input)); }
+fn fragment_cloth_srgb(input: Varyings) -> @location(0) vec4<f32> { return attachment_srgb(shade_character(input, vec3<f32>(1.0))); }
+@fragment
+fn fragment_skin(input: Varyings) -> @location(0) vec4<f32> { return shade_character(input, phong_controls.xyz); }
+@fragment
+fn fragment_skin_srgb(input: Varyings) -> @location(0) vec4<f32> { return attachment_srgb(shade_character(input, phong_controls.xyz)); }
 
-fn shade_emissive_multi(input: Varyings) -> vec4<f32> {
-    return native_model_emissive_multi_fragment(source(input), scene, view, scripts, disc,
+fn shade_player_icon(input: Varyings) -> vec4<f32> {
+    return native_model_player_icon_fragment(source(input), scene, view, phong_controls.xyz,
+        input0, sampler0, input1, sampler1, input2, sampler2,
+        model_lighting, model_lighting_sampler, probe, probe_sampler);
+}
+@fragment
+fn fragment_player_icon(input: Varyings) -> @location(0) vec4<f32> { return shade_player_icon(input); }
+@fragment
+fn fragment_player_icon_srgb(input: Varyings) -> @location(0) vec4<f32> { return attachment_srgb(shade_player_icon(input)); }
+
+fn shade_viewmodel_transparent(input: Varyings) -> vec4<f32> {
+    return native_model_phong_fragment(source(input), scene, view, 0.0, phong_controls.xyz, true,
+        input0, sampler0, input1, sampler1, input2, sampler2,
+        model_lighting, model_lighting_sampler, probe, probe_sampler);
+}
+@fragment
+fn fragment_viewmodel_transparent(input: Varyings) -> @location(0) vec4<f32> { return shade_viewmodel_transparent(input); }
+@fragment
+fn fragment_viewmodel_transparent_srgb(input: Varyings) -> @location(0) vec4<f32> { return attachment_srgb(shade_viewmodel_transparent(input)); }
+
+fn shade_flicker(input: Varyings) -> vec4<f32> {
+    return native_model_flicker_fragment(source(input), scene, view, scripts, flicker,
         input0, sampler0, input1, sampler1, input2, sampler2, input3, sampler3,
         model_lighting, model_lighting_sampler, probe, probe_sampler);
 }
 @fragment
-fn fragment_emissive_multi(input: Varyings) -> @location(0) vec4<f32> { return shade_emissive_multi(input); }
+fn fragment_flicker(input: Varyings) -> @location(0) vec4<f32> { return shade_flicker(input); }
 @fragment
-fn fragment_emissive_multi_srgb(input: Varyings) -> @location(0) vec4<f32> { return attachment_srgb(shade_emissive_multi(input)); }
+fn fragment_flicker_srgb(input: Varyings) -> @location(0) vec4<f32> { return attachment_srgb(shade_flicker(input)); }
+
+fn shade_emissive_multi(input: Varyings, alpha_test: bool) -> vec4<f32> {
+    return native_model_emissive_multi_fragment(source(input), scene, view, scripts, disc, alpha_test,
+        input0, sampler0, input1, sampler1, input2, sampler2, input3, sampler3,
+        model_lighting, model_lighting_sampler, probe, probe_sampler);
+}
+@fragment
+fn fragment_emissive_multi(input: Varyings) -> @location(0) vec4<f32> { return shade_emissive_multi(input, true); }
+@fragment
+fn fragment_emissive_multi_srgb(input: Varyings) -> @location(0) vec4<f32> { return attachment_srgb(shade_emissive_multi(input, true)); }
+@fragment
+fn fragment_emissive_multi_opaque(input: Varyings) -> @location(0) vec4<f32> { return shade_emissive_multi(input, false); }
+@fragment
+fn fragment_emissive_multi_opaque_srgb(input: Varyings) -> @location(0) vec4<f32> { return attachment_srgb(shade_emissive_multi(input, false)); }
 
 @fragment
 fn fragment_falloff_alpha(input: FalloffVaryings) -> @location(0) vec4<f32> { return shade_falloff(input, 2u); }
@@ -393,3 +437,28 @@ fn fragment_falloff_alpha_srgb(input: FalloffVaryings) -> @location(0) vec4<f32>
 fn fragment_three_alpha(input: FalloffVaryings) -> @location(0) vec4<f32> { return shade_falloff(input, 3u); }
 @fragment
 fn fragment_three_alpha_srgb(input: FalloffVaryings) -> @location(0) vec4<f32> { return attachment_srgb(shade_falloff(input, 3u)); }
+
+@group(2) @binding(19) var<uniform> clan_tag: NativeClanTagConstants;
+fn shade_clan_tag(input: Varyings) -> vec4<f32> {
+    return native_model_clan_tag_fragment(source(input), scene, view, clan_tag,
+        input0, sampler0, input1, sampler1, input2, sampler2,
+        model_lighting, model_lighting_sampler, probe, probe_sampler);
+}
+@fragment
+fn fragment_clan_tag(input: Varyings) -> @location(0) vec4<f32> { return shade_clan_tag(input); }
+@fragment
+fn fragment_clan_tag_srgb(input: Varyings) -> @location(0) vec4<f32> { return attachment_srgb(shade_clan_tag(input)); }
+
+fn shade_cloth_reveal(input: Varyings, alpha_test: bool) -> vec4<f32> {
+    return native_model_cloth_reveal_fragment(source(input), scene, view, scripts, cloth_reveal, alpha_test,
+        input0, sampler0, input1, sampler1, input2, sampler2, input3, sampler3,
+        model_lighting, model_lighting_sampler, probe, probe_sampler);
+}
+@fragment
+fn fragment_cloth_reveal(input: Varyings) -> @location(0) vec4<f32> { return shade_cloth_reveal(input, false); }
+@fragment
+fn fragment_cloth_reveal_srgb(input: Varyings) -> @location(0) vec4<f32> { return attachment_srgb(shade_cloth_reveal(input, false)); }
+@fragment
+fn fragment_cloth_reveal_cutout(input: Varyings) -> @location(0) vec4<f32> { return shade_cloth_reveal(input, true); }
+@fragment
+fn fragment_cloth_reveal_cutout_srgb(input: Varyings) -> @location(0) vec4<f32> { return attachment_srgb(shade_cloth_reveal(input, true)); }

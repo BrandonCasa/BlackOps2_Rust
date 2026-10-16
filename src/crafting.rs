@@ -13,6 +13,7 @@ use avian3d::prelude::*;
 use bevy::prelude::*;
 use std::collections::{BTreeMap, BTreeSet};
 mod source;
+pub(crate) const SHIELD_HEALTH: u32 = 1500;
 
 #[derive(Clone, serde::Deserialize)]
 pub struct BenchDefinition {
@@ -460,7 +461,7 @@ pub(crate) fn interact(
                     if let Some(previous) = equipment.deployed_shield.take() {
                         commands.entity(previous).despawn();
                     }
-                    equipment.shield_health = 1500;
+                    equipment.shield_health = SHIELD_HEALTH;
                     equipment.shield_held = false;
                 }
             } else {

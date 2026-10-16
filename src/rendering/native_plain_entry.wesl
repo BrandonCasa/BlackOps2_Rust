@@ -142,7 +142,7 @@ fn shade_diffuse_reveal(input: DiffuseVaryings) -> vec4<f32> {
     return lit;
 }
 
-fn shade_specular(input: SpecularVaryings, cutout: bool) -> vec4<f32> {
+fn shade_specular(input: SpecularVaryings, cutout: bool, blended: bool) -> vec4<f32> {
     let color = textureSample(color_map, color_sampler, input.uv_lightmap.xy);
     if cutout && fma(color.a, input.color.a, -0.501960813999176) < 0.0 { discard; }
     let source = NativeWorldVaryings(input.clip_position, input.color,
@@ -151,7 +151,8 @@ fn shade_specular(input: SpecularVaryings, cutout: bool) -> vec4<f32> {
     let lit = native_world_normal_specular_fragment(source, scene,
         color, normal_map, normal_sampler, specular_map,
         specular_sampler, lightmap_secondary, lightmap_sampler,
-        reflection_probe, reflection_sampler, false, 1.0);
+        reflection_probe, reflection_sampler, blended, color.a * input.color.a);
+    if blended { return lit; }
     return vec4<f32>(lit.rgb, select(1.0, color.a * input.color.a, cutout));
 }
 
@@ -206,12 +207,12 @@ fn fragment_diffuse_srgb(input: DiffuseVaryings) -> @location(0) vec4<f32> {
 
 @fragment
 fn fragment_specular(input: SpecularVaryings) -> @location(0) vec4<f32> {
-    return shade_specular(input, false);
+    return shade_specular(input, false, false);
 }
 
 @fragment
 fn fragment_specular_srgb(input: SpecularVaryings) -> @location(0) vec4<f32> {
-    return attachment_srgb(shade_specular(input, false));
+    return attachment_srgb(shade_specular(input, false, false));
 }
 
 @fragment
@@ -293,11 +294,23 @@ fn fragment_diffuse_cutout_srgb(input: DiffuseVaryings) -> @location(0) vec4<f32
 }
 @fragment
 fn fragment_specular_cutout(input: SpecularVaryings) -> @location(0) vec4<f32> {
-    return shade_specular(input, true);
+    return shade_specular(input, true, false);
 }
 @fragment
 fn fragment_specular_cutout_srgb(input: SpecularVaryings) -> @location(0) vec4<f32> {
-    return attachment_srgb(shade_specular(input, true));
+    return attachment_srgb(shade_specular(input, true, false));
+}
+
+// wc_lit_sm_b0c0n0s0_w16w6e35, PSbc099d54: the same mapped-normal
+// specular lighting, with color.a * vertex.a applied to both light and fog
+// before HDR square-root encoding. No alpha discard in the source PS.
+@fragment
+fn fragment_specular_blend(input: SpecularVaryings) -> @location(0) vec4<f32> {
+    return shade_specular(input, false, true);
+}
+@fragment
+fn fragment_specular_blend_srgb(input: SpecularVaryings) -> @location(0) vec4<f32> {
+    return attachment_srgb(shade_specular(input, false, true));
 }
 
 // Original blended PS4f8f060e, PS212e3fab and PSd2a8a4f1 multiply

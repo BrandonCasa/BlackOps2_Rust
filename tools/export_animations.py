@@ -2,6 +2,7 @@
 import argparse
 import json
 import hashlib
+import os
 import shutil
 import sys
 from dataclasses import asdict
@@ -16,21 +17,51 @@ parser.add_argument("--out", type=Path, required=True)
 parser.add_argument("--report", type=Path, required=True)
 parser.add_argument("--game-definition", type=Path)
 parser.add_argument("--actor-bindings", type=Path, default=Path(__file__).with_name("origins_actor_bindings.json"))
+parser.add_argument("--metadata-only", action="store_true", help="Refresh bindings from decoded source without rewriting rigs or clips")
+parser.add_argument("--weapon-parts-only", action="store_true", help="Export declared weapon pieces and their clips into an existing asset set")
+parser.add_argument("--zone", type=Path, default=Path(os.environ.get("ProgramFiles(x86)", "C:/Program Files (x86)")) / "Steam/steamapps/common/Call of Duty Black Ops II/zone/all/zm_tomb.ff")
 args = parser.parse_args()
 sys.path.insert(0, str(args.tool.resolve() / "scripts"))
 from cod.animations import load_clips
 from cod.viewmodel import parse_infostring, role_clips, hidden_bones, definition as weapon_definition
-from cod.gltf import read_glb
+from cod.gltf import read_glb, write_glb
 from cod.actors import clip_entry, _write_json, write_clip_glb
 from cod.characters import skeleton_spec
 from cod.t6.actors import read_asd
 
 sources = [*args.base, args.oat, *args.overlay]
+scripted_models = {
+    "veh_t6_dlc_zm_robot_0", "veh_t6_dlc_zm_robot_1", "veh_t6_dlc_zm_robot_2",
+    "veh_t6_dlc_zm_robot_foot_hatch", "c_zom_mech_body", "c_zom_mech_claw",
+}
+scripted_models.update(f"p6_anim_zm_barricade_board_{index:02}" for index in range(1, 7))
 clips = {}
 weapon_files = {}
 for source in sources:
     clips.update(load_clips(str(source / "xanim")))
     weapon_files.update({p.name:p for p in (source / "weapons").glob("*") if p.is_file()})
+
+def source_track(clip):
+    return {
+        "fps": clip.fps, "frames": clip.frames, "looped": clip.looped,
+        "notetracks": clip.notetracks,
+        "delta_translation": asdict(clip.delta_translation) if clip.delta_translation else None,
+        "delta_rotation": asdict(clip.delta_rotation) if clip.delta_rotation else None,
+    }
+
+if args.metadata_only:
+    path = args.out / "source-model-clips.json"
+    records = json.loads(path.read_text())
+    for record in records:
+        if record["model"] not in scripted_models:
+            continue
+        for track in record["tracks"]:
+            if track["name"] not in clips:
+                raise ValueError(f"Required source animation {track['name']} is missing")
+            track["source"] = source_track(clips[track["name"]])
+    _write_json(str(path), records)
+    print(json.dumps({"scenes": len(records), "decoded_clips": len(clips)}))
+    sys.exit(0)
 source_weapons = {}
 hands_bindings = {}
 models = args.oat / "model_export"
@@ -45,7 +76,7 @@ if args.game_definition:
         if filename == "weapons.json":
             canonical_weapons = {entry["id"].removeprefix("weapon."): entry for entry in domain["weapons"]}
 def model_path(name):
-    return next((source / "model_export" / (name + "_lod0.glb") for source in reversed(sources) if (source / "model_export" / (name + "_lod0.glb")).is_file()), None)
+    return next((source / "model_export" / (name + "_lod0.glb") for source in [*reversed(sources), args.out] if (source / "model_export" / (name + "_lod0.glb")).is_file()), None)
 report = {"tool": "open-fastfile@088dac3bdee0e6e653871f877ad8ee4326d314a4", "decoded_clips": len(clips), "weapons": [], "machines": [], "errors": []}
 (args.out / "model_export").mkdir(parents=True, exist_ok=True)
 
@@ -69,7 +100,8 @@ def export_clips(original, names, scene=None):
     scene_sources[scene] = original
     destination = args.out / scene
     destination.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(original, destination)
+    if original.resolve() != destination.resolve():
+        shutil.copyfile(original, destination)
     record = model_report.setdefault(scene, {"model":original.stem.removesuffix("_lod0"), "scene":scene, "tracks":{}})
     tracks = []
     for name in sorted(set(names)):
@@ -79,6 +111,10 @@ def export_clips(original, names, scene=None):
         written = sum(bone.name in paths and bool(bone.rotation or bone.translation) for bone in clip.bones)
         unmatched = sum(bone.name not in paths for bone in clip.bones)
         track = {"name":name, "written":written, "unmatched":unmatched, "animation_path":None}
+        # These values belong to the source clip, including scripted root offsets.
+        # Do not use root_path(): it rounds keys and subtracts the initial offset.
+        if record["model"] in scripted_models:
+            track["source"] = source_track(clip)
         if written:
             relative = Path("animations") / identity / (name + ".glb")
             output = args.out / relative
@@ -92,6 +128,67 @@ def export_clips(original, names, scene=None):
         record["tracks"][name] = track
         tracks.append(track)
     return tracks
+
+piece_walk = None
+
+def export_weapon_parts(info, wanted):
+    global piece_walk
+    parts = []
+    for index in range(1, 9):
+        model = info.get(f"attachViewModel{index}")
+        if not model:
+            continue
+        original = model_path(model)
+        if original is None:
+            raise ValueError(f"Required weapon piece {model} is missing")
+        document, _ = read_glb(str(original))
+        if not document.get("skins"):
+            # The generic exporter omits a single rigid bone. These pieces need
+            # that original bone for reload animation and ordinary native skinning.
+            from cod import backends
+            from cod.iw5.dumpers import xmodel
+            from cod import xmodel_glb
+            from collections import Counter
+            if piece_walk is None:
+                piece_walk = backends.for_fastfile(str(args.zone)).walk(str(args.zone))
+                piece_walk.check()
+            asset = next(asset for asset in piece_walk.by_type("xmodel") if asset.name == model)
+            source_model = asset.record
+            original = args.out / "model_export" / f"{model}_lod0.glb"
+            xmodel_glb.write(str(original), xmodel.lod_data(
+                piece_walk, source_model, model, 0, xmodel.surfaces(source_model, 0),
+                xmodel.skeleton(piece_walk, source_model), Counter()))
+            from strip_native_rig_materials import strip_materials
+            document, binary = read_glb(str(original))
+            strip_materials(document)
+            write_glb(str(original), document, binary)
+        export_clips(original, wanted)
+        parts.append({
+            "slot": index,
+            "scene": f"model_export/{model}_lod0.glb#Scene0",
+            "tag": info.get(f"attachViewModelTag{index}") or "j_gun",
+            "offset": [float(info.get(f"attachViewModelOffset{axis}{index}", 0)) for axis in "XYZ"],
+            "rotation": [float(info.get(f"attachViewModelOffset{axis}{index}", 0)) for axis in ("Pitch", "Yaw", "Roll")],
+            "ads": index == 8,
+        })
+    return parts
+
+if args.weapon_parts_only:
+    source_weapons = json.loads((args.out / "source-weapons.json").read_text())
+    records = {record["scene"]: record for record in json.loads((args.out / "source-model-clips.json").read_text())}
+    for source in source_weapons.values():
+        wanted = set(source["spec"]["clips"]) | {
+            value.lower() for key, value in source["info"].items()
+            if value and (key.endswith(("Anim", "AnimLeft", "AnimRight")) or key.startswith("dtp_"))}
+        source["parts"] = export_weapon_parts(source["info"], wanted)
+        tracks = export_clips(model_path(source["info"]["gunModel"]), wanted, source["scene"].split("#", 1)[0])
+        source["clip_bindings"] = {track["name"]: track["animation_path"] for track in tracks if track["animation_path"]}
+    for scene, record in model_report.items():
+        records[scene] = {**record, "tracks": list(record["tracks"].values())}
+    _write_json(str(args.out / "source-weapons.json"), source_weapons)
+    _write_json(str(args.out / "source-model-clips.json"), list(records.values()))
+    print(json.dumps({"weapons": len(source_weapons), "pieces": sum(len(w["parts"]) for w in source_weapons.values()), "models": len(model_report)}))
+    sys.exit(0)
 
 for weapon, source in sorted(weapon_files.items()):
     raw_info = parse_infostring(source.read_text())
@@ -111,7 +208,7 @@ for weapon, source in sorted(weapon_files.items()):
         else:
             report["errors"].append({"weapon":weapon,"error":"Missing exported source gunModel","model":model})
         continue
-    wanted = sorted({v for k,v in info.items() if k.endswith(("Anim", "AnimLeft", "AnimRight")) and v in clips})
+    wanted = sorted({v for k,v in info.items() if (k.endswith(("Anim", "AnimLeft", "AnimRight")) or k.startswith("dtp_")) and v in clips})
     missing = sorted({v for k,v in info.items() if k.endswith(("Anim", "AnimLeft", "AnimRight")) and v and v not in clips})
     if missing:
         report["errors"].append({"weapon":weapon,"missing_source_clips":missing})
@@ -122,6 +219,7 @@ for weapon, source in sorted(weapon_files.items()):
     source_weapons[weapon] = {"info":raw_info,"spec":spec,"scene":f"model_export/weapon_{weapon}.glb#Scene0"}
     tracks = export_clips(gun, wanted, f"model_export/weapon_{weapon}.glb")
     source_weapons[weapon]["clip_bindings"] = {track["name"]:track["animation_path"] for track in tracks if track["animation_path"]}
+    source_weapons[weapon]["parts"] = export_weapon_parts(info, wanted)
     report["weapons"].append({"weapon":weapon,"scene":f"model_export/weapon_{weapon}.glb","clips":spec["clips"],"roles":spec["roles"],"tracks":tracks,"source_model":info.get("gunModel")})
 # Existing native_scene bindings use one hands model per character. Preserve that interface.
 for character in ("dempsey", "nikolai", "richtofen", "takeo"):

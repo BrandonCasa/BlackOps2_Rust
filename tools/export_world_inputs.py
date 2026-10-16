@@ -11,14 +11,27 @@ from scripts.cod.t6.dumpers import gfxworld, material
 from scripts.cod.materials import material_file_stem
 from scripts.cod.iw5.dumpers import xmodel
 from native_model_inputs import export_model
+from native_visibility import export_visibility
+from native_images import source_walks, stage_source_images
 
 walk = backends.for_fastfile(str(zone)).walk(str(zone))
 walk.check()
 material.write(walk, str(root / "target/assets"))
+image_report = stage_source_images(source_walks(zone, walk), root / "target/assets")
+image_report_path = root / "target/reports/native-rgba-source-restage.json"
+image_report_path.parent.mkdir(parents=True, exist_ok=True)
+image_report_path.write_text(json.dumps(image_report, indent=2) + "\n", encoding="utf-8")
+print("Restored source images:", image_report["counts"], flush=True)
 asset, = walk.by_type("gfxworld")
 world = asset.record
 surfaces, _, indices = gfxworld.convert(world)
 data = gfxworld.manifest(asset, surfaces, world["draw.vertexCount"])
+# 0043fcf0 loads this exact GfxWorld+0x24 name as the camera-centered sky.
+# It is separate from the BSP's static placements and must survive export.
+sky_model = world["skyBoxModel"]
+assert sky_model, "Original Origins GfxWorld has no authored sky model"
+data["sky"] = {"model": sky_model}
+export_visibility(world, root / "target/assets")
 
 # Original GPU formats already exist in wgpu. Keep the packed streams intact;
 # the generic shell exporter discards tangents and generated-material inputs.
@@ -308,10 +321,11 @@ dynamic_models = {}
 dynamic_names = {
     path.stem.rsplit("_lod", 1)[0]
     for path in (assets / "model_export").glob("*_lod*.glb")
-} - requested_models
-# Some source models are both static placements and animated gameplay props.
-# Their explicit animation bindings still require the native skinning inputs.
+}
+# Source models can serve both static placements and moving gameplay props.
+# Every exported LOD scene needs native metadata when loaded as an instance.
 dynamic_names.update(json.loads((root / "tools/origins_model_animation_bindings.json").read_text(encoding="utf-8")))
+dynamic_names.add(sky_model)
 for source_zone in ("code_post_gfx_zm", "common_zm", "patch_zm", "zm_tomb", "zm_tomb_patch"):
     source_path = zone.with_name(source_zone + ".ff")
     source_walk = walk if source_path == zone else backends.for_fastfile(str(source_path)).walk(str(source_path))

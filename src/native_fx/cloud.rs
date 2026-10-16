@@ -82,12 +82,11 @@ pub(super) fn geometry(assets: &mut Assets<NativeEffectGeometry>) -> Geometry {
 pub(super) fn constants(
     transform: &GlobalTransform,
     camera: &GlobalTransform,
-    outdoor: &NativeOutdoorMap,
+    outdoor: Option<&NativeOutdoorMap>,
     state: &State,
 ) -> NativeCloudObject {
     let (_, camera_rotation, eye) = camera.to_scale_rotation_translation();
     let source_from_bevy = crate::rendering::world::source_frame().inverse();
-    let absolute_world = source_from_bevy * transform.to_matrix();
     let world = source_from_bevy * Mat4::from_translation(-eye) * transform.to_matrix();
     let right = source_from_bevy
         .transform_vector3(camera_rotation * Vec3::X)
@@ -95,13 +94,20 @@ pub(super) fn constants(
     let up = source_from_bevy
         .transform_vector3(camera_rotation * Vec3::Y)
         .normalize();
-    let velocity_world = source_from_bevy
-        .transform_vector3(state.velocity)
-        .normalize_or_zero();
+    let velocity_world = if state.program == NativeEffectProgram::CloudRain {
+        source_from_bevy
+            .transform_vector3(state.velocity)
+            .normalize_or_zero()
+    } else {
+        Vec3::ZERO
+    };
     let cloud_matrix = match state.program {
         NativeEffectProgram::CloudRain => Vec4::new(state.size.x, state.size.y, 0., 0.),
-        NativeEffectProgram::CloudSnow => {
-            // Literal signed branch and minimum-width behavior of00473600.
+        NativeEffectProgram::CloudSnow
+        | NativeEffectProgram::CloudSimple
+        | NativeEffectProgram::CloudAdditive => {
+            // Generic branch of 00473600: preserve the signed comparison and
+            // minimum width, shared by snow and both plain cloud programs.
             if state.size.x == state.size.y
                 || state.velocity.length_squared() < 1.0000001e-6 * 0.0254f32.powi(2)
             {
@@ -124,24 +130,21 @@ pub(super) fn constants(
                 }
             }
         }
-        NativeEffectProgram::Zfeather
-        | NativeEffectProgram::Additive
-        | NativeEffectProgram::AdditiveFeather
-        | NativeEffectProgram::LocalAdditiveFeather
-        | NativeEffectProgram::OutdoorFeather
-        | NativeEffectProgram::SimpleFeather
-        | NativeEffectProgram::EyeFeather
-        | NativeEffectProgram::EyeAdditive
-        | NativeEffectProgram::SimpleAdditive => {
-            unreachable!("cloud owns an original cloud vertex program")
-        }
+        _ => unreachable!("cloud owns an original cloud vertex program"),
     };
-    //0046b3b0: source native matrices use row vectors. Preserve the original
-    // four rows as columns here before composing our column-vector world frame.
-    let lookup = Mat4::from_cols_array_2d(&outdoor.lookup_rows.map(|row| row.to_array()));
-    //0041f2b0 defaults: r_outdoorAwayBias32 inches, r_outdoorDownBias0.
-    let bias = source_from_bevy.transform_vector3(camera_rotation * Vec3::Z * (32. * 0.0254));
-    let outdoor_matrix = lookup * Mat4::from_translation(bias) * absolute_world;
+    let outdoor_rows = if state.program.cloud_outdoor() {
+        let outdoor = outdoor.expect("weather cloud requires the original outdoor map");
+        // 0046b3b0: source native matrices use row vectors. Preserve the original
+        // four rows as columns before composing our column-vector world frame.
+        let lookup = Mat4::from_cols_array_2d(&outdoor.lookup_rows.map(|row| row.to_array()));
+        // 0041f2b0 defaults: r_outdoorAwayBias 32 inches, r_outdoorDownBias 0.
+        let bias = source_from_bevy.transform_vector3(camera_rotation * Vec3::Z * (32. * 0.0254));
+        let absolute_world = source_from_bevy * transform.to_matrix();
+        let outdoor_matrix = lookup * Mat4::from_translation(bias) * absolute_world;
+        std::array::from_fn(|i| outdoor_matrix.row(i))
+    } else {
+        [Vec4::ZERO; 3]
+    };
     let color = Vec4::from_array(
         state
             .color
@@ -149,7 +152,7 @@ pub(super) fn constants(
     );
     NativeCloudObject {
         world_rows: std::array::from_fn(|i| world.row(i)),
-        outdoor_rows: std::array::from_fn(|i| outdoor_matrix.row(i)),
+        outdoor_rows,
         view_right: right.extend(0.),
         view_up: up.extend(0.),
         cloud_matrix,
