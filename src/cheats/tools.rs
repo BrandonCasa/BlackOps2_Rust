@@ -253,7 +253,7 @@ fn spawn(
                 Ok(entity)
             }
             Spawn::MysteryBox => {
-                let scene = crate::assets::native_scene(&game, "p6_anim_zm_magic_box")
+                let scene = crate::assets::native_scene(&game, "p6_anim_zm_tm_magic_box")
                     .ok_or("Mystery Box model is unavailable")?
                     .clone();
                 let index = world
@@ -302,4 +302,77 @@ pub(super) fn undo(world: &mut World) {
         return;
     }
     world.resource_mut::<Cheats>().notice = "No Tool Gun spawns to undo".into();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::{
+        gltf::GltfPlugin, image::ImagePlugin, mesh::MeshPlugin,
+        world_serialization::WorldSerializationPlugin,
+    };
+
+    #[test]
+    #[ignore = "requires exported installed Origins assets"]
+    fn exported_tool_gun_mystery_box_loads_and_undoes() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/assets");
+        let game = GameDefinition::load_from_root(&root);
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            TransformPlugin,
+            AssetPlugin {
+                file_path: root.to_string_lossy().into_owned(),
+                ..default()
+            },
+            WorldSerializationPlugin,
+            MeshPlugin,
+            ImagePlugin::default(),
+            AnimationPlugin,
+            GltfPlugin::default(),
+        ))
+        .insert_resource(game)
+        .init_resource::<crate::stations::Stations>()
+        .init_resource::<Cheats>()
+        .init_resource::<SpawnHistory>();
+        app.finish();
+        app.cleanup();
+        let entity = spawn(app.world_mut(), &Spawn::MysteryBox, Vec3::ZERO, 0.).unwrap();
+        let scene = app
+            .world_mut()
+            .query::<&WorldAssetRoot>()
+            .single(app.world())
+            .unwrap()
+            .0
+            .clone();
+        let server = app.world().resource::<AssetServer>().clone();
+        assert_eq!(
+            server.get_path(scene.id()).unwrap().to_string(),
+            "model_export/p6_anim_zm_tm_magic_box_lod0.glb#Scene0"
+        );
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        while !server.is_loaded_with_dependencies(scene.id()) {
+            app.update();
+            if let Some(bevy::asset::LoadState::Failed(error)) = server.get_load_state(scene.id()) {
+                panic!("Tool Gun Mystery Box failed to load: {error}");
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "Mystery Box load timed out"
+            );
+            std::thread::yield_now();
+        }
+        app.world_mut()
+            .resource_mut::<SpawnHistory>()
+            .0
+            .push(entity);
+        undo(app.world_mut());
+        assert!(app.world().get_entity(entity).is_err());
+        assert_eq!(
+            app.world_mut()
+                .resource_mut::<crate::stations::Stations>()
+                .add_sandbox_box(),
+            6
+        );
+    }
 }
