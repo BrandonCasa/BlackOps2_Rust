@@ -17,6 +17,8 @@ pub(super) struct Candidate {
     runup_ticks: Option<u32>,
     #[serde(default)]
     include_tank: bool,
+    #[serde(default)]
+    pose_only: bool,
 }
 
 pub(super) fn remote(In(params): In<Option<Value>>, world: &mut World) -> bevy::remote::BrpResult {
@@ -76,7 +78,11 @@ fn inspect(
         let mut ticks = 0;
         let mut takeoff = None;
         let mut runup = Vec::new();
-        for tick in 1..=120 + candidate.runup_ticks.unwrap_or(0) {
+        for tick in 1..=if candidate.pose_only {
+            0
+        } else {
+            120 + candidate.runup_ticks.unwrap_or(0)
+        } {
             ticks = tick;
             let ground = candidate
                 .runup_ticks
@@ -226,6 +232,6 @@ fn inspect(
         );
     }
     Ok(
-        json!({"results":results,"scope":"Frozen world collision; tank included only when requested. Run-up assumes native sprint speed; platform motion, input state and pickup require a real run."}),
+        json!({"results":results,"scope":"Frozen world collision; pose_only checks the stationary player hull. Tank included only when requested. Run-up assumes native sprint speed; platform motion, input state and pickup require a real run."}),
     )
 }
