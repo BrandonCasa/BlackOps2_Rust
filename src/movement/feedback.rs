@@ -21,7 +21,7 @@ impl MotionFeedback {
         dt: f32,
     ) -> bool {
         self.previous_bob = self.bob;
-        self.previous_phase = self.phase;
+        self.previous_cycle = self.cycle;
         let speed = player.velocity.xz().length() / SOURCE_UNIT_METERS;
         let diving = mobility.dive.is_some();
         let moving = speed >= 2. && (player.grounded || diving);
@@ -29,7 +29,7 @@ impl MotionFeedback {
             // 008c3180 / 008c0660 and native cycle table 00bd049c.
             let cycle = if diving {
                 0.24 * weapon.dive_cycle
-            } else if sprint.sprinting {
+            } else if sprint.sprinting && speed >= 185. {
                 0.5 * weapon.sprint_cycle
             } else if player.prone {
                 0.25
@@ -38,9 +38,13 @@ impl MotionFeedback {
             } else {
                 0.335
             };
-            self.phase += dt * 1000. * cycle * TAU / 255.;
+            self.cycle = self.cycle.wrapping_add((dt * 1000. * cycle) as u8);
         }
-        let step = moving && (self.phase / PI).floor() != (self.previous_phase / PI).floor();
+        // 008c0020 / 008c00c0 emit the two contacts at byte cycles 64 and 192.
+        let step = moving
+            && (self.cycle ^ self.previous_cycle) & 0xc0 != 0
+            && self.cycle & 0x7f > 63
+            && speed >= 10.;
         let amplitude = if diving {
             Vec2::splat(0.002)
         } else if sprint.sprinting {
@@ -52,13 +56,12 @@ impl MotionFeedback {
         } else {
             Vec2::splat(0.007)
         };
-        self.bob = bob(self.phase, (amplitude * speed).min(Vec2::splat(8.))) * SOURCE_UNIT_METERS;
+        self.bob = bob(
+            self.cycle as f32 * TAU / 255.,
+            (amplitude * speed).min(Vec2::splat(8.)),
+        ) * SOURCE_UNIT_METERS;
         if !player.grounded && !diving {
             self.bob = Vec2::ZERO;
-        }
-        if self.phase >= TAU {
-            self.phase -= TAU;
-            self.previous_phase -= TAU;
         }
         step && player.grounded && !player.prone && !mobility.busy()
     }
@@ -116,7 +119,14 @@ impl MotionFeedback {
             self.idle_phase.y.sin(),
             self.idle_phase.z.sin(),
         ) * amount;
-        let phase = self.previous_phase.lerp(self.phase, interpolation) + PI * 0.25;
+        let end = self.cycle as f32
+            + if self.cycle < self.previous_cycle {
+                255.
+            } else {
+                0.
+            };
+        let view_phase = (self.previous_cycle as f32).lerp(end, interpolation) * TAU / 255.;
+        let phase = view_phase + PI * 0.25;
         let speed = player.velocity.xz().length() / SOURCE_UNIT_METERS * 0.16;
         let amplitude = if mobility.dive.is_some() {
             Vec2::splat(0.002) * Vec2::from_array(weapon.dive_bob)
@@ -137,10 +147,7 @@ impl MotionFeedback {
         let mut angles = idle * (1. - view_fraction) - Vec3::new(self.sway.x, self.sway.y, 0.);
         angles += Vec3::new(-weapon_bob.y, -weapon_bob.x, roll) * bob_scale * (1. - view_fraction);
         // Scoped ADS idle belongs to the view, with the model following the aim axis.
-        let view_bob = bob(
-            self.previous_phase.lerp(self.phase, interpolation),
-            Vec2::splat(0.007 * speed / 0.16),
-        );
+        let view_bob = bob(view_phase, Vec2::splat(0.007 * speed / 0.16));
         self.view_angles = (Vec2::new(idle.x, idle.y)
             - Vec2::new(view_bob.y, view_bob.x) * weapon.ads_view_bob)
             * view_fraction;
@@ -253,5 +260,34 @@ mod tests {
         assert_eq!(pose.rotation, Quat::IDENTITY);
         assert_ne!(feedback.view_angles, Vec2::ZERO);
         assert_eq!(feedback.idle_phase, phase);
+    }
+
+    #[test]
+    fn native_bob_byte_clock_wraps_and_emits_only_the_two_foot_contacts() {
+        let mut player = player();
+        player.velocity = Vec3::NEG_Z * (190. * SOURCE_UNIT_METERS);
+        let mut feedback = MotionFeedback::default();
+        let mut contacts = 0;
+        for _ in 0..60 {
+            contacts += usize::from(feedback.advance_bob(
+                &player,
+                &SprintState::default(),
+                &Mobility::default(),
+                &WeaponViewMotion::default(),
+                1. / 60.,
+            ));
+        }
+        assert_eq!(feedback.cycle, 44);
+        assert_eq!(contacts, 2);
+        player.velocity = Vec3::ZERO;
+        assert!(!feedback.advance_bob(
+            &player,
+            &SprintState::default(),
+            &Mobility::default(),
+            &WeaponViewMotion::default(),
+            1. / 60.
+        ));
+        assert_eq!(feedback.cycle, 44);
+        assert_eq!(feedback.bob, Vec2::ZERO);
     }
 }
