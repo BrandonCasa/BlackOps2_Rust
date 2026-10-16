@@ -259,6 +259,14 @@ pub(crate) fn carry(
             &crate::environment::player_solids([entity, platform]),
             |_| MoveAndSlideHitResponse::Accept,
         );
+        if result
+            .position
+            .distance_squared(pose.translation + displacement)
+            > 0.0001
+        {
+            debug!(?platform, from=?pose.translation, ?displacement, to=?result.position,
+                "Moving platform carry encountered an obstruction");
+        }
         pose.translation = result.position;
     }
 }
@@ -270,6 +278,10 @@ fn track(
 ) {
     for (entity, player, collider, pose, mut support) in &mut players {
         if !player.grounded {
+            if let Some(platform) = support.entity {
+                debug!(?platform, position=?pose.translation, velocity=?player.velocity,
+                    "Moving platform support released while airborne");
+            }
             support.entity = None;
             continue;
         }
@@ -285,6 +297,11 @@ fn track(
         let Some((hit, platform)) =
             hit.and_then(|hit| platforms.get(hit.entity).ok().map(|pose| (hit, pose)))
         else {
+            if let Some(platform) = support.entity {
+                debug!(?platform, position=?pose.translation, velocity=?player.velocity,
+                    floor=?hit.map(|h|(h.entity,h.distance,h.normal1)),
+                    "Moving platform support changed floor");
+            }
             support.entity = None;
             continue;
         };
