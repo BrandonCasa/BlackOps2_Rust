@@ -226,7 +226,9 @@ def generators_tank(client):
     client.send({"op": "assist", "god": True, "points": 100000, "ammo": True, "doors": True},
                 label="Generator and tank: open routes and replenish equipment")
     client.input(120 * int(client.state()["speed"]), label="Activate and defend generator one, then ride the tank")
-    walk_to(client, [63.0, -9.34, -135.3], tolerance=0.5)
+    client.send({"op": "teleport", "feet": [63.0, -9.2, -135.3]},
+                label="Stage beside the starting-room M14")
+    client.input(12)
     rifle = target_of(client.state(), "wall_weapon", "weapon.m14_zm")
     state = use_target(client, rifle, "Buy the starting-room M14 through its ordinary wall interaction")
     if not any(w["id"] == "weapon.m14_zm" for w in state["player"]["inventory"]):
@@ -328,17 +330,22 @@ def first_lightning_part(client):
     state = use_target(client, target, "Tank: purchase the ordinary trip")
     if state["tank"]["phase"] != "Moving":
         raise ValidationFailure("Tank interaction did not start its route")
-    walk_to(client, [1.5, 1.6256, 3.5], tolerance=0.3, seconds=12, on_tank=True)
     state = client.state()
     start = state["tank"]["position"]
     deadline = state["control"]["simulation_seconds"] + 150
     supported = 0
+    at_rear = False
     while state["tank"]["position"][2] > -79.4:
         if state["control"]["simulation_seconds"] > deadline:
             raise ValidationFailure("Tank did not reach the first lightning jump")
         if state["player"]["platform"] != tank["entity"]:
             raise ValidationFailure("Platform support was lost during the tank ride")
         supported += 1
+        if not at_rear and state["tank"]["position"][2] < -50:
+            walk_to(client, [1.5, 1.6256, 3.5], tolerance=0.3, seconds=12, on_tank=True)
+            at_rear = True
+            state = client.state()
+            continue
         if "ride_capture" not in results and state["tank"]["position"][2] < -45:
             results["ride_capture"] = capture(client, "tank-ride")
         client.input(12, aim=[100.0, state["player"]["eye"][1], state["player"]["feet"][2]],

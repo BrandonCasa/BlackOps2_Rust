@@ -137,6 +137,38 @@ fn raised_platform_floor_is_queryable_before_the_next_physics_frame() {
         .expect("Updated platform floor");
     assert_eq!(hit.entity, platform);
     assert!((hit.distance - 0.01).abs() < 1e-5);
+    let player = app
+        .world_mut()
+        .spawn((
+            Player {
+                yaw: 0.,
+                pitch: 0.,
+                velocity: Vec3::Y * 1e-6,
+                height: 1.8,
+                grounded: true,
+                crouched: false,
+                prone: false,
+                eye_height: 1.62,
+            },
+            PlatformSupport::default(),
+            Transform::from_xyz(0., 1.55, 0.),
+        ))
+        .id();
+    app.world_mut().run_system_once(track).unwrap();
+    assert_eq!(
+        app.world().get::<PlatformSupport>(player).unwrap().entity,
+        Some(platform),
+        "Floor-contact rounding must not discard a grounded rider"
+    );
+    app.world_mut().get_mut::<Player>(player).unwrap().grounded = false;
+    app.world_mut().run_system_once(track).unwrap();
+    assert!(
+        app.world()
+            .get::<PlatformSupport>(player)
+            .unwrap()
+            .entity
+            .is_none()
+    );
 }
 
 pub(crate) fn carry(
@@ -196,7 +228,7 @@ fn track(
     mut players: Query<(Entity, &Player, &Transform, &mut PlatformSupport)>,
 ) {
     for (entity, player, pose, mut support) in &mut players {
-        if !player.grounded || player.velocity.y > 0. {
+        if !player.grounded {
             support.entity = None;
             continue;
         }

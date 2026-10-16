@@ -44,6 +44,8 @@ pub(crate) struct Playback {
     #[serde(skip)]
     last_message: Instant,
     #[serde(skip)]
+    last_advance: Instant,
+    #[serde(skip)]
     ping: Instant,
     #[serde(skip)]
     progressed: bool,
@@ -74,6 +76,7 @@ impl Playback {
             desired_pause: false,
             pending_captures: [false; 3],
             last_message: Instant::now(),
+            last_advance: Instant::now(),
             ping: Instant::now(),
             progressed: false,
             started: Instant::now(),
@@ -82,6 +85,7 @@ impl Playback {
     }
     pub(crate) fn pause(&mut self, paused: bool) {
         self.desired_pause = paused;
+        self.last_advance = Instant::now();
     }
     #[cfg(windows)]
     fn send(&mut self, command: Value, id: u32) -> Result<(), String> {
@@ -187,9 +191,7 @@ impl Playback {
         if self.terminal.is_some() {
             return Ok(controls);
         }
-        if self.last_message.elapsed() > Duration::from_secs(5) {
-            return Err("Cinematic telemetry lost".into());
-        }
+        self.check_telemetry()?;
         if !self.released && self.started.elapsed() > Duration::from_secs(5) {
             return Err("Ending properties were unavailable before playback".into());
         }
@@ -205,6 +207,7 @@ impl Playback {
         {
             self.send(json!(["set_property", "pause", self.desired_pause]), 31)?;
             self.released = true;
+            self.last_advance = Instant::now();
         } else if self.released && self.paused.is_some_and(|p| p != self.desired_pause) {
             self.send(json!(["set_property", "pause", self.desired_pause]), 31)?;
         }
@@ -226,6 +229,18 @@ impl Playback {
             }
         }
         Ok(controls)
+    }
+    fn check_telemetry(&self) -> Result<(), String> {
+        if self.last_message.elapsed() > Duration::from_secs(5) {
+            return Err("Cinematic telemetry lost".into());
+        }
+        if self.released
+            && !self.desired_pause
+            && self.last_advance.elapsed() > Duration::from_secs(5)
+        {
+            return Err("Ending playback stopped advancing".into());
+        }
+        Ok(())
     }
     #[cfg(not(windows))]
     pub(crate) fn poll(&mut self, _: &str) -> Result<Vec<String>, String> {
@@ -249,7 +264,10 @@ impl Playback {
                         if position + 0.05 < self.position {
                             self.failure = Some("Ending playback moved backwards".into());
                         }
-                        self.progressed |= position > self.position + 0.01;
+                        if position > self.position + 0.01 {
+                            self.progressed = true;
+                            self.last_advance = Instant::now();
+                        }
                         self.position = self.position.max(position);
                     }
                 }
@@ -396,6 +414,28 @@ mod tests {
         }
         let mut movie = observed_movie();
         movie.observe(json!({"event":"end-file","reason":"quit"}));
+        assert!(!movie.complete);
+    }
+
+    #[test]
+    fn pause_suspends_progress_deadline_but_ping_replies_do_not() {
+        let mut movie = observed_movie();
+        movie.last_advance = Instant::now() - Duration::from_secs(6);
+        movie.last_message = Instant::now();
+        assert_eq!(
+            movie.check_telemetry().unwrap_err(),
+            "Ending playback stopped advancing"
+        );
+        movie.pause(true);
+        movie.last_advance = Instant::now() - Duration::from_secs(6);
+        assert!(movie.check_telemetry().is_ok());
+        movie.pause(false);
+        assert!(movie.check_telemetry().is_ok());
+        movie.last_message = Instant::now() - Duration::from_secs(6);
+        assert_eq!(
+            movie.check_telemetry().unwrap_err(),
+            "Cinematic telemetry lost"
+        );
         assert!(!movie.complete);
     }
 

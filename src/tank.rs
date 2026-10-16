@@ -481,7 +481,7 @@ fn setup(
 }
 fn engine(commands: &mut Commands, tank: &mut Tank, alias: &str, entity: Entity) {
     if let Some(previous) = tank.engine.take() {
-        commands.entity(previous).despawn();
+        commands.entity(previous).try_despawn();
     }
     tank.engine = Some(crate::audio::emit_loop(
         commands,
@@ -1025,10 +1025,10 @@ fn flames(
             cycle.active -= dt;
             if !moving || cycle.active <= 0. {
                 if let Some(e) = cycle.fx.take() {
-                    commands.entity(e).despawn();
+                    commands.entity(e).try_despawn();
                 }
                 if let Some(e) = cycle.sound.take() {
-                    commands.entity(e).despawn();
+                    commands.entity(e).try_despawn();
                 }
                 crate::audio::emit(
                     &mut commands,
