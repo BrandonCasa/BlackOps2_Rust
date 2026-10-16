@@ -94,6 +94,7 @@ fn input(app: &mut App, id: u64, ticks: u32, held: Vec<crate::input::Action>) {
                 aim_entity: None,
                 aim_offset: None,
                 arrival_point: None,
+                arrival_entity: None,
                 arrival_radius: None,
             },
             label: String::new(),
@@ -200,6 +201,7 @@ fn missed_waypoint_stops_a_queued_jump_before_the_next_fixed_tick() {
             aim_entity: None,
             aim_offset: None,
             arrival_point: None,
+            arrival_entity: None,
             arrival_radius: Some(0.2),
         },
     );
@@ -453,6 +455,7 @@ fn aiming_tracks_the_animated_torso_without_new_network_inputs() {
             aim_entity: Some(target.to_bits()),
             aim_offset: None,
             arrival_point: None,
+            arrival_entity: None,
             arrival_radius: None,
         },
     );
@@ -551,6 +554,7 @@ fn scripted_look_runs_once_per_fixed_tick_before_movement_and_never_in_zero_tick
             aim_entity: None,
             aim_offset: None,
             arrival_point: None,
+            arrival_entity: None,
             arrival_radius: None,
         },
         label: String::new(),
@@ -591,6 +595,7 @@ fn command_retry_has_one_queue_entry_and_conflicting_retry_fails() {
             aim_entity: None,
             aim_offset: None,
             arrival_point: None,
+            arrival_entity: None,
             arrival_radius: None,
         },
         label: String::new(),
@@ -648,6 +653,7 @@ fn waypoint_arrival_releases_forward_without_waiting_for_the_runner() {
         aim_entity: None,
         aim_offset: None,
         arrival_point: None,
+        arrival_entity: None,
         arrival_radius: Some(0.25),
     };
     assert!(action.validate().is_ok());
@@ -688,6 +694,7 @@ fn waypoint_arrival_releases_forward_without_waiting_for_the_runner() {
             aim_entity: Some(platform.to_bits()),
             aim_offset: Some([4., 1.62, 0.]),
             arrival_point: None,
+            arrival_entity: None,
             arrival_radius: Some(0.25),
         },
     );
@@ -721,6 +728,7 @@ fn waypoint_arrival_releases_forward_without_waiting_for_the_runner() {
             aim_entity: None,
             aim_offset: None,
             arrival_point: Some([10., 0., 5.]),
+            arrival_entity: None,
             arrival_radius: Some(0.25),
         },
     );
@@ -734,6 +742,39 @@ fn waypoint_arrival_releases_forward_without_waiting_for_the_runner() {
         app.world().resource::<Trace>().0.last().unwrap().3,
         Vec2::ZERO
     );
+    app.world_mut()
+        .get_mut::<Transform>(player)
+        .unwrap()
+        .translation = Vec3::new(20., 0., 5.);
+    command(
+        &mut app,
+        4,
+        Command::Input {
+            ticks: 1800,
+            held: vec![],
+            look: [0., 0.],
+            aim: Some([100., 1.62, 0.]),
+            aim_entity: None,
+            aim_offset: None,
+            arrival_point: Some([20., 0., 5.]),
+            arrival_entity: Some(platform.to_bits()),
+            arrival_radius: Some(0.25),
+        },
+    );
+    frame(&mut app, 1);
+    assert!(
+        app.world().resource::<Controller>().active.is_some(),
+        "The rider reaching a point cannot complete a wait on the vehicle"
+    );
+    app.world_mut()
+        .get_mut::<Transform>(platform)
+        .unwrap()
+        .translation = Vec3::new(20., 0., 5.);
+    frame(&mut app, 2);
+    assert_eq!(
+        app.world().resource::<Controller>().receipts[&(1, 4)].phase,
+        Phase::Executed
+    );
     assert!(
         Command::Input {
             ticks: 1,
@@ -743,6 +784,7 @@ fn waypoint_arrival_releases_forward_without_waiting_for_the_runner() {
             aim_entity: None,
             aim_offset: None,
             arrival_point: None,
+            arrival_entity: None,
             arrival_radius: Some(0.25)
         }
         .validate()

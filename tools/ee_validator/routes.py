@@ -378,20 +378,15 @@ def first_lightning_part(client):
     sequence = state["evidence"]["sequence"]
     landing = [43.5, -3.76, -83.9]
     tank = state["tank"]
-    x, y, z, w = tank["rotation"]
-    local = tank_point({"position": [0, 0, 0], "rotation": [-x, -y, -z, w]},
-                       [a-b for a,b in zip(state["player"]["feet"], tank["position"])])
     # The front deck clears the fence's southern end before the southwest turn.
-    yaw = math.atan2(33.9852 - 32.209994, 83.769708 - 73.9902)
-    takeoff = tank_point({"position": [32.49491, 0, -82.2],
-                          "rotation": [0, math.sin(yaw / 2), 0, math.cos(yaw / 2)]}, local)
+    takeoff = [32.386, 0, -82.8]
     (client.report / "tank-jump-plan.json").write_text(json.dumps({
         "feet":state["player"]["feet"],"velocity":state["player"]["velocity"],
-        "tank":tank["position"],"local":local,"wait_point":takeoff,"runup_ticks":10,"aim":landing,
+        "tank":tank["position"],"wait_point":takeoff,"runup_ticks":10,"aim":landing,
     },indent=2))
     client.send([
         {"op": "input", "ticks": 1800, "held": [], "aim": landing, "look": [0, 0],
-         "arrival_point": takeoff, "arrival_radius": 0.2},
+         "arrival_point": takeoff, "arrival_entity":tank["entity"], "arrival_radius": 0.15},
         {"op": "input", "ticks": 10, "held": ["forward", "sprint"], "aim": landing, "look": [0, 0]},
         {"op": "input", "ticks": 18, "held": ["forward", "sprint", "jump"], "aim": landing, "look": [0, 0]},
         {"op": "input", "ticks": 120, "held": ["forward", "sprint"], "aim": landing, "look": [0, 0], "arrival_radius": 0.6},

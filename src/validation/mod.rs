@@ -498,6 +498,7 @@ fn tick_input(world: &mut World) {
             aim_entity,
             aim_offset,
             arrival_point,
+            arrival_entity,
             arrival_radius,
             ..
         } = &request.action
@@ -522,10 +523,18 @@ fn tick_input(world: &mut World) {
         if arrival_radius
             .zip(arrival_point.map(Vec3::from_array).or(target))
             .is_some_and(|(radius, target)| {
-                world
-                    .query_filtered::<&Transform, With<crate::player::Player>>()
-                    .single(world)
-                    .is_ok_and(|pose| pose.translation.xz().distance(target.xz()) <= radius)
+                let position = if let Some(entity) = arrival_entity {
+                    Entity::try_from_bits(*entity)
+                        .and_then(|entity| world.get::<Transform>(entity))
+                        .map(|pose| pose.translation)
+                } else {
+                    world
+                        .query_filtered::<&Transform, With<crate::player::Player>>()
+                        .single(world)
+                        .ok()
+                        .map(|pose| pose.translation)
+                };
+                position.is_some_and(|position| position.xz().distance(target.xz()) <= radius)
             })
         {
             crate::input::scripted_tick(world, &[], Vec2::ZERO);

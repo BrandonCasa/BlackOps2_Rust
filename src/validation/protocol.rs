@@ -26,6 +26,7 @@ pub(super) enum Command {
         aim_entity: Option<u64>,
         aim_offset: Option<[f32; 3]>,
         arrival_point: Option<[f32; 3]>,
+        arrival_entity: Option<u64>,
         arrival_radius: Option<f32>,
     },
     Pause,
@@ -65,6 +66,7 @@ impl Command {
                 aim_entity,
                 aim_offset,
                 arrival_point,
+                arrival_entity,
                 arrival_radius,
             } => {
                 if !(1..=1800).contains(ticks) {
@@ -101,6 +103,10 @@ impl Command {
                 }
                 if arrival_point.is_some() && arrival_radius.is_none() {
                     return Err("An arrival point requires a radius".into());
+                }
+                if arrival_entity.is_some() && (arrival_point.is_none() || arrival_radius.is_none())
+                {
+                    return Err("Arrival entity requires a world point and radius".into());
                 }
             }
             Self::Teleport { feet } if !feet.iter().all(|n| n.is_finite()) => {
