@@ -11,6 +11,8 @@ physics, and the ending movie always plays at 1x.
 Validator launches skip the loading intro movie.
 Walking holds forward continuously and steers toward each waypoint until arrival.
 Blocked paths and simulation deadlines release the held controls and fail the run.
+Combat queues trigger presses and releases at the equipped weapon's native fire
+interval in simulation ticks, with no network round trip between shots.
 
 The development-only bridge uses the normal input owner and physics. A normal
 launch does not install it; builds without `dev-tools` exclude it.

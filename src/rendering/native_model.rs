@@ -4901,15 +4901,18 @@ mod tests {
         let static_surface = app.world_mut().spawn(surface.clone()).id();
         let animated_surface = app
             .world_mut()
-            .spawn(NativeModelSurface {
-                geometry: ModelGeometry::Animated {
-                    model: Handle::default(),
-                    instance: owner,
-                    lod: 0,
-                    surface: 0,
+            .spawn((
+                NativeModelSurface {
+                    geometry: ModelGeometry::Animated {
+                        model: Handle::default(),
+                        instance: owner,
+                        lod: 0,
+                        surface: 0,
+                    },
+                    ..surface
                 },
-                ..surface
-            })
+                RenderLayers::layer(1),
+            ))
             .id();
         app.update();
         let render_owner = app.world().get::<RenderEntity>(owner).unwrap().id();
@@ -4947,6 +4950,20 @@ mod tests {
                 .geometry
                 .instance(),
             Some(render_owner)
+        );
+        assert!(
+            app.sub_app(RenderApp)
+                .world()
+                .get::<ExtractedNativeModelSurface>(render_animated)
+                .unwrap()
+                .viewmodel
+        );
+        assert!(
+            !app.sub_app(RenderApp)
+                .world()
+                .get::<ExtractedNativeModelSurface>(render_static)
+                .unwrap()
+                .viewmodel
         );
 
         app.update();
@@ -4987,6 +5004,9 @@ mod tests {
             .get_mut::<NativeModelSurface>(static_surface)
             .unwrap()
             .first_index = 3;
+        app.world_mut()
+            .entity_mut(animated_surface)
+            .insert(RenderLayers::layer(0));
         app.world_mut().entity_mut(owner).remove::<(
             DynamicLightingOrigin,
             crate::presentation::cues::CueParameters,
@@ -5006,6 +5026,13 @@ mod tests {
                 .unwrap()
                 .first_index,
             3
+        );
+        assert!(
+            !app.sub_app(RenderApp)
+                .world()
+                .get::<ExtractedNativeModelSurface>(render_animated)
+                .unwrap()
+                .viewmodel
         );
         assert!(
             app.sub_app(RenderApp)

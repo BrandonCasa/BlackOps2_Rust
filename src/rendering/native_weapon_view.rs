@@ -178,10 +178,11 @@ mod model_matrix_tests {
             let clip = project(weapon, depth);
             assert!(clip.z <= clip.w);
             assert!(clip.z / clip.w >= 63. / 64.);
-            assert!(clip.truncate().truncate().abs_diff_eq(
-                project(world, depth).truncate().truncate(),
-                1e-6,
-            ));
+            let original = project(world, depth);
+            assert_eq!(
+                (clip.x, clip.y, clip.w),
+                (original.x, original.y, original.w)
+            );
         }
         assert!(project(world, 2.17).z > project(world, 2.17).w);
         assert!(project(weapon, 0.05).z > project(weapon, 0.05).w);
