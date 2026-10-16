@@ -385,7 +385,9 @@ pub(crate) fn interact(
                         portals.entrances[*index - 1] = PortalPhase::Closing(CLOSE_SECONDS);
                     }
                     if let Some(sound) = portals.audio.take() {
-                        commands.entity(sound).despawn();
+                        // Native voice limits and playback rejection can retire a
+                        // requested loop before the gramophone is retrieved.
+                        commands.entity(sound).try_despawn();
                     }
                     crate::audio::emit(
                         &mut commands,

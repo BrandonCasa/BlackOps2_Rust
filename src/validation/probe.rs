@@ -10,6 +10,8 @@ pub(super) struct Candidate {
     velocity: [f32; 3],
     aim: [f32; 3],
     #[serde(default)]
+    view: Option<[f32; 3]>,
+    #[serde(default)]
     runup_ticks: Option<u32>,
     #[serde(default)]
     include_tank: bool,
@@ -25,6 +27,7 @@ pub(super) fn remote(In(params): In<Option<Value>>, world: &mut World) -> bevy::
                 .iter()
                 .chain(&c.velocity)
                 .chain(&c.aim)
+                .chain(c.view.iter().flatten())
                 .any(|v| !v.is_finite())
                 || Vec3::from_array(c.velocity).length() > 30.
                 || c.runup_ticks.is_some_and(|ticks| ticks > 60)
@@ -184,12 +187,29 @@ fn inspect(
                 }
             }
         }
+        let view_blocker = candidate.view.and_then(|view| {
+            let eye = position - offset + Vec3::Y * player.eye_height;
+            let delta = Vec3::from_array(view) - eye;
+            Dir3::new(delta).ok().and_then(|direction| {
+                slide
+                    .spatial_query
+                    .cast_ray(
+                        eye,
+                        direction,
+                        (delta.length() - 0.12).max(0.),
+                        true,
+                        &crate::environment::solids([owner]),
+                    )
+                    .map(|hit| hit.entity.to_bits())
+            })
+        });
         results.push(
             json!({"feet":(position-offset).to_array(),"velocity":velocity.to_array(),
             "ticks":ticks,"blocked":blocked,"landed":landed.map(Entity::to_bits),
             "clear":slide.spatial_query.shape_intersections(collider,position+Vec3::Y*0.03,Quat::IDENTITY,&filter).is_empty(),
             "playable":crate::environment::hazards::playable(&slide.spatial_query,collider,&Transform::from_translation(position),&access,&volumes),
-            "takeoff":takeoff,"runup":runup}),
+            "takeoff":takeoff,"runup":runup,
+            "view_clear":candidate.view.map(|_|view_blocker.is_none()),"view_blocker":view_blocker}),
         );
     }
     Ok(

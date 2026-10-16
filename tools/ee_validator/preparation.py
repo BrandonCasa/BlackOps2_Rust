@@ -43,21 +43,31 @@ def opportunity_rejections(client):
     return [{"op": r["request"]["action"]["op"], "phase": r["phase"]} for r in results]
 
 
-def stage_near(client, target, label):
+def stage_near(client, target, label, *, focus=False, radii=(1.4,), view=None):
     """Inspect nearby floors before requesting the collision-checked staging cheat."""
     x, y, z = target["position"]
-    points = [[x + 1.4 * math.cos(i * math.pi / 4), y + height,
-               z + 1.4 * math.sin(i * math.pi / 4)] for height in (-1.3, -0.2, 0.8) for i in range(8)]
-    probes = client.rpc("origins/validator/jump_probes", [
-        {"feet": p, "velocity": [0, 0, 0], "aim": p} for p in points])["results"]
+    points = [[x + radius * math.cos(i * math.pi / 4), y + height,
+               z + radius * math.sin(i * math.pi / 4)] for radius in radii
+              for height in (-1.3, -0.2, 0.8) for i in range(8)]
+    probes = []
+    for start in range(0, len(points), 64):
+        probes.extend(client.rpc("origins/validator/jump_probes", [
+            {"feet": p, "velocity": [0, 0, 0], "aim": p, "view": view}
+            for p in points[start:start+64]])["results"])
     floors = [p["feet"] for p in probes if p["landed"] is not None and p["clear"] and p["playable"]
-              and -0.4 <= y - p["feet"][1] <= 2.1]
+              and -0.4 <= y - p["feet"][1] <= 2.1 and (view is None or p["view_clear"])]
     if not floors:
         raise ValidationFailure(f"No clear supporting floor beside {label}: {target['position']}")
     current = client.state()["player"]["feet"]
-    feet = min(floors, key=lambda p: distance(p, current))
-    client.send({"op": "teleport", "feet": feet}, label=f"Stage beside {label}")
-    client.input(12)
+    for feet in sorted(floors, key=lambda p: distance(p, current)):
+        client.send({"op": "teleport", "feet": feet}, label=f"Stage beside {label}")
+        client.input(12)
+        if not focus:
+            return
+        client.input(120, aim=target["position"], label=f"Inspect the ordinary interaction for {label}")
+        if client.state()["interaction"]["target"] == target["entity"]:
+            return
+    raise ValidationFailure(f"No inspected floor gives ordinary interaction access to {label}")
 
 
 def part_target(state, name):
@@ -71,7 +81,7 @@ def collect_part(client, name, *, stage=True):
         return
     target = part_target(state, name)
     if stage:
-        stage_near(client, target, name)
+        stage_near(client, target, name, focus=True)
     state = use_target(client, part_target(client.state(), name), f"Collect {name} through interaction")
     part = state["parts"]["pieces"].get(name, {})
     if part.get("state") != "owned" or part.get("player") != state["player"]["entity"]:
@@ -201,7 +211,7 @@ def clear_round(client):
                 enemy = min(live, key=lambda e: distance(e["position"], state["player"]["feet"]))
                 # Staging stays on native floors; every kill still uses the equipped weapon.
                 if distance(enemy["position"], state["player"]["feet"]) > 25 or state["control"]["simulation_seconds"] - last_progress > 20:
-                    stage_near(client, enemy, "ordinary combat approach")
+                    stage_near(client, enemy, "ordinary combat approach", radii=(1.4, 3, 5, 8), view=enemy["aim"])
                     last_progress = client.state()["control"]["simulation_seconds"]
                 client.send({"op": "assist", "god": True, "points": state["round"]["points"], "ammo": True, "doors": False})
                 shoot_at(client, enemy["entity"], shots=8, head=enemy["definition"] == "enemy.panzer",
