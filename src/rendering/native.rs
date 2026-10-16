@@ -151,6 +151,8 @@ pub struct NativeOmniLights {
 #[extract_app(RenderApp)]
 pub struct NativeWorldScene {
     pub view_projection_rows: [Vec4; 4],
+    /// Original cb0[40..42]: camera right/up/forward in source axes, W0.
+    pub inverse_view_rows: [Vec4; 3],
     pub fog_color: Vec4,
     pub fog_consts: Vec4,
     pub fog_consts2: Vec4,
@@ -2393,7 +2395,9 @@ pub(crate) fn render_ordered<const PASS: u8>(
         occlusion_query_set: None,
         multiview_mask: None,
     });
-    if let Some(viewport) = bevy::camera::Viewport::from_viewport_and_override(camera.viewport.as_ref(), resolution) {
+    if let Some(viewport) =
+        bevy::camera::Viewport::from_viewport_and_override(camera.viewport.as_ref(), resolution)
+    {
         pass.set_camera_viewport(&viewport);
     }
     for draw in draws {

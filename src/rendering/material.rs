@@ -114,6 +114,10 @@ impl MaterialDefinition {
         &self.technique_set
     }
 
+    pub(crate) fn has_camera_pass(&self) -> bool {
+        self.camera_region != "none"
+    }
+
     pub(crate) fn receives_marks(&self) -> bool {
         self.sort_key != 24 && !self.game_flags.iter().any(|flag| flag == "4")
     }
@@ -192,6 +196,977 @@ impl MaterialDefinition {
         };
         let bind = || {
             let family = self.technique_set();
+            if matches!(
+                family,
+                "mc_sw4_3d_viewmodel_unlit_60466j88"
+                    | "mc_sw4_3d_viewmodel_unlit_8216051u"
+                    | "mc_sw4_3d_viewmodel_unlit_alpha_85z6j5w5"
+                    | "mc_sw4_3d_viewmodel_unlit_j299w86e"
+            ) {
+                use super::native_model::NativeModelUnlitProgram;
+                let program = match family {
+                    "mc_sw4_3d_viewmodel_unlit_60466j88" => NativeModelUnlitProgram::ViewmodelAdd,
+                    "mc_sw4_3d_viewmodel_unlit_8216051u" => {
+                        NativeModelUnlitProgram::ViewmodelSqrtAlpha
+                    }
+                    "mc_sw4_3d_viewmodel_unlit_alpha_85z6j5w5" => {
+                        NativeModelUnlitProgram::ViewmodelAlpha
+                    }
+                    _ => NativeModelUnlitProgram::ViewmodelOpaque,
+                };
+                let (color_map, color_sampler) =
+                    self.texture_key(server, "Color_Map", "colorMap", Some(3053961470))?;
+                let alpha = if matches!(
+                    program,
+                    NativeModelUnlitProgram::ViewmodelSqrtAlpha
+                        | NativeModelUnlitProgram::ViewmodelAlpha
+                ) {
+                    "gt0"
+                } else {
+                    "disabled"
+                };
+                return Ok((
+                    NativeModelMaterial::Unlit {
+                        base: NativeModelColorTexture {
+                            color_map,
+                            color_sampler,
+                        },
+                        program,
+                        scale_rgb: self.constant_hash("Emissive_Amount", 2875883048)?,
+                    },
+                    self.state_bits_for(3, alpha)?,
+                ));
+            }
+            if family == "mc_sw4_3d_reticle_ui3d_q49ew30e" {
+                use super::native_model::NativeReticleConstants;
+                let glow = self.constant("Glow_Color")?;
+                return Ok((
+                    NativeModelMaterial::Ui3dReticle {
+                        noise: self.texture_key(
+                            server,
+                            "Detail_Map",
+                            "colorMap",
+                            Some(1436567410),
+                        )?,
+                        constants: NativeReticleConstants {
+                            source: [
+                                Vec4::new(
+                                    glow.x,
+                                    glow.y,
+                                    glow.z,
+                                    self.constant_hash("Emissive_Amount", 2875883048)?.x,
+                                ),
+                                Vec4::new(
+                                    self.constant("Noise_Scale")?.x,
+                                    self.constant_hash("Glow_Falloff", 746727556)?.x,
+                                    self.constant_hash("Color_Map_Noise", 3994589023)?.x,
+                                    0.,
+                                ),
+                                self.constant_hash("Reticle_Color", 701365634)?,
+                                self.constant_hash("Reticle_Alt_Color", 3943878052)?,
+                                self.constant_hash("Glow_Alt_Color", 2900146391)?,
+                            ],
+                        },
+                    },
+                    self.state_bits_for(3, "disabled")?,
+                ));
+            }
+            if matches!(
+                family,
+                "mc_sw4_3d_reticle_dynamic_9820jqfj"
+                    | "mc_sw4_3d_reticle_dynamic_2colors_5f888f0w"
+                    | "mc_sw4_3d_reticle_static_35866wj0"
+            ) {
+                use super::native_model::{NativeReticleConstants, NativeReticleProgram};
+                let two = family == "mc_sw4_3d_reticle_dynamic_2colors_5f888f0w";
+                let glow = self.constant("Glow_Color")?;
+                let reticle = self.constant_hash("Reticle_Color", 701365634)?;
+                return Ok((
+                    NativeModelMaterial::Reticle {
+                        program: if two {
+                            NativeReticleProgram::DynamicTwoColor
+                        } else if family == "mc_sw4_3d_reticle_static_35866wj0" {
+                            NativeReticleProgram::Static
+                        } else {
+                            NativeReticleProgram::Dynamic
+                        },
+                        textures: [
+                            self.texture_key(server, "Detail_Map", "colorMap", Some(1436567410))?,
+                            self.texture_key(server, "Color_Map", "colorMap", Some(3053961470))?,
+                        ],
+                        constants: NativeReticleConstants {
+                            source: [
+                                Vec4::new(
+                                    glow.x,
+                                    glow.y,
+                                    glow.z,
+                                    self.constant_hash("Emissive_Amount", 2875883048)?.x,
+                                ),
+                                Vec4::new(
+                                    self.constant("Noise_Scale")?.x,
+                                    self.constant_hash("Color_Map_Scale", 4000797241)?.x,
+                                    self.constant_hash("Glow_Falloff", 746727556)?.x,
+                                    self.constant_hash("Color_Map_Noise", 3994589023)?.x,
+                                ),
+                                Vec4::new(
+                                    self.constant("Background")?.x,
+                                    reticle.x,
+                                    reticle.y,
+                                    reticle.z,
+                                ),
+                                if two {
+                                    self.constant_hash("Reticle_Alt_Color", 3943878052)?
+                                } else {
+                                    Vec4::ZERO
+                                },
+                                if two {
+                                    self.constant_hash("Glow_Alt_Color", 2900146391)?
+                                } else {
+                                    Vec4::ZERO
+                                },
+                            ],
+                        },
+                    },
+                    self.state_bits_for(3, "disabled")?,
+                ));
+            }
+            if family == "mc_sw4_3d_optic_lens_4w47028j" {
+                return Ok((
+                    NativeModelMaterial::OpticLens {
+                        textures: [
+                            self.texture_key(server, "Normal_Map", "normalMap", Some(2485960688))?,
+                            self.texture_key(server, "Color_Map", "colorMap", Some(3053961470))?,
+                            self.texture_key(
+                                server,
+                                "Specular_Color_Map",
+                                "specularMap",
+                                Some(2940931118),
+                            )?,
+                            self.texture_key(
+                                server,
+                                "Specular_Gloss_Map",
+                                "colorMap",
+                                Some(3548237271),
+                            )?,
+                        ],
+                        probe,
+                        probe_sampler: code_sampler(MipmapFilterMode::Linear),
+                        controls: Vec4::new(
+                            self.constant_hash("Specular_Amount", 1307013020)?.x,
+                            self.constant_hash("Reflection_Amount", 211931156)?.x,
+                            self.constant_hash("Specular_Decay_Threshold", 994574754)?.x,
+                            0.,
+                        ),
+                    },
+                    self.world_state("gt0")?,
+                ));
+            }
+            if family == "mc_sw4_3d_unlit_1layer_nofog_91f00f80" {
+                let scale = self.constant("Layer1Scale")?;
+                let offset = self.constant("Layer1Offset")?;
+                let scroll = self.constant("Layer1Scroll")?;
+                let origin = self.constant("Layer1Origin")?;
+                let rotation = self.constant("Layer1Rotation")?;
+                return Ok((
+                    NativeModelMaterial::SingleLayer {
+                        layer: self.texture(server, "Layer1Map", "colorMap")?,
+                        probe,
+                        probe_sampler: code_sampler(MipmapFilterMode::Linear),
+                        constants: super::native_model::NativeModelSingleLayerConstants {
+                            source: [
+                                Vec4::new(scale.x, scale.y, offset.x, offset.y),
+                                Vec4::new(
+                                    scroll.x,
+                                    scroll.y,
+                                    self.constant("Layer1Alpha")?.x,
+                                    self.constant("hdrAmount")?.x,
+                                ),
+                                Vec4::new(rotation.x, rotation.y, origin.x, origin.y),
+                                Vec4::new(
+                                    self.constant("Layer1Depth")?.x,
+                                    self.constant_hash("Gloss_Amount", 3432544439)?.x,
+                                    self.constant_hash("Reflection_Amount", 211931156)?.x,
+                                    0.,
+                                ),
+                            ],
+                        },
+                    },
+                    self.world_state("gt0")?,
+                ));
+            }
+            if matches!(
+                family,
+                "mc_sw4_3d_scrolling_alpha2_distort_z58wq263"
+                    | "mc_sw4_3d_scrolling_alpha2_distort_qwj8139f"
+                    | "mc_sw4_3d_scrolling_falloff_zfeather_69456263"
+                    | "mc_sw4_3d_scrolling_falloff_2ff9qe6w"
+                    | "mc_sw4_3d_zm_elec_disc_w323fq8j"
+                    | "mc_sw4_3d_light_sphere_46j58w7u"
+                    | "mc_sw4_3d_portal_e96z3z92"
+                    | "mc_sw4_3d_zmb_sky_pillar_on_6821fw2w"
+                    | "mc_sw4_3d_zm_sphere_elec_9j108eq6"
+                    | "mc_sw4_3d_zm_sphere_elec_535e0f02"
+                    | "mc_sw4_3d_zm_ice_script_static_blizzard_45q67691"
+                    | "mc_sw4_3d_zm_ice_script_static_877zz4j0"
+                    | "mc_sw4_3d_zmb_sphere_tendril_j0598qze"
+                    | "mc_sw4_3d_water_on_surface_reveal_77320z68"
+                    | "mc_sw4_3d_unlit_scroll_jq69qew7"
+            ) {
+                use super::native_model::{NativeEffectModelConstants, NativeEffectModelProgram};
+                let (program, textures, constants) = match family {
+                    "mc_sw4_3d_scrolling_alpha2_distort_z58wq263" => {
+                        let mut source = [Vec4::ZERO; 12];
+                        let source_color_scale = self.constant("ColorScale")?;
+                        source[1].x = source_color_scale.x;
+                        source[1].y = source_color_scale.y;
+                        let source_color_speed = self.constant("ColorSpeed")?;
+                        source[1].z = source_color_speed.x;
+                        source[1].w = source_color_speed.y;
+                        let source_hdr_amount = self.constant("hdrAmount")?;
+                        source[2].x = source_hdr_amount.x;
+                        let source_distort_amount =
+                            self.constant_hash("DistortAmount", 2693350095)?;
+                        source[2].w = source_distort_amount.x;
+                        let source_distortion_scale = self.constant("distortionScale")?;
+                        source[3].x = source_distortion_scale.x;
+                        source[3].y = source_distortion_scale.y;
+                        let source_distortion_speed =
+                            self.constant_hash("DistortionSpeed", 4084488332)?;
+                        source[3].z = source_distortion_speed.x;
+                        source[3].w = source_distortion_speed.y;
+                        (
+                            NativeEffectModelProgram::DistortOpaque,
+                            vec![self.texture(server, "colorMap", "colorMap")?],
+                            NativeEffectModelConstants { source },
+                        )
+                    }
+                    "mc_sw4_3d_scrolling_alpha2_distort_qwj8139f" => {
+                        let mut source = [Vec4::ZERO; 12];
+                        let source_alpha_scale = self.constant("AlphaScale")?;
+                        source[0].x = source_alpha_scale.x;
+                        source[0].y = source_alpha_scale.y;
+                        let source_alpha_speed = self.constant("AlphaSpeed")?;
+                        source[0].z = source_alpha_speed.x;
+                        source[0].w = source_alpha_speed.y;
+                        let source_color_scale = self.constant("ColorScale")?;
+                        source[1].x = source_color_scale.x;
+                        source[1].y = source_color_scale.y;
+                        let source_color_speed = self.constant("ColorSpeed")?;
+                        source[1].z = source_color_speed.x;
+                        source[1].w = source_color_speed.y;
+                        let source_hdr_amount = self.constant("hdrAmount")?;
+                        source[2].x = source_hdr_amount.x;
+                        let source_falloff_power = self.constant("FalloffPower")?;
+                        source[2].y = source_falloff_power.x;
+                        let source_falloff_boost = self.constant("FalloffBoost")?;
+                        source[2].z = source_falloff_boost.x;
+                        let source_distort_amount =
+                            self.constant_hash("DistortAmount", 2693350095)?;
+                        source[2].w = source_distort_amount.x;
+                        let source_distortion_scale = self.constant("distortionScale")?;
+                        source[3].x = source_distortion_scale.x;
+                        source[3].y = source_distortion_scale.y;
+                        let source_distortion_speed =
+                            self.constant_hash("DistortionSpeed", 4084488332)?;
+                        source[3].z = source_distortion_speed.x;
+                        source[3].w = source_distortion_speed.y;
+                        let source_feather_kill = self.constant("FeatherKill")?;
+                        source[4].x = source_feather_kill.x;
+                        let source_fade_factor = self.constant("FadeFactor")?;
+                        source[4].y = source_fade_factor.x;
+                        (
+                            NativeEffectModelProgram::DistortAlpha,
+                            vec![
+                                self.texture(server, "colorMap", "colorMap")?,
+                                self.texture_key(server, "AlphaMap", "colorMap", Some(170923560))?,
+                            ],
+                            NativeEffectModelConstants { source },
+                        )
+                    }
+                    "mc_sw4_3d_scrolling_falloff_zfeather_69456263" => {
+                        let mut source = [Vec4::ZERO; 12];
+                        let source_color_scale = self.constant("ColorScale")?;
+                        source[0].x = source_color_scale.x;
+                        source[0].y = source_color_scale.y;
+                        let source_color_speed = self.constant("ColorSpeed")?;
+                        source[0].z = source_color_speed.x;
+                        source[0].w = source_color_speed.y;
+                        let source_hdr_amount = self.constant("hdrAmount")?;
+                        source[1].x = source_hdr_amount.x;
+                        let source_falloff_power = self.constant("FalloffPower")?;
+                        source[1].y = source_falloff_power.x;
+                        let source_falloff_boost = self.constant("FalloffBoost")?;
+                        source[1].z = source_falloff_boost.x;
+                        let source_feather_kill = self.constant("FeatherKill")?;
+                        source[1].w = source_feather_kill.x;
+                        let source_fade_factor = self.constant("FadeFactor")?;
+                        source[2].x = source_fade_factor.x;
+                        (
+                            NativeEffectModelProgram::ScrollingFeather,
+                            vec![self.texture(server, "colorMap", "colorMap")?],
+                            NativeEffectModelConstants { source },
+                        )
+                    }
+                    "mc_sw4_3d_scrolling_falloff_2ff9qe6w" => {
+                        let mut source = [Vec4::ZERO; 12];
+                        let source_color_scale = self.constant("ColorScale")?;
+                        source[0].x = source_color_scale.x;
+                        source[0].y = source_color_scale.y;
+                        let source_color_speed = self.constant("ColorSpeed")?;
+                        source[0].z = source_color_speed.x;
+                        source[0].w = source_color_speed.y;
+                        let source_hdr_amount = self.constant("hdrAmount")?;
+                        source[1].x = source_hdr_amount.x;
+                        let source_falloff_power = self.constant("FalloffPower")?;
+                        source[1].y = source_falloff_power.x;
+                        let source_falloff_boost = self.constant("FalloffBoost")?;
+                        source[1].z = source_falloff_boost.x;
+                        (
+                            NativeEffectModelProgram::ScrollingFalloff,
+                            vec![self.texture(server, "colorMap", "colorMap")?],
+                            NativeEffectModelConstants { source },
+                        )
+                    }
+                    "mc_sw4_3d_zm_elec_disc_w323fq8j" => {
+                        let mut source = [Vec4::ZERO; 12];
+                        let source_alpha_scale = self.constant("AlphaScale")?;
+                        source[0].x = source_alpha_scale.x;
+                        source[0].y = source_alpha_scale.y;
+                        let source_alpha_speed = self.constant("AlphaSpeed")?;
+                        source[0].z = source_alpha_speed.x;
+                        source[0].w = source_alpha_speed.y;
+                        let source_hdr_amount = self.constant("hdrAmount")?;
+                        source[1].x = source_hdr_amount.x;
+                        let source_alpha_falloff_power =
+                            self.constant_hash("AlphaFalloffPower", 42483651)?;
+                        source[1].y = source_alpha_falloff_power.x;
+                        let source_alpha_falloff_boost =
+                            self.constant_hash("AlphaFalloffBoost", 68285721)?;
+                        source[1].z = source_alpha_falloff_boost.x;
+                        let source_color_speed = self.constant("ColorSpeed")?;
+                        source[2].x = source_color_speed.x;
+                        source[2].y = source_color_speed.y;
+                        let source_color_scale = self.constant("ColorScale")?;
+                        source[2].z = source_color_scale.x;
+                        source[2].w = source_color_scale.y;
+                        let source_fade_factor = self.constant("FadeFactor")?;
+                        source[3].x = source_fade_factor.x;
+                        let source_distortion_speed =
+                            self.constant_hash("DistortionSpeed", 4084488332)?;
+                        source[3].y = source_distortion_speed.x;
+                        source[3].z = source_distortion_speed.y;
+                        let source_distortion_scale = self.constant("distortionScale")?;
+                        source[4].x = source_distortion_scale.x;
+                        source[4].y = source_distortion_scale.y;
+                        let source_distortion_amount =
+                            self.constant_hash("DistortionAmount", 1260895079)?;
+                        source[4].z = source_distortion_amount.x;
+                        let source_color_offset = self.constant("ColorOffset")?;
+                        source[5].x = source_color_offset.x;
+                        source[5].y = source_color_offset.y;
+                        let source_color = self.constant("Color")?;
+                        source[6].x = source_color.x;
+                        source[6].y = source_color.y;
+                        source[6].z = source_color.z;
+                        source[6].w = source_color.w;
+                        let source_distortion2_speed =
+                            self.constant_hash("Distortion2Speed", 3544024158)?;
+                        source[7].x = source_distortion2_speed.x;
+                        source[7].y = source_distortion2_speed.y;
+                        let source_distortion2_scale =
+                            self.constant_hash("Distortion2Scale", 3543472193)?;
+                        source[7].z = source_distortion2_scale.x;
+                        source[7].w = source_distortion2_scale.y;
+                        let source_distortion2_amount =
+                            self.constant_hash("Distortion2Amount", 1663396853)?;
+                        source[8].x = source_distortion2_amount.x;
+                        let source_color2_speed = self.constant("Color2Speed")?;
+                        source[8].y = source_color2_speed.x;
+                        source[8].z = source_color2_speed.y;
+                        let source_color2_scale = self.constant("Color2Scale")?;
+                        source[9].x = source_color2_scale.x;
+                        source[9].y = source_color2_scale.y;
+                        let source_color2_amount = self.constant("Color2Amount")?;
+                        source[9].z = source_color2_amount.x;
+                        let source_depth_fade = self.constant("DepthFade")?;
+                        source[9].w = source_depth_fade.x;
+                        let source_fade_min = self.constant("FadeMin")?;
+                        source[10].x = source_fade_min.x;
+                        let source_fade_max = self.constant("FadeMax")?;
+                        source[10].y = source_fade_max.x;
+                        let source_color_offset2 = self.constant("ColorOffset2")?;
+                        source[10].z = source_color_offset2.x;
+                        source[10].w = source_color_offset2.y;
+                        (
+                            NativeEffectModelProgram::ElectricDisc,
+                            vec![
+                                self.texture_key(
+                                    server,
+                                    "DistortionMap2",
+                                    "colorMap",
+                                    Some(3897646725),
+                                )?,
+                                self.texture(server, "colorMap2", "colorMap")?,
+                                self.texture_key(
+                                    server,
+                                    "DistortionMap",
+                                    "colorMap",
+                                    Some(2981422039),
+                                )?,
+                                self.texture(server, "colorMap", "colorMap")?,
+                                self.texture_key(server, "AlphaMap", "colorMap", Some(170923560))?,
+                                self.texture_key(
+                                    server,
+                                    "AlphaMap3",
+                                    "colorMap",
+                                    Some(1345510171),
+                                )?,
+                                self.texture_key(
+                                    server,
+                                    "AlphaMap2",
+                                    "colorMap",
+                                    Some(1345510170),
+                                )?,
+                            ],
+                            NativeEffectModelConstants { source },
+                        )
+                    }
+                    "mc_sw4_3d_light_sphere_46j58w7u" => {
+                        let mut source = [Vec4::ZERO; 12];
+                        let source_fov = self.constant("FOV")?;
+                        source[0].x = source_fov.x;
+                        let source_depth_scale = self.constant("DepthScale")?;
+                        source[0].y = source_depth_scale.x;
+                        let source_tint = self.constant("Tint")?;
+                        source[1].x = source_tint.x;
+                        source[1].y = source_tint.y;
+                        source[1].z = source_tint.z;
+                        (
+                            NativeEffectModelProgram::LightSphere,
+                            vec![],
+                            NativeEffectModelConstants { source },
+                        )
+                    }
+                    "mc_sw4_3d_portal_e96z3z92" => {
+                        let mut source = [Vec4::ZERO; 12];
+                        let source_layer1_scale = self.constant("Layer1Scale")?;
+                        source[0].x = source_layer1_scale.x;
+                        source[0].y = source_layer1_scale.y;
+                        let source_layer1_offset = self.constant("Layer1Offset")?;
+                        source[0].z = source_layer1_offset.x;
+                        source[0].w = source_layer1_offset.y;
+                        let source_layer1_scroll = self.constant("Layer1Scroll")?;
+                        source[1].x = source_layer1_scroll.x;
+                        source[1].y = source_layer1_scroll.y;
+                        let source_layer2_scale = self.constant("Layer2Scale")?;
+                        source[1].z = source_layer2_scale.x;
+                        source[1].w = source_layer2_scale.y;
+                        let source_layer2_scroll = self.constant("Layer2Scroll")?;
+                        source[2].x = source_layer2_scroll.x;
+                        source[2].y = source_layer2_scroll.y;
+                        let source_layer3_scale = self.constant("Layer3Scale")?;
+                        source[2].z = source_layer3_scale.x;
+                        source[2].w = source_layer3_scale.y;
+                        let source_layer3_offset = self.constant("Layer3Offset")?;
+                        source[3].x = source_layer3_offset.x;
+                        source[3].y = source_layer3_offset.y;
+                        let source_layer3_scroll = self.constant("Layer3Scroll")?;
+                        source[3].z = source_layer3_scroll.x;
+                        source[3].w = source_layer3_scroll.y;
+                        let source_layer1_alpha = self.constant("Layer1Alpha")?;
+                        source[4].x = source_layer1_alpha.x;
+                        let source_layer2_alpha = self.constant("Layer2Alpha")?;
+                        source[4].y = source_layer2_alpha.x;
+                        let source_layer3_alpha = self.constant("Layer3Alpha")?;
+                        source[4].z = source_layer3_alpha.x;
+                        let source_hdr_amount = self.constant("hdrAmount")?;
+                        source[4].w = source_hdr_amount.x;
+                        let source_layer2_depth = self.constant("Layer2Depth")?;
+                        source[5].x = source_layer2_depth.x;
+                        let source_layer3_depth = self.constant("Layer3Depth")?;
+                        source[5].y = source_layer3_depth.x;
+                        let source_layer4_scale = self.constant("Layer4Scale")?;
+                        source[5].z = source_layer4_scale.x;
+                        source[5].w = source_layer4_scale.y;
+                        let source_layer4_offset = self.constant("Layer4Offset")?;
+                        source[6].x = source_layer4_offset.x;
+                        source[6].y = source_layer4_offset.y;
+                        let source_layer4_alpha = self.constant("Layer4Alpha")?;
+                        source[6].z = source_layer4_alpha.x;
+                        let source_layer4_depth = self.constant("Layer4Depth")?;
+                        source[6].w = source_layer4_depth.x;
+                        let source_color = self.constant("Color")?;
+                        source[7].x = source_color.x;
+                        source[7].y = source_color.y;
+                        source[7].z = source_color.z;
+                        source[7].w = source_color.w;
+                        let source_distortion_speed =
+                            self.constant_hash("DistortionSpeed", 4084488332)?;
+                        source[8].x = source_distortion_speed.x;
+                        source[8].y = source_distortion_speed.y;
+                        let source_distortion_scale = self.constant("distortionScale")?;
+                        source[8].z = source_distortion_scale.x;
+                        source[8].w = source_distortion_scale.y;
+                        let source_distortion_amount =
+                            self.constant_hash("DistortionAmount", 1260895079)?;
+                        source[9].x = source_distortion_amount.x;
+                        let source_sin_max = self.constant("SinMax")?;
+                        source[9].y = source_sin_max.x;
+                        let source_sin_min = self.constant("SinMin")?;
+                        source[9].z = source_sin_min.x;
+                        let source_sin_div = self.constant("SinDiv")?;
+                        source[9].w = source_sin_div.x;
+                        let source_sin_mult = self.constant("SinMult")?;
+                        source[10].x = source_sin_mult.x;
+                        let source_distortion_amount3 =
+                            self.constant_hash("DistortionAmount3", 2954831988)?;
+                        source[10].y = source_distortion_amount3.x;
+                        let source_distortion_speed3 =
+                            self.constant_hash("DistortionSpeed3", 1644128831)?;
+                        source[10].z = source_distortion_speed3.x;
+                        source[10].w = source_distortion_speed3.y;
+                        let source_distortion_scale3 =
+                            self.constant_hash("DistortionScale3", 1659407168)?;
+                        source[11].x = source_distortion_scale3.x;
+                        source[11].y = source_distortion_scale3.y;
+                        let source_flag_speed = self.constant("FlagSpeed")?;
+                        source[11].z = source_flag_speed.x;
+                        (
+                            NativeEffectModelProgram::Portal,
+                            vec![
+                                self.texture(server, "Layer4Map", "colorMap")?,
+                                self.texture_key(
+                                    server,
+                                    "DistortionMap3",
+                                    "colorMap",
+                                    Some(3897646724),
+                                )?,
+                                self.texture(server, "Layer3Map", "colorMap")?,
+                                self.texture(server, "Layer2Map", "colorMap")?,
+                                self.texture_key(
+                                    server,
+                                    "DistortionMap",
+                                    "colorMap",
+                                    Some(2981422039),
+                                )?,
+                                self.texture(server, "Layer1Map", "colorMap")?,
+                            ],
+                            NativeEffectModelConstants { source },
+                        )
+                    }
+                    "mc_sw4_3d_zmb_sky_pillar_on_6821fw2w" => {
+                        let mut source = [Vec4::ZERO; 12];
+                        let source_color_scale = self.constant("ColorScale")?;
+                        source[0].x = source_color_scale.x;
+                        source[0].y = source_color_scale.y;
+                        let source_color_speed = self.constant("ColorSpeed")?;
+                        source[0].z = source_color_speed.x;
+                        source[0].w = source_color_speed.y;
+                        let source_hdr_amount = self.constant("hdrAmount")?;
+                        source[1].x = source_hdr_amount.x;
+                        let source_reveal_scale = self.constant("RevealScale")?;
+                        source[1].y = source_reveal_scale.x;
+                        source[1].z = source_reveal_scale.y;
+                        let source_color = self.constant("Color")?;
+                        source[2].x = source_color.x;
+                        source[2].y = source_color.y;
+                        source[2].z = source_color.z;
+                        source[2].w = source_color.w;
+                        let source_alpha_falloff_power =
+                            self.constant_hash("AlphaFalloffPower", 42483651)?;
+                        source[3].x = source_alpha_falloff_power.x;
+                        let source_alpha_falloff_boost =
+                            self.constant_hash("AlphaFalloffBoost", 68285721)?;
+                        source[3].y = source_alpha_falloff_boost.x;
+                        let source_fade_factor = self.constant("FadeFactor")?;
+                        source[3].z = source_fade_factor.x;
+                        let source_distortion_amount =
+                            self.constant_hash("DistortionAmount", 1260895079)?;
+                        source[3].w = source_distortion_amount.x;
+                        let source_distortion_speed =
+                            self.constant_hash("DistortionSpeed", 4084488332)?;
+                        source[4].x = source_distortion_speed.x;
+                        source[4].y = source_distortion_speed.y;
+                        let source_distortion_scale = self.constant("distortionScale")?;
+                        source[4].z = source_distortion_scale.x;
+                        source[4].w = source_distortion_scale.y;
+                        let source_depth_fade = self.constant("DepthFade")?;
+                        source[5].x = source_depth_fade.x;
+                        let source_fade_min = self.constant("FadeMin")?;
+                        source[5].y = source_fade_min.x;
+                        let source_fade_max = self.constant("FadeMax")?;
+                        source[5].z = source_fade_max.x;
+                        (
+                            NativeEffectModelProgram::SkyPillar,
+                            vec![
+                                self.texture_key(
+                                    server,
+                                    "DistortionMap",
+                                    "colorMap",
+                                    Some(2981422039),
+                                )?,
+                                self.texture(server, "colorMap", "colorMap")?,
+                                self.texture_key(server, "AlphaMap", "colorMap", Some(170923560))?,
+                                self.texture_key(server, "RevealMap", "colorMap", Some(886589909))?,
+                            ],
+                            NativeEffectModelConstants { source },
+                        )
+                    }
+                    "mc_sw4_3d_zm_sphere_elec_9j108eq6" => {
+                        let mut source = [Vec4::ZERO; 12];
+                        let source_hdr_amount = self.constant("hdrAmount")?;
+                        source[0].x = source_hdr_amount.x;
+                        let source_alpha_falloff_power =
+                            self.constant_hash("AlphaFalloffPower", 42483651)?;
+                        source[0].y = source_alpha_falloff_power.x;
+                        let source_alpha_falloff_boost =
+                            self.constant_hash("AlphaFalloffBoost", 68285721)?;
+                        source[0].z = source_alpha_falloff_boost.x;
+                        let source_fade_factor = self.constant("FadeFactor")?;
+                        source[0].w = source_fade_factor.x;
+                        let source_color = self.constant("Color")?;
+                        source[1].x = source_color.x;
+                        source[1].y = source_color.y;
+                        source[1].z = source_color.z;
+                        source[1].w = source_color.w;
+                        let source_distortion2_speed =
+                            self.constant_hash("Distortion2Speed", 3544024158)?;
+                        source[2].x = source_distortion2_speed.x;
+                        source[2].y = source_distortion2_speed.y;
+                        let source_distortion2_scale =
+                            self.constant_hash("Distortion2Scale", 3543472193)?;
+                        source[2].z = source_distortion2_scale.x;
+                        source[2].w = source_distortion2_scale.y;
+                        let source_distortion2_amount =
+                            self.constant_hash("Distortion2Amount", 1663396853)?;
+                        source[3].x = source_distortion2_amount.x;
+                        let source_color2_speed = self.constant("Color2Speed")?;
+                        source[3].y = source_color2_speed.x;
+                        source[3].z = source_color2_speed.y;
+                        let source_color2_scale = self.constant("Color2Scale")?;
+                        source[4].x = source_color2_scale.x;
+                        source[4].y = source_color2_scale.y;
+                        let source_color2_amount = self.constant("Color2Amount")?;
+                        source[4].z = source_color2_amount.x;
+                        let source_reflection_amount = self.constant("ReflectionAmount")?;
+                        source[4].w = source_reflection_amount.x;
+                        (
+                            NativeEffectModelProgram::ElectricSphere,
+                            vec![
+                                self.texture_key(
+                                    server,
+                                    "DistortionMap2",
+                                    "colorMap",
+                                    Some(3897646725),
+                                )?,
+                                self.texture(server, "colorMap2", "colorMap")?,
+                                self.texture_key(
+                                    server,
+                                    "AlphaMap2",
+                                    "colorMap",
+                                    Some(1345510170),
+                                )?,
+                            ],
+                            NativeEffectModelConstants { source },
+                        )
+                    }
+                    "mc_sw4_3d_zm_sphere_elec_535e0f02" => {
+                        let mut source = [Vec4::ZERO; 12];
+                        let source_hdr_amount = self.constant("hdrAmount")?;
+                        source[0].x = source_hdr_amount.x;
+                        let source_alpha_falloff_power =
+                            self.constant_hash("AlphaFalloffPower", 42483651)?;
+                        source[0].y = source_alpha_falloff_power.x;
+                        let source_alpha_falloff_boost =
+                            self.constant_hash("AlphaFalloffBoost", 68285721)?;
+                        source[0].z = source_alpha_falloff_boost.x;
+                        let source_fade_factor = self.constant("FadeFactor")?;
+                        source[0].w = source_fade_factor.x;
+                        let source_color = self.constant("Color")?;
+                        source[1].x = source_color.x;
+                        source[1].y = source_color.y;
+                        source[1].z = source_color.z;
+                        source[1].w = source_color.w;
+                        let source_distortion2_speed =
+                            self.constant_hash("Distortion2Speed", 3544024158)?;
+                        source[2].x = source_distortion2_speed.x;
+                        source[2].y = source_distortion2_speed.y;
+                        let source_distortion2_scale =
+                            self.constant_hash("Distortion2Scale", 3543472193)?;
+                        source[2].z = source_distortion2_scale.x;
+                        source[2].w = source_distortion2_scale.y;
+                        let source_distortion2_amount =
+                            self.constant_hash("Distortion2Amount", 1663396853)?;
+                        source[3].x = source_distortion2_amount.x;
+                        let source_color2_speed = self.constant("Color2Speed")?;
+                        source[3].y = source_color2_speed.x;
+                        source[3].z = source_color2_speed.y;
+                        let source_color2_scale = self.constant("Color2Scale")?;
+                        source[4].x = source_color2_scale.x;
+                        source[4].y = source_color2_scale.y;
+                        let source_color2_amount = self.constant("Color2Amount")?;
+                        source[4].z = source_color2_amount.x;
+                        let source_reflection_amount = self.constant("ReflectionAmount")?;
+                        source[4].w = source_reflection_amount.x;
+                        (
+                            NativeEffectModelProgram::ElectricSphereAlpha,
+                            vec![
+                                self.texture_key(
+                                    server,
+                                    "DistortionMap2",
+                                    "colorMap",
+                                    Some(3897646725),
+                                )?,
+                                self.texture(server, "colorMap2", "colorMap")?,
+                                self.texture_key(
+                                    server,
+                                    "AlphaMap2",
+                                    "colorMap",
+                                    Some(1345510170),
+                                )?,
+                            ],
+                            NativeEffectModelConstants { source },
+                        )
+                    }
+                    "mc_sw4_3d_zm_ice_script_static_blizzard_45q67691" => {
+                        let mut source = [Vec4::ZERO; 12];
+                        let source_alpha_scale = self.constant("AlphaScale")?;
+                        source[0].x = source_alpha_scale.x;
+                        source[0].y = source_alpha_scale.y;
+                        let source_alpha_speed = self.constant("AlphaSpeed")?;
+                        source[0].z = source_alpha_speed.x;
+                        source[0].w = source_alpha_speed.y;
+                        let source_hdr_amount = self.constant("hdrAmount")?;
+                        source[1].x = source_hdr_amount.x;
+                        let source_alpha_falloff_power =
+                            self.constant_hash("AlphaFalloffPower", 42483651)?;
+                        source[1].y = source_alpha_falloff_power.x;
+                        let source_alpha_falloff_boost =
+                            self.constant_hash("AlphaFalloffBoost", 68285721)?;
+                        source[1].z = source_alpha_falloff_boost.x;
+                        let source_color_speed = self.constant("ColorSpeed")?;
+                        source[2].x = source_color_speed.x;
+                        source[2].y = source_color_speed.y;
+                        let source_color_scale = self.constant("ColorScale")?;
+                        source[2].z = source_color_scale.x;
+                        source[2].w = source_color_scale.y;
+                        let source_fade_factor = self.constant("FadeFactor")?;
+                        source[3].x = source_fade_factor.x;
+                        let source_reflection_amount = self.constant("ReflectionAmount")?;
+                        source[3].y = source_reflection_amount.x;
+                        let source_normal_scale = self.constant("NormalScale")?;
+                        source[3].z = source_normal_scale.x;
+                        source[3].w = source_normal_scale.y;
+                        let source_normal_height = self.constant("NormalHeight")?;
+                        source[4].x = source_normal_height.x;
+                        source[4].y = source_normal_height.y;
+                        let source_distortion_speed =
+                            self.constant_hash("DistortionSpeed", 4084488332)?;
+                        source[4].z = source_distortion_speed.x;
+                        source[4].w = source_distortion_speed.y;
+                        let source_distortion_scale = self.constant("distortionScale")?;
+                        source[5].x = source_distortion_scale.x;
+                        source[5].y = source_distortion_scale.y;
+                        let source_distortion_amount =
+                            self.constant_hash("DistortionAmount", 1260895079)?;
+                        source[5].z = source_distortion_amount.x;
+                        (
+                            NativeEffectModelProgram::IceBlizzard,
+                            vec![
+                                self.texture(server, "normalMap", "normalMap")?,
+                                self.texture_key(
+                                    server,
+                                    "DistortionMap",
+                                    "colorMap",
+                                    Some(2981422039),
+                                )?,
+                                self.texture(server, "colorMap", "colorMap")?,
+                                self.texture_key(server, "AlphaMap", "colorMap", Some(170923560))?,
+                            ],
+                            NativeEffectModelConstants { source },
+                        )
+                    }
+                    "mc_sw4_3d_zm_ice_script_static_877zz4j0" => {
+                        let mut source = [Vec4::ZERO; 12];
+                        let source_alpha_scale = self.constant("AlphaScale")?;
+                        source[0].x = source_alpha_scale.x;
+                        source[0].y = source_alpha_scale.y;
+                        let source_alpha_speed = self.constant("AlphaSpeed")?;
+                        source[0].z = source_alpha_speed.x;
+                        source[0].w = source_alpha_speed.y;
+                        let source_hdr_amount = self.constant("hdrAmount")?;
+                        source[1].x = source_hdr_amount.x;
+                        let source_alpha_falloff_power =
+                            self.constant_hash("AlphaFalloffPower", 42483651)?;
+                        source[1].y = source_alpha_falloff_power.x;
+                        let source_alpha_falloff_boost =
+                            self.constant_hash("AlphaFalloffBoost", 68285721)?;
+                        source[1].z = source_alpha_falloff_boost.x;
+                        let source_color_speed = self.constant("ColorSpeed")?;
+                        source[2].x = source_color_speed.x;
+                        source[2].y = source_color_speed.y;
+                        let source_color_scale = self.constant("ColorScale")?;
+                        source[2].z = source_color_scale.x;
+                        source[2].w = source_color_scale.y;
+                        let source_reflection_amount = self.constant("ReflectionAmount")?;
+                        source[3].x = source_reflection_amount.x;
+                        let source_normal_scale = self.constant("NormalScale")?;
+                        source[3].y = source_normal_scale.x;
+                        source[3].z = source_normal_scale.y;
+                        let source_normal_height = self.constant("NormalHeight")?;
+                        source[4].x = source_normal_height.x;
+                        source[4].y = source_normal_height.y;
+                        (
+                            NativeEffectModelProgram::IceStatic,
+                            vec![
+                                self.texture(server, "normalMap", "normalMap")?,
+                                self.texture(server, "colorMap", "colorMap")?,
+                                self.texture_key(server, "AlphaMap", "colorMap", Some(170923560))?,
+                            ],
+                            NativeEffectModelConstants { source },
+                        )
+                    }
+                    "mc_sw4_3d_zmb_sphere_tendril_j0598qze" => {
+                        let mut source = [Vec4::ZERO; 12];
+                        let source_alpha_scale = self.constant("AlphaScale")?;
+                        source[0].x = source_alpha_scale.x;
+                        source[0].y = source_alpha_scale.y;
+                        let source_hdr_amount = self.constant("hdrAmount")?;
+                        source[0].z = source_hdr_amount.x;
+                        let source_color_speed = self.constant("ColorSpeed")?;
+                        source[1].x = source_color_speed.x;
+                        source[1].y = source_color_speed.y;
+                        let source_color_scale = self.constant("ColorScale")?;
+                        source[1].z = source_color_scale.x;
+                        source[1].w = source_color_scale.y;
+                        let source_alpha_offset = self.constant("AlphaOffset")?;
+                        source[2].x = source_alpha_offset.x;
+                        source[2].y = source_alpha_offset.y;
+                        let source_color = self.constant("Color")?;
+                        source[3].x = source_color.x;
+                        source[3].y = source_color.y;
+                        source[3].z = source_color.z;
+                        source[3].w = source_color.w;
+                        let source_color_offset = self.constant("ColorOffset")?;
+                        source[4].x = source_color_offset.x;
+                        source[4].y = source_color_offset.y;
+                        (
+                            NativeEffectModelProgram::Tendril,
+                            vec![
+                                self.texture(server, "colorMap", "colorMap")?,
+                                self.texture_key(
+                                    server,
+                                    "AlphaMap2",
+                                    "colorMap",
+                                    Some(1345510170),
+                                )?,
+                                self.texture_key(server, "AlphaMap", "colorMap", Some(170923560))?,
+                            ],
+                            NativeEffectModelConstants { source },
+                        )
+                    }
+                    "mc_sw4_3d_water_on_surface_reveal_77320z68" => {
+                        let mut source = [Vec4::ZERO; 12];
+                        let source_water_speed = self.constant("WaterSpeed")?;
+                        source[0].x = source_water_speed.x;
+                        let source_leading_edge_brightness =
+                            self.constant_hash("Leading_Edge_Brightness", 3228582790)?;
+                        source[0].y = source_leading_edge_brightness.x;
+                        let source_state_2_leading_edge_color =
+                            self.constant_hash("State_2_Leading_Edge_Color", 348546551)?;
+                        source[1].x = source_state_2_leading_edge_color.x;
+                        source[1].y = source_state_2_leading_edge_color.y;
+                        source[1].z = source_state_2_leading_edge_color.z;
+                        let source_state_2_alteration =
+                            self.constant_hash("State_2_Alteration", 1288488438)?;
+                        source[2].x = source_state_2_alteration.x;
+                        source[2].y = source_state_2_alteration.y;
+                        source[2].z = source_state_2_alteration.z;
+                        let source_reflection_multiplier =
+                            self.constant_hash("ReflectionMultiplier", 111253676)?;
+                        source[2].w = source_reflection_multiplier.x;
+                        let source_water_multiplier =
+                            self.constant_hash("WaterMultiplier", 1116993630)?;
+                        source[3].x = source_water_multiplier.x;
+                        let source_water_scale = self.constant("WaterScale")?;
+                        source[3].y = source_water_scale.x;
+                        source[3].z = source_water_scale.y;
+                        (
+                            NativeEffectModelProgram::WaterReveal,
+                            vec![
+                                self.texture_key(
+                                    server,
+                                    "Temporal_Map",
+                                    "colorMap",
+                                    Some(2782436735),
+                                )?,
+                                self.texture(server, "normalMap", "normalMap")?,
+                                self.texture_key(server, "Warp_Map", "colorMap", Some(3827006327))?,
+                                self.texture(server, "NormalDetailMap", "normalMap")?,
+                                self.texture(server, "colorMap", "colorMap")?,
+                                self.texture(server, "SpecularAndGloss", "specularMap")?,
+                            ],
+                            NativeEffectModelConstants { source },
+                        )
+                    }
+                    "mc_sw4_3d_unlit_scroll_jq69qew7" => {
+                        let mut source = [Vec4::ZERO; 12];
+                        let source_cycle_direction =
+                            self.constant_hash("Cycle_Direction", 3048967178)?;
+                        source[0].x = source_cycle_direction.x;
+                        source[0].y = source_cycle_direction.y;
+                        let source_cycle_scale = self.constant("Cycle_Scale")?;
+                        source[0].z = source_cycle_scale.x;
+                        let source_reflection_amount =
+                            self.constant_hash("Reflection_Amount", 211931156)?;
+                        source[0].w = source_reflection_amount.x;
+                        let source_hdr_amount = self.constant("hdrAmount")?;
+                        source[1].x = source_hdr_amount.x;
+                        (
+                            NativeEffectModelProgram::OrbScroll,
+                            vec![
+                                self.texture(server, "colorMap", "colorMap")?,
+                                self.texture_key(
+                                    server,
+                                    "Cycle_Map",
+                                    "colorMap",
+                                    Some(3445507347),
+                                )?,
+                            ],
+                            NativeEffectModelConstants { source },
+                        )
+                    }
+                    _ => unreachable!("selected original effect-model program"),
+                };
+                let (slot, alpha_test) = match program {
+                    NativeEffectModelProgram::DistortOpaque => (3, "disabled"),
+                    NativeEffectModelProgram::DistortAlpha => (3, "gt0"),
+                    NativeEffectModelProgram::ScrollingFeather => (3, "gt0"),
+                    NativeEffectModelProgram::ScrollingFalloff => (3, "gt0"),
+                    NativeEffectModelProgram::ElectricDisc => (3, "disabled"),
+                    NativeEffectModelProgram::LightSphere => (3, "disabled"),
+                    NativeEffectModelProgram::Portal => (3, "disabled"),
+                    NativeEffectModelProgram::SkyPillar => (3, "disabled"),
+                    NativeEffectModelProgram::ElectricSphere => (4, "disabled"),
+                    NativeEffectModelProgram::ElectricSphereAlpha => (4, "gt0"),
+                    NativeEffectModelProgram::IceBlizzard => (4, "disabled"),
+                    NativeEffectModelProgram::IceStatic => (4, "disabled"),
+                    NativeEffectModelProgram::Tendril => (3, "disabled"),
+                    NativeEffectModelProgram::WaterReveal => (4, "disabled"),
+                    NativeEffectModelProgram::OrbScroll => (4, "gt0"),
+                };
+                return Ok((
+                    NativeModelMaterial::Effect {
+                        program,
+                        textures,
+                        constants,
+                        probe: program
+                            .probe()
+                            .then_some((probe, code_sampler(MipmapFilterMode::Linear))),
+                    },
+                    self.state_bits_for(slot, alpha_test)?,
+                ));
+            }
             if family == "mc_sw4_3d_player_icon_jef08712" {
                 let (color_map, color_sampler) = self.texture(server, "colorMap", "colorMap")?;
                 let (normal_map, normal_sampler) =
@@ -388,6 +1363,7 @@ impl MaterialDefinition {
             if matches!(
                 family,
                 "mc_sw4_3d_unlit_3layer_normal_script_q0zez5ju"
+                    | "mc_sw4_3d_wpn_zmb_staff_3layer_94jz2ff5"
                     | "mlv_sw4_3d_unlit_3layer_normal_script_766fz50u"
                     | "mc_sw4_3d_unlit_3layer_nofog_falloff_5z943qe4"
                     | "mc_sw4_3d_unlit_3layer_nofog_falloff_w840w777"
@@ -400,6 +1376,7 @@ impl MaterialDefinition {
                 use super::native_model::{
                     NativeModelParallaxConstants, NativeModelThreeLayerTextures,
                 };
+                let staff = family == "mc_sw4_3d_wpn_zmb_staff_3layer_94jz2ff5";
                 let no_falloff = family == "mc_sw4_3d_unlit_3layer_nofog_qw71w785";
                 let falloff = family.contains("_nofog_falloff_");
                 let feather = family.contains("_zfeather_");
@@ -449,7 +1426,11 @@ impl MaterialDefinition {
                 } else {
                     self.constant_hash("Gloss_Amount", 3432544439)?
                 };
-                let hdr_amount = self.constant("hdrAmount")?;
+                let hdr_amount = if staff {
+                    self.constant_hash("Emissive_Amount_Off", 996647064)?
+                } else {
+                    self.constant("hdrAmount")?
+                };
                 let reflection_amount = if feather {
                     Vec4::ZERO
                 } else {
@@ -468,7 +1449,16 @@ impl MaterialDefinition {
                     )
                 } else {
                     let warp = self.constant("WarpScale")?;
-                    Vec4::new(warp.x, warp.y, self.constant("NormalHeight")?.x, 0.)
+                    Vec4::new(
+                        warp.x,
+                        warp.y,
+                        self.constant("NormalHeight")?.x,
+                        if staff {
+                            self.constant_hash("Charge_Level", 963960723)?.x
+                        } else {
+                            0.
+                        },
+                    )
                 };
                 let constants = NativeModelParallaxConstants {
                     source: [
@@ -577,6 +1567,38 @@ impl MaterialDefinition {
                         state,
                     ));
                 }
+                if staff {
+                    let (normal_map, normal_sampler) =
+                        self.texture(server, "normalMap", "normalMap")?;
+                    let (layer1_map, layer1_sampler) =
+                        self.texture(server, "Layer1Map", "colorMap")?;
+                    let (layer2_map, layer2_sampler) =
+                        self.texture(server, "Layer2Map", "colorMap")?;
+                    let (layer3_map, layer3_sampler) =
+                        self.texture_key(server, "Layer3MapOn", "colorMap", Some(3424736909))?;
+                    let off =
+                        self.texture_key(server, "Layer3Map_Off", "colorMap", Some(1507458012))?;
+                    return Ok((
+                        NativeModelMaterial::Staff3Layer {
+                            textures: NativeModelThreeLayerTextures {
+                                normal_map,
+                                normal_sampler,
+                                layer1_map,
+                                layer1_sampler,
+                                layer2_map,
+                                layer2_sampler,
+                                layer3_map,
+                                layer3_sampler,
+                                reflection_probe: probe,
+                                reflection_sampler: code_sampler(MipmapFilterMode::Linear),
+                            },
+                            off,
+                            constants,
+                            emission_on: self.constant_hash("Emissive_Amount_On", 811104566)?,
+                        },
+                        state,
+                    ));
+                }
                 let (normal_map, normal_sampler) =
                     self.texture(server, "normalMap", "normalMap")?;
                 let (layer1_map, layer1_sampler) = self.texture(server, "Layer1Map", "colorMap")?;
@@ -602,26 +1624,52 @@ impl MaterialDefinition {
                     state,
                 ));
             }
-            if family == "mc_unlitdecalblend_multiply_34w7q3jw" {
+            if matches!(
+                family,
+                "mc_unlitdecalblend_multiply_34w7q3jw" | "mc_unlitdecalblend_add_fzw1z66f"
+            ) {
                 let (color_map, color_sampler) = self.texture(server, "colorMap", "colorMap")?;
+                let base = NativeModelColorTexture {
+                    color_map,
+                    color_sampler,
+                };
                 return Ok((
-                    NativeModelMaterial::DecalMultiply(NativeModelColorTexture {
-                        color_map,
-                        color_sampler,
-                    }),
+                    if family == "mc_unlitdecalblend_add_fzw1z66f" {
+                        NativeModelMaterial::DecalAdd(base)
+                    } else {
+                        NativeModelMaterial::DecalMultiply(base)
+                    },
                     self.state_bits_for(3, "disabled")?,
                 ));
             }
             if matches!(
                 family,
-                "mc_unlit_replace_3j970129" | "mc_unlit_multiply_97923qz1"
+                "mc_unlit_replace_3j970129"
+                    | "mc_unlit_multiply_97923qz1"
+                    | "mc_unlit_blend_588ewzff"
+                    | "mc_unlit_add_ww82zw88"
             ) {
-                let state = self.state_bits_for(3, "disabled")?;
+                use super::native_model::NativeModelUnlitProgram;
+                let program = match family {
+                    "mc_unlit_replace_3j970129" => NativeModelUnlitProgram::Replace,
+                    "mc_unlit_multiply_97923qz1" => NativeModelUnlitProgram::Multiply,
+                    "mc_unlit_blend_588ewzff" => NativeModelUnlitProgram::Blend,
+                    "mc_unlit_add_ww82zw88" => NativeModelUnlitProgram::Add,
+                    _ => unreachable!("selected original unlit family"),
+                };
+                let state = self.state_bits_for(
+                    3,
+                    if program == NativeModelUnlitProgram::Blend {
+                        "gt0"
+                    } else {
+                        "disabled"
+                    },
+                )?;
                 let (color_map, color_sampler) = self.texture(server, "colorMap", "colorMap")?;
-                let scale_rgb = if family == "mc_unlit_replace_3j970129" {
-                    Some(self.constant("scaleRGB")?)
+                let scale_rgb = if program == NativeModelUnlitProgram::Multiply {
+                    Vec4::ZERO
                 } else {
-                    None
+                    self.constant("scaleRGB")?
                 };
                 return Ok((
                     NativeModelMaterial::Unlit {
@@ -629,6 +1677,7 @@ impl MaterialDefinition {
                             color_map,
                             color_sampler,
                         },
+                        program,
                         scale_rgb,
                     },
                     state,
@@ -879,6 +1928,340 @@ impl MaterialDefinition {
                         },
                     },
                     self.world_state(if alpha_test { "ge128" } else { "disabled" })?,
+                ));
+            }
+            if family == "mc_objective_z4q1qe94" {
+                use super::native_model::NativeSourceCharacterConstants;
+                if self.camera_region != "emissiveOpaque" {
+                    return Err("Objective requires original emissiveOpaque region".into());
+                }
+                let (color_map, color_sampler) = self.texture(server, "colorMap", "colorMap")?;
+                let mut source = [Vec4::ZERO; 5];
+                source[0] = self.constant("colorObjMin")?;
+                source[1] = self.constant("colorObjMax")?;
+                source[2] = Vec4::new(
+                    self.constant("colorObjMinBaseBlend")?.x,
+                    self.constant("colorObjMaxBaseBlend")?.x,
+                    0.,
+                    0.,
+                );
+                return Ok((
+                    NativeModelMaterial::Objective {
+                        base: NativeModelColorTexture {
+                            color_map,
+                            color_sampler,
+                        },
+                        constants: NativeSourceCharacterConstants { source },
+                    },
+                    self.state_bits_for(2, "disabled")?,
+                ));
+            }
+            if family == "mc_projecteddecal_27zq5445" {
+                let (color_map, color_sampler) = self.texture(server, "colorMap", "colorMap")?;
+                return Ok((
+                    NativeModelMaterial::ProjectedDecal(NativeModelColorTexture {
+                        color_map,
+                        color_sampler,
+                    }),
+                    self.world_state("gt0")?,
+                ));
+            }
+            if family == "mc_sw4_3d_char_eye_cornea_2eww29wu" {
+                use super::native_model::NativeSourceCharacterConstants;
+                let mut source = [Vec4::ZERO; 5];
+                source[0] = self
+                    .constant_hash("Fill_Direction", 2912016085)?
+                    .truncate()
+                    .extend(self.constant_hash("Hightlight_1_Size", 287662256)?.x);
+                source[1] = Vec4::new(
+                    self.constant_hash("Highlight_1_Sharpness", 2675429970)?.x,
+                    self.constant_hash("Highlight_1_Brightness", 3598703080)?.x,
+                    0.,
+                    0.,
+                );
+                source[2] = self
+                    .constant_hash("Fill_Direction2", 1607250247)?
+                    .truncate()
+                    .extend(self.constant_hash("Highlight_2_Size", 3136287143)?.x);
+                source[3] = Vec4::new(
+                    self.constant_hash("Highlight_2_Sharpness", 3466487505)?.x,
+                    self.constant_hash("Highlight_2_Brightness", 606829963)?.x,
+                    self.constant("OverallBrightness")?.x,
+                    0.,
+                );
+                return Ok((
+                    NativeModelMaterial::Cornea {
+                        normal: self.texture_key(
+                            server,
+                            "Surface_Normal_Map",
+                            "normalMap",
+                            Some(188291226),
+                        )?,
+                        mask: self.texture(server, "Mask", "colorMap")?,
+                        constants: NativeSourceCharacterConstants { source },
+                    },
+                    self.world_state("gt0")?,
+                ));
+            }
+            if matches!(
+                family,
+                "mc_sw4_3d_phong_emissive_fritz_61728967"
+                    | "mc_sw4_3d_phong_emissive_fritz_76q5wqjw"
+            ) {
+                use super::native_model::{NativeSourceCharacterConstants, SourceCharacterProgram};
+                let cutout = family == "mc_sw4_3d_phong_emissive_fritz_76q5wqjw";
+                let (color_map, color_sampler) = self.texture(server, "colorMap", "colorMap")?;
+                let (normal_map, normal_sampler) =
+                    self.texture_key(server, "Normal_Map", "normalMap", Some(2485960688))?;
+                let speed = self.constant("SparkleSpeed")?;
+                let mut source = [Vec4::ZERO; 5];
+                source[0] = Vec4::new(
+                    self.constant("ReflectionAmount")?.x,
+                    self.constant("SpecularAmount")?.x,
+                    self.constant("hdrAmount")?.x,
+                    0.,
+                );
+                source[1] = Vec4::new(
+                    speed.x,
+                    speed.y,
+                    self.constant("SparkleScale")?.x,
+                    self.constant("WarpAmount")?.x,
+                );
+                source[2] = Vec4::new(
+                    self.constant("WarpScale")?.x,
+                    self.constant("LumaBoost")?.x,
+                    0.,
+                    0.,
+                );
+                return Ok((
+                    NativeModelMaterial::SourceCharacter {
+                        program: SourceCharacterProgram::Fritz { cutout },
+                        base: NativeModelTextures {
+                            color_map,
+                            color_sampler,
+                            normal_map,
+                            normal_sampler,
+                            reflection_probe: probe,
+                            reflection_sampler: code_sampler(MipmapFilterMode::Linear),
+                        },
+                        specular: self.texture(server, "SpecularAndGloss", "specularMap")?,
+                        emission: Some(self.texture_key(
+                            server,
+                            "Glow_Map",
+                            "colorMap",
+                            Some(1825069840),
+                        )?),
+                        temporal: Some(self.texture(server, "WarpMap", "colorMap")?),
+                        reveal: Some(self.texture(server, "SparkleMap", "colorMap")?),
+                        constants: NativeSourceCharacterConstants { source },
+                    },
+                    self.lit_state_with_alpha(if cutout { "ge128" } else { "disabled" })?,
+                ));
+            }
+            if matches!(
+                family,
+                "mc_sw4_3d_char_skin_emberglow_7q60f126" | "mc_sw4_3d_glass_emissive_jf185j5e"
+            ) {
+                use super::native_model::{NativeSourceCharacterConstants, SourceCharacterProgram};
+                let ember = family == "mc_sw4_3d_char_skin_emberglow_7q60f126";
+                let program = if ember {
+                    SourceCharacterProgram::Ember
+                } else {
+                    SourceCharacterProgram::Glass
+                };
+                let (color_map, color_sampler) = if ember {
+                    self.texture_key(server, "Diffuse_Map", "colorMap", Some(4030327853))?
+                } else {
+                    self.texture(server, "colorMap", "colorMap")?
+                };
+                let (normal_map, normal_sampler) =
+                    self.texture_key(server, "Normal_Map", "normalMap", Some(2485960688))?;
+                let mut source = [Vec4::ZERO; 5];
+                let (emission, temporal, reveal) = if ember {
+                    source[0] = Vec4::new(
+                        self.constant_hash("Reflection_Amount", 211931156)?.x,
+                        self.constant_hash("Specular_Amount", 1307013020)?.x,
+                        self.constant_hash("Diffuse_Normal_Height_Facing", 1012612089)?
+                            .x,
+                        self.constant("Heat_Scale")?.x,
+                    );
+                    let heat = self.constant_hash("Heat_Direction", 2542495778)?;
+                    let ember = self.constant_hash("Ember_Direction", 4131458919)?;
+                    source[1] = Vec4::new(heat.x, heat.y, ember.x, ember.y);
+                    source[2] = Vec4::new(
+                        self.constant("Ember_Scale")?.x,
+                        self.constant("Flicker_Max")?.x,
+                        self.constant("Flicker_Min")?.x,
+                        self.constant("Seed_Value")?.x,
+                    );
+                    source[3].x = self.constant_hash("Emissiver_Amount", 227002554)?.x;
+                    (
+                        Some(self.texture_key(server, "Heat_Map", "colorMap", Some(3837378363))?),
+                        Some(self.texture_key(
+                            server,
+                            "Ember_Map",
+                            "colorMap",
+                            Some(3617419774),
+                        )?),
+                        Some(self.texture_key(
+                            server,
+                            "EmberGlow_Reveal_Map",
+                            "colorMap",
+                            Some(690691323),
+                        )?),
+                    )
+                } else {
+                    source[0] = Vec4::new(
+                        self.constant("ReflectionAmount")?.x,
+                        self.constant("SpecularAmount")?.x,
+                        self.constant_hash("EmissiveDepth", 3526985878)?.x,
+                        self.constant("hdrAmount")?.x,
+                    );
+                    (None, None, None)
+                };
+                return Ok((
+                    NativeModelMaterial::SourceCharacter {
+                        program,
+                        base: NativeModelTextures {
+                            color_map,
+                            color_sampler,
+                            normal_map,
+                            normal_sampler,
+                            reflection_probe: probe,
+                            reflection_sampler: code_sampler(MipmapFilterMode::Linear),
+                        },
+                        specular: self.texture(server, "SpecularAndGloss", "specularMap")?,
+                        emission,
+                        temporal,
+                        reveal,
+                        constants: NativeSourceCharacterConstants { source },
+                    },
+                    if ember {
+                        self.lit_state()?
+                    } else {
+                        self.world_state("gt0")?
+                    },
+                ));
+            }
+            if matches!(
+                family,
+                "mc_sw4_3d_char_hair_287j114q"
+                    | "mc_sw4_3d_char_skin_3e77jj31"
+                    | "mc_sw4_3d_char_cloth_emissive_5ef7226z"
+                    | "mc_sw4_3d_char_skin_emissive_189j7w84"
+                    | "mc_sw4_3d_char_cloth_reveal2_emissive_5644z720"
+                    | "mc_sw4_3d_char_cloth_reveal2_emissive_f88qewf4"
+            ) {
+                use super::native_model::{NativeSourceCharacterConstants, SourceCharacterProgram};
+                let program = match family {
+                    "mc_sw4_3d_char_hair_287j114q" => SourceCharacterProgram::Hair,
+                    "mc_sw4_3d_char_skin_3e77jj31" => SourceCharacterProgram::SkinCutout,
+                    "mc_sw4_3d_char_cloth_emissive_5ef7226z" => {
+                        SourceCharacterProgram::ClothEmissive
+                    }
+                    "mc_sw4_3d_char_skin_emissive_189j7w84" => SourceCharacterProgram::SkinEmissive,
+                    "mc_sw4_3d_char_cloth_reveal2_emissive_5644z720" => {
+                        SourceCharacterProgram::RevealEmissive { cutout: false }
+                    }
+                    _ => SourceCharacterProgram::RevealEmissive { cutout: true },
+                };
+                let state = match program {
+                    SourceCharacterProgram::Hair => self.world_state("gt0")?,
+                    SourceCharacterProgram::SkinCutout
+                    | SourceCharacterProgram::RevealEmissive { cutout: true } => {
+                        self.lit_state_with_alpha("ge128")?
+                    }
+                    _ => self.lit_state()?,
+                };
+                let (color_map, color_sampler) = if program == SourceCharacterProgram::Hair {
+                    self.texture(server, "colorMap", "colorMap")?
+                } else {
+                    self.texture_key(server, "Diffuse_Map", "colorMap", Some(4030327853))?
+                };
+                let (normal_map, normal_sampler) =
+                    self.texture_key(server, "Normal_Map", "normalMap", Some(2485960688))?;
+                let emission = if matches!(
+                    program,
+                    SourceCharacterProgram::Hair | SourceCharacterProgram::SkinCutout
+                ) {
+                    None
+                } else {
+                    Some(self.texture_key(server, "Emissive_Map", "colorMap", Some(3229466552))?)
+                };
+                let temporal = if matches!(program, SourceCharacterProgram::RevealEmissive { .. }) {
+                    Some(self.texture_key(server, "Temporal_Map", "colorMap", Some(2782436735))?)
+                } else {
+                    None
+                };
+                let mut source = [Vec4::ZERO; 5];
+                match program {
+                    SourceCharacterProgram::Ember
+                    | SourceCharacterProgram::Glass
+                    | SourceCharacterProgram::Fritz { .. } => unreachable!(),
+                    SourceCharacterProgram::Hair => {
+                        source[0].x = self.constant("ReflectionAmount")?.x
+                    }
+                    SourceCharacterProgram::SkinCutout | SourceCharacterProgram::SkinEmissive => {
+                        source[0] = Vec4::new(
+                            self.constant_hash("Reflection_Amount", 211931156)?.x,
+                            self.constant_hash("Specular_Amount", 1307013020)?.x,
+                            self.constant_hash("Diffuse_Normal_Height_Facing", 1012612089)?
+                                .x,
+                            if program == SourceCharacterProgram::SkinEmissive {
+                                self.constant_hash("Emissive_Amount", 2875883048)?.x
+                            } else {
+                                0.
+                            },
+                        );
+                    }
+                    SourceCharacterProgram::ClothEmissive => {
+                        source[0] = Vec4::new(
+                            1.,
+                            1.,
+                            1.,
+                            self.constant_hash("Emissive_Amount", 2875883048)?.x,
+                        )
+                    }
+                    SourceCharacterProgram::RevealEmissive { .. } => {
+                        let edge1 = self.constant_hash("State_1_Leading_Edge_Color", 3218137492)?;
+                        source[0] = Vec4::new(
+                            self.constant_hash("Leading_Edge_Brightness", 3228582790)?.x,
+                            edge1.x,
+                            edge1.y,
+                            edge1.z,
+                        );
+                        source[1] = self.constant_hash("State_2_Leading_Edge_Color", 348546551)?;
+                        source[2] = self.constant_hash("State_1_Alteration", 3105072277)?;
+                        source[3] = self
+                            .constant_hash("State_2_Alteration", 1288488438)?
+                            .truncate()
+                            .extend(self.constant_hash("Diffuse_Emissive_Level", 2251066627)?.x);
+                        source[4] = Vec4::new(
+                            self.constant_hash("Diffuse_Emissive_Speed", 2226647986)?.x,
+                            self.constant_hash("Specular_Amount", 1307013020)?.x,
+                            0.,
+                            0.,
+                        );
+                    }
+                }
+                return Ok((
+                    NativeModelMaterial::SourceCharacter {
+                        program,
+                        base: NativeModelTextures {
+                            color_map,
+                            color_sampler,
+                            normal_map,
+                            normal_sampler,
+                            reflection_probe: probe,
+                            reflection_sampler: code_sampler(MipmapFilterMode::Linear),
+                        },
+                        specular: self.texture(server, "SpecularAndGloss", "specularMap")?,
+                        emission,
+                        temporal,
+                        reveal: None,
+                        constants: NativeSourceCharacterConstants { source },
+                    },
+                    state,
                 ));
             }
             if matches!(
@@ -1225,6 +2608,77 @@ impl MaterialDefinition {
                     }
                 };
                 return Ok((material, state));
+            }
+            // These LIT programs have source-specific lighting-matrix or detail inputs.
+            if matches!(
+                family,
+                "mc_lit_sm_b0c0n0s0_68f25z0u"
+                    | "mc_lit_sm_b0c0s0_q94f27qw"
+                    | "mc_lit_sm_r0c0n0s0_ze50j7jz"
+                    | "mc_lit_sm_t0c0n0s0_f933q84u"
+                    | "mc_lit_sm_r0c0n0s0_7j414q0z"
+                    | "mc_lit_sm_r0c0d0n0s0_qwq4q449"
+                    | "mc_lit_sm_t0c0d0n0s0_68eww765"
+            ) {
+                use super::native_model::SourceLitProgram;
+                let program = match family {
+                    "mc_lit_sm_b0c0n0s0_68f25z0u" => SourceLitProgram::BlendedHero,
+                    "mc_lit_sm_b0c0s0_q94f27qw" => SourceLitProgram::GeometricHero,
+                    "mc_lit_sm_r0c0n0s0_ze50j7jz" => SourceLitProgram::NormalHero,
+                    "mc_lit_sm_t0c0n0s0_f933q84u" => SourceLitProgram::CutoutHero,
+                    "mc_lit_sm_r0c0n0s0_7j414q0z" => SourceLitProgram::ColorDetail,
+                    "mc_lit_sm_t0c0d0n0s0_68eww765" => SourceLitProgram::CutoutNormalDetail,
+                    _ => SourceLitProgram::NormalDetail,
+                };
+                let state = match program {
+                    SourceLitProgram::BlendedHero | SourceLitProgram::GeometricHero => {
+                        self.world_state("gt0")?
+                    }
+                    SourceLitProgram::CutoutHero | SourceLitProgram::CutoutNormalDetail => {
+                        self.lit_state_with_alpha("ge128")?
+                    }
+                    _ => self.lit_state()?,
+                };
+                let (color_map, color_sampler) = self.texture(server, "colorMap", "colorMap")?;
+                let normal = if program == SourceLitProgram::GeometricHero {
+                    None
+                } else {
+                    Some(self.texture(server, "normalMap", "normalMap")?)
+                };
+                let detail = match program {
+                    SourceLitProgram::ColorDetail => {
+                        Some(self.texture(server, "colorDetailMap", "color10Map")?)
+                    }
+                    SourceLitProgram::NormalDetail | SourceLitProgram::CutoutNormalDetail => {
+                        Some(self.texture(server, "detailMap", "normalMap")?)
+                    }
+                    _ => None,
+                };
+                return Ok((
+                    NativeModelMaterial::SourceLit {
+                        program,
+                        color: NativeModelColorTexture {
+                            color_map,
+                            color_sampler,
+                        },
+                        normal,
+                        specular: self.texture(server, "specularMap", "specularMap")?,
+                        probe: (probe, code_sampler(MipmapFilterMode::Linear)),
+                        detail,
+                        occlusion: self.constant("occlusionAmount")?,
+                        // Base weapon setup 0052c1d0 supplies zero weaponParam2;
+                        // only the normal-detail program binds material detailScale.
+                        detail_parameters: if matches!(
+                            program,
+                            SourceLitProgram::NormalDetail | SourceLitProgram::CutoutNormalDetail
+                        ) {
+                            self.constant("detailScale")?
+                        } else {
+                            Vec4::ZERO
+                        },
+                    },
+                    state,
+                ));
             }
             if matches!(
                 family,
@@ -2309,7 +3763,10 @@ impl MaterialDefinition {
     }
 
     fn world_state(&self, alpha_test: &str) -> Result<NativeWorldState, String> {
-        if !matches!(self.camera_region.as_str(), "litOpaque" | "litTrans") {
+        if !matches!(
+            self.camera_region.as_str(),
+            "litOpaque" | "litQuasiOpaque" | "litTrans"
+        ) {
             return Err(format!(
                 "Unsupported world camera region {}",
                 self.camera_region
@@ -2358,74 +3815,50 @@ impl MaterialDefinition {
         let state = self.state_bits.get(index as usize).ok_or_else(|| {
             format!("Original stateBitsEntry[{technique}] references missing stateBits[{index}]")
         })?;
-        let blend = match (state.blend_op_rgb.as_str(), state.blend_op_alpha.as_str()) {
-            ("disabled", "disabled") => None,
-            ("add", "add")
-                if matches!(state.src_blend_rgb.as_str(), "one" | "srcalpha")
-                    && state.dst_blend_rgb == "invsrcalpha"
-                    && state.src_blend_alpha == "invdestalpha"
-                    && state.dst_blend_alpha == "one" =>
-            {
-                Some(BlendState {
-                    color: BlendComponent {
-                        src_factor: if state.src_blend_rgb == "srcalpha" {
-                            BlendFactor::SrcAlpha
-                        } else {
-                            BlendFactor::One
-                        },
-                        dst_factor: BlendFactor::OneMinusSrcAlpha,
-                        operation: BlendOperation::Add,
-                    },
-                    alpha: BlendComponent {
-                        src_factor: BlendFactor::OneMinusDstAlpha,
-                        dst_factor: BlendFactor::One,
-                        operation: BlendOperation::Add,
-                    },
-                })
-            }
-            ("add", "add")
-                if state.src_blend_rgb == "one"
-                    && state.dst_blend_rgb == "one"
-                    && matches!(state.src_blend_alpha.as_str(), "zero" | "invdestalpha")
-                    && state.dst_blend_alpha == "one" =>
-            {
-                Some(BlendState {
-                    color: BlendComponent {
-                        src_factor: BlendFactor::One,
-                        dst_factor: BlendFactor::One,
-                        operation: BlendOperation::Add,
-                    },
-                    alpha: BlendComponent {
-                        src_factor: if state.src_blend_alpha == "zero" {
-                            BlendFactor::Zero
-                        } else {
-                            BlendFactor::OneMinusDstAlpha
-                        },
-                        dst_factor: BlendFactor::One,
-                        operation: BlendOperation::Add,
-                    },
-                })
-            }
-            ("add", "add")
-                if state.src_blend_rgb == "zero"
-                    && state.dst_blend_rgb == "srccolor"
-                    && state.src_blend_alpha == "invdestalpha"
-                    && state.dst_blend_alpha == "one" =>
-            {
-                Some(BlendState {
-                    color: BlendComponent {
-                        src_factor: BlendFactor::Zero,
-                        dst_factor: BlendFactor::Src,
-                        operation: BlendOperation::Add,
-                    },
-                    alpha: BlendComponent {
-                        src_factor: BlendFactor::OneMinusDstAlpha,
-                        dst_factor: BlendFactor::One,
-                        operation: BlendOperation::Add,
-                    },
-                })
-            }
-            _ => return Err("Unsupported original material blend factors/operations".to_owned()),
+        let factor = |name: &str| match name {
+            "zero" => Ok(BlendFactor::Zero),
+            "one" => Ok(BlendFactor::One),
+            "srccolor" => Ok(BlendFactor::Src),
+            "invsrccolor" => Ok(BlendFactor::OneMinusSrc),
+            "srcalpha" => Ok(BlendFactor::SrcAlpha),
+            "invsrcalpha" => Ok(BlendFactor::OneMinusSrcAlpha),
+            "destalpha" => Ok(BlendFactor::DstAlpha),
+            "invdestalpha" => Ok(BlendFactor::OneMinusDstAlpha),
+            "destcolor" => Ok(BlendFactor::Dst),
+            "invdestcolor" => Ok(BlendFactor::OneMinusDst),
+            other => Err(format!("Unsupported original blend factor {other}")),
+        };
+        let component = |operation: &str, source: &str, destination: &str| {
+            let operation = match operation {
+                "disabled" if source == "one" && destination == "zero" => BlendOperation::Add,
+                "add" => BlendOperation::Add,
+                "subtract" => BlendOperation::Subtract,
+                "revsubtract" => BlendOperation::ReverseSubtract,
+                "min" => BlendOperation::Min,
+                "max" => BlendOperation::Max,
+                other => return Err(format!("Unsupported original blend operation {other}")),
+            };
+            Ok(BlendComponent {
+                src_factor: factor(source)?,
+                dst_factor: factor(destination)?,
+                operation,
+            })
+        };
+        let blend = if state.blend_op_rgb == "disabled" && state.blend_op_alpha == "disabled" {
+            None
+        } else {
+            Some(BlendState {
+                color: component(
+                    &state.blend_op_rgb,
+                    &state.src_blend_rgb,
+                    &state.dst_blend_rgb,
+                )?,
+                alpha: component(
+                    &state.blend_op_alpha,
+                    &state.src_blend_alpha,
+                    &state.dst_blend_alpha,
+                )?,
+            })
         };
         if state.alpha_test != alpha_test {
             return Err(format!(
@@ -2658,6 +4091,1120 @@ pub(crate) fn image(server: &AssetServer, name: &str) -> Handle<Image> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "requires staged original Origins material inputs"]
+    fn exported_rangefinder_ui3d_material_binds_real_target_contract() {
+        use super::super::native_model::NativeModelMaterial;
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::asset::AssetPlugin::default()))
+            .init_asset::<Image>();
+        let definition = MaterialDefinition::read(Path::new(
+            "target/assets/materials/mc/mtl_t6_attach_optic_rangefinder_reticle.json",
+        ))
+        .unwrap();
+        let (material, state) = definition
+            .model(app.world().resource::<AssetServer>(), Handle::default())
+            .unwrap();
+        let NativeModelMaterial::Ui3dReticle { noise, constants } = material else {
+            panic!("UI3D must require its generated target")
+        };
+        assert!(
+            noise
+                .0
+                .path()
+                .unwrap()
+                .path()
+                .to_string_lossy()
+                .ends_with("mtl_t6_attach_optic_reticle_noise.dds")
+        );
+        assert_eq!(constants.source[0].w, 15.);
+        assert_eq!(constants.source[1], Vec4::new(20., 3., 0.5, 0.));
+        assert_eq!(constants.source[3].x, 1.);
+        assert_eq!(constants.source[4], Vec4::new(1., 0., 0., 1.));
+        assert!(!state.depth_write);
+        assert_eq!(state.blend.unwrap().color.src_factor, BlendFactor::One);
+        assert_eq!(state.blend.unwrap().color.dst_factor, BlendFactor::One);
+    }
+
+    #[test]
+    #[ignore = "requires the authorized local Origins export"]
+    fn exported_objective_and_projected_model_materials_bind() {
+        use super::super::native_model::NativeModelMaterial;
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/assets");
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            bevy::asset::AssetPlugin {
+                file_path: root.to_string_lossy().into_owned(),
+                ..default()
+            },
+        ))
+        .init_asset::<Image>();
+        let server = app.world().resource::<AssetServer>();
+        let objective = MaterialDefinition::read(
+            &root.join("materials/mc/mtl_t6_wpn_zmb_shield_dlc4_red.json"),
+        )
+        .unwrap();
+        let (material, state) = objective.model(server, Handle::default()).unwrap();
+        let NativeModelMaterial::Objective { base, constants } = material else {
+            panic!("Shield requires its source objective program");
+        };
+        assert_eq!(
+            base.color_map.path().unwrap().path(),
+            Path::new("images/t6_wpn_zmb_shield_dlc4_col.dds")
+        );
+        assert_eq!(
+            constants.source[0],
+            objective.constant("colorObjMin").unwrap()
+        );
+        assert_eq!(
+            constants.source[1],
+            objective.constant("colorObjMax").unwrap()
+        );
+        assert_eq!(constants.source[2], Vec4::new(1., 0.25, 0., 0.));
+        assert!(state.depth_write);
+        assert!(state.blend.is_none());
+        let projected =
+            MaterialDefinition::read(&root.join("materials/mc/mtl_fx_decal_character_blood.json"))
+                .unwrap();
+        let (material, state) = projected.model(server, Handle::default()).unwrap();
+        let NativeModelMaterial::ProjectedDecal(base) = material else {
+            panic!("Character blood requires depth projection");
+        };
+        assert_eq!(
+            base.color_map.path().unwrap().path(),
+            Path::new("images/~-gfx_decal_character_blood_c.dds")
+        );
+        assert_eq!(base.color_sampler.address_mode_u, AddressMode::ClampToEdge);
+        assert_eq!(base.color_sampler.address_mode_v, AddressMode::ClampToEdge);
+        assert!(state.blend.is_some());
+        assert!(!state.depth_write);
+        assert_eq!(state.cull_mode, None);
+        assert_eq!(state.polygon_offset, 1);
+    }
+
+    #[test]
+    #[ignore = "requires the authorized local Origins export"]
+    fn exported_source_cornea_model_binds() {
+        use super::super::native_model::NativeModelMaterial;
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/assets");
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            bevy::asset::AssetPlugin {
+                file_path: root.to_string_lossy().into_owned(),
+                ..default()
+            },
+        ))
+        .init_asset::<Image>();
+        let definition =
+            MaterialDefinition::read(&root.join("materials/mc/mtl_gen_eye_cornea.json")).unwrap();
+        let (material, state) = definition
+            .model(app.world().resource::<AssetServer>(), Handle::default())
+            .unwrap();
+        let NativeModelMaterial::Cornea {
+            normal,
+            mask,
+            constants,
+        } = material
+        else {
+            panic!("Cornea requires native highlights and current camera axes");
+        };
+        assert_eq!(
+            normal.0.path().unwrap().path(),
+            Path::new("images/c_gen_eye_n.dds")
+        );
+        assert_eq!(
+            mask.0.path().unwrap().path(),
+            Path::new("images/c_gen_eye_color_a.dds")
+        );
+        assert_eq!(
+            constants.source[0].truncate(),
+            definition
+                .constant_hash("Fill_Direction", 2912016085)
+                .unwrap()
+                .truncate()
+        );
+        assert_eq!(
+            constants.source[2].truncate(),
+            definition
+                .constant_hash("Fill_Direction2", 1607250247)
+                .unwrap()
+                .truncate()
+        );
+        assert_eq!(constants.source[1].x, 0.);
+        assert_eq!(constants.source[3].x, -2.880000114440918);
+        assert_eq!(constants.source[3].z, 0.8899999856948853);
+        assert_eq!(normal.1.mipmap_filter, MipmapFilterMode::Nearest);
+        assert!(state.blend.is_some());
+        assert!(!state.depth_write);
+        assert_eq!(state.depth_compare, CompareFunction::GreaterEqual);
+    }
+
+    #[test]
+    #[ignore = "requires the authorized local Origins export"]
+    fn exported_source_fritz_model_variants_bind() {
+        use super::super::native_model::{NativeModelMaterial, SourceCharacterProgram};
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/assets");
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            bevy::asset::AssetPlugin {
+                file_path: root.to_string_lossy().into_owned(),
+                ..default()
+            },
+        ))
+        .init_asset::<Image>();
+        let server = app.world().resource::<AssetServer>();
+        for (name, cutout) in [
+            ("mtl_p6_zm_tm_monolith_ring", false),
+            ("mtl_p6_zm_al_vending_three_gun_on", true),
+            ("mtl_p6_zm_al_vending_three_gun_logo_on", true),
+        ] {
+            let definition =
+                MaterialDefinition::read(&root.join(format!("materials/mc/{name}.json"))).unwrap();
+            let (material, state) = definition.model(server, Handle::default()).unwrap();
+            let NativeModelMaterial::SourceCharacter {
+                program,
+                emission: Some((glow, _)),
+                temporal: Some((warp, _)),
+                reveal: Some((sparkle, _)),
+                constants,
+                ..
+            } = material
+            else {
+                panic!("Fritz requires its separate glow, warp and sparkle inputs");
+            };
+            assert_eq!(program, SourceCharacterProgram::Fritz { cutout });
+            assert_eq!(
+                constants.source[0].z,
+                definition.constant("hdrAmount").unwrap().x
+            );
+            assert_eq!(
+                constants.source[1].truncate().truncate(),
+                definition
+                    .constant("SparkleSpeed")
+                    .unwrap()
+                    .truncate()
+                    .truncate()
+            );
+            assert_eq!(
+                constants.source[1].z,
+                definition.constant("SparkleScale").unwrap().x
+            );
+            assert_eq!(
+                constants.source[1].w,
+                definition.constant("WarpAmount").unwrap().x
+            );
+            assert_eq!(
+                constants.source[2].x,
+                definition.constant("WarpScale").unwrap().x
+            );
+            assert_eq!(
+                constants.source[2].y,
+                definition.constant("LumaBoost").unwrap().x
+            );
+            for (image, source) in [
+                (
+                    &glow,
+                    definition
+                        .textures
+                        .iter()
+                        .find(|t| t.name_hash == Some(1825069840))
+                        .unwrap(),
+                ),
+                (
+                    &warp,
+                    definition
+                        .textures
+                        .iter()
+                        .find(|t| t.name.as_deref() == Some("WarpMap"))
+                        .unwrap(),
+                ),
+                (
+                    &sparkle,
+                    definition
+                        .textures
+                        .iter()
+                        .find(|t| t.name.as_deref() == Some("SparkleMap"))
+                        .unwrap(),
+                ),
+            ] {
+                let expected =
+                    PathBuf::from(format!("images/{}.dds", source.image.replace('*', "_")));
+                assert_eq!(image.path().unwrap().path(), expected);
+                assert!(root.join(expected).is_file());
+            }
+            assert!(state.depth_write);
+            assert!(state.blend.is_none());
+            assert_eq!(state.depth_compare, CompareFunction::GreaterEqual);
+        }
+    }
+
+    #[test]
+    #[ignore = "requires the authorized local Origins export"]
+    fn exported_source_effect_model_materials_bind() {
+        use super::super::native_model::NativeModelMaterial;
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/assets");
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            bevy::asset::AssetPlugin {
+                file_path: root.to_string_lossy().into_owned(),
+                ..default()
+            },
+        ))
+        .init_asset::<Image>();
+        let mut counts = [0usize; 15];
+        for entry in std::fs::read_dir(root.join("materials/mc")).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().is_none_or(|s| s != "json") {
+                continue;
+            }
+            let definition = MaterialDefinition::read(&path).unwrap();
+            let index = match definition.technique_set() {
+                "mc_sw4_3d_scrolling_alpha2_distort_z58wq263" => 0,
+                "mc_sw4_3d_scrolling_alpha2_distort_qwj8139f" => 1,
+                "mc_sw4_3d_scrolling_falloff_zfeather_69456263" => 2,
+                "mc_sw4_3d_scrolling_falloff_2ff9qe6w" => 3,
+                "mc_sw4_3d_zm_elec_disc_w323fq8j" => 4,
+                "mc_sw4_3d_light_sphere_46j58w7u" => 5,
+                "mc_sw4_3d_portal_e96z3z92" => 6,
+                "mc_sw4_3d_zmb_sky_pillar_on_6821fw2w" => 7,
+                "mc_sw4_3d_zm_sphere_elec_9j108eq6" => 8,
+                "mc_sw4_3d_zm_sphere_elec_535e0f02" => 9,
+                "mc_sw4_3d_zm_ice_script_static_blizzard_45q67691" => 10,
+                "mc_sw4_3d_zm_ice_script_static_877zz4j0" => 11,
+                "mc_sw4_3d_zmb_sphere_tendril_j0598qze" => 12,
+                "mc_sw4_3d_water_on_surface_reveal_77320z68" => 13,
+                "mc_sw4_3d_unlit_scroll_jq69qew7" => 14,
+                _ => continue,
+            };
+            let (material, state) = definition
+                .model(app.world().resource::<AssetServer>(), Handle::default())
+                .unwrap();
+            let NativeModelMaterial::Effect {
+                program,
+                textures,
+                constants,
+                ..
+            } = material
+            else {
+                panic!("exact effect-model program required");
+            };
+            assert_eq!(program as usize, index);
+            assert!(!textures.is_empty() || index == 5);
+            assert!(constants.source.iter().all(|value| value.is_finite()));
+            assert!(
+                textures
+                    .iter()
+                    .all(|(image, _)| root.join(image.path().unwrap().path()).is_file())
+            );
+            assert_eq!(state.depth_compare, CompareFunction::GreaterEqual);
+            counts[index] += 1;
+        }
+        assert_eq!(counts, [1, 2, 5, 4, 1, 5, 4, 1, 1, 1, 2, 3, 3, 1, 4]);
+    }
+
+    #[test]
+    #[ignore = "requires the authorized local Origins export"]
+    fn exported_model_additive_decal_binds() {
+        use super::super::native_model::NativeModelMaterial;
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/assets");
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            bevy::asset::AssetPlugin {
+                file_path: root.to_string_lossy().into_owned(),
+                ..default()
+            },
+        ))
+        .init_asset::<Image>();
+        let definition =
+            MaterialDefinition::read(&root.join("materials/mc/mtl_p6_zm_tm_challenge_glow.json"))
+                .unwrap();
+        let (material, state) = definition
+            .model(app.world().resource::<AssetServer>(), Handle::default())
+            .unwrap();
+        assert!(matches!(material, NativeModelMaterial::DecalAdd(_)));
+        assert_eq!(state.polygon_offset, 1);
+        assert_eq!(state.cull_mode, Some(Face::Back));
+        assert!(!state.depth_write);
+        assert_eq!(state.depth_compare, CompareFunction::GreaterEqual);
+        assert_eq!(
+            state.blend.unwrap(),
+            BlendState {
+                color: BlendComponent {
+                    src_factor: BlendFactor::One,
+                    dst_factor: BlendFactor::One,
+                    operation: BlendOperation::Add
+                },
+                alpha: BlendComponent {
+                    src_factor: BlendFactor::Zero,
+                    dst_factor: BlendFactor::One,
+                    operation: BlendOperation::Add
+                },
+            }
+        );
+    }
+
+    #[test]
+    #[ignore = "requires the authorized local Origins export"]
+    fn exported_source_character_model_variants_bind() {
+        use super::super::native_model::{NativeModelMaterial, SourceCharacterProgram};
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/assets");
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            bevy::asset::AssetPlugin {
+                file_path: root.to_string_lossy().into_owned(),
+                ..default()
+            },
+        ))
+        .init_asset::<Image>();
+        let server = app.world().resource::<AssetServer>();
+        let families = [
+            (
+                "mc_sw4_3d_char_skin_emberglow_7q60f126",
+                SourceCharacterProgram::Ember,
+                4,
+            ),
+            (
+                "mc_sw4_3d_glass_emissive_jf185j5e",
+                SourceCharacterProgram::Glass,
+                1,
+            ),
+            (
+                "mc_sw4_3d_char_hair_287j114q",
+                SourceCharacterProgram::Hair,
+                4,
+            ),
+            (
+                "mc_sw4_3d_char_skin_3e77jj31",
+                SourceCharacterProgram::SkinCutout,
+                1,
+            ),
+            (
+                "mc_sw4_3d_char_cloth_emissive_5ef7226z",
+                SourceCharacterProgram::ClothEmissive,
+                3,
+            ),
+            (
+                "mc_sw4_3d_char_skin_emissive_189j7w84",
+                SourceCharacterProgram::SkinEmissive,
+                1,
+            ),
+            (
+                "mc_sw4_3d_char_cloth_reveal2_emissive_5644z720",
+                SourceCharacterProgram::RevealEmissive { cutout: false },
+                2,
+            ),
+            (
+                "mc_sw4_3d_char_cloth_reveal2_emissive_f88qewf4",
+                SourceCharacterProgram::RevealEmissive { cutout: true },
+                1,
+            ),
+        ];
+        let mut counts = [0; 8];
+        for entry in std::fs::read_dir(root.join("materials/mc")).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().and_then(|x| x.to_str()) != Some("json") {
+                continue;
+            }
+            let definition = MaterialDefinition::read(&path).unwrap();
+            let Some(index) = families
+                .iter()
+                .position(|(family, _, _)| *family == definition.technique_set())
+            else {
+                continue;
+            };
+            let (material, state) = definition.model(server, Handle::default()).unwrap();
+            let NativeModelMaterial::SourceCharacter {
+                program,
+                base,
+                specular,
+                emission,
+                temporal,
+                constants,
+                reveal,
+            } = material
+            else {
+                panic!("{} lost its original character program", path.display());
+            };
+            assert_eq!(program, families[index].1);
+            let assert_image = |image: &Handle<Image>, name: Option<&str>, hash: Option<u32>| {
+                let input = definition
+                    .textures
+                    .iter()
+                    .find(|t| match hash {
+                        Some(hash) => t.name_hash == Some(hash),
+                        None => t.name.as_deref() == name,
+                    })
+                    .unwrap();
+                let expected =
+                    PathBuf::from(format!("images/{}.dds", input.image.replace('*', "_")));
+                assert_eq!(image.path().unwrap().path(), expected);
+                assert!(root.join(expected).is_file());
+            };
+            assert_image(&base.normal_map, None, Some(2485960688));
+            assert_image(
+                &base.color_map,
+                Some("colorMap"),
+                if matches!(
+                    program,
+                    SourceCharacterProgram::Hair | SourceCharacterProgram::Glass
+                ) {
+                    None
+                } else {
+                    Some(4030327853)
+                },
+            );
+            assert_image(&specular.0, Some("SpecularAndGloss"), None);
+            if let Some((image, _)) = &emission {
+                assert_image(
+                    image,
+                    None,
+                    Some(if program == SourceCharacterProgram::Ember {
+                        3837378363
+                    } else {
+                        3229466552
+                    }),
+                );
+            }
+            if let Some((image, _)) = &temporal {
+                assert_image(
+                    image,
+                    None,
+                    Some(if program == SourceCharacterProgram::Ember {
+                        3617419774
+                    } else {
+                        2782436735
+                    }),
+                );
+            }
+            assert_eq!(
+                emission.is_some(),
+                !matches!(
+                    program,
+                    SourceCharacterProgram::Hair
+                        | SourceCharacterProgram::SkinCutout
+                        | SourceCharacterProgram::Glass
+                )
+            );
+            assert_eq!(
+                temporal.is_some(),
+                matches!(
+                    program,
+                    SourceCharacterProgram::RevealEmissive { .. } | SourceCharacterProgram::Ember
+                )
+            );
+            match program {
+                SourceCharacterProgram::Fritz { .. } => unreachable!(),
+                SourceCharacterProgram::Hair => assert_eq!(
+                    constants.source[0].x,
+                    definition.constant("ReflectionAmount").unwrap().x
+                ),
+                SourceCharacterProgram::SkinCutout | SourceCharacterProgram::SkinEmissive => {
+                    assert_eq!(
+                        constants.source[0].x,
+                        definition
+                            .constant_hash("Reflection_Amount", 211931156)
+                            .unwrap()
+                            .x
+                    );
+                    assert_eq!(
+                        constants.source[0].y,
+                        definition
+                            .constant_hash("Specular_Amount", 1307013020)
+                            .unwrap()
+                            .x
+                    );
+                    assert_eq!(
+                        constants.source[0].z,
+                        definition
+                            .constant_hash("Diffuse_Normal_Height_Facing", 1012612089)
+                            .unwrap()
+                            .x
+                    );
+                }
+                SourceCharacterProgram::ClothEmissive => {
+                    assert_eq!(constants.source[0].truncate(), Vec3::ONE)
+                }
+                SourceCharacterProgram::Ember => {
+                    assert_eq!(
+                        constants.source[2].w,
+                        definition.constant("Seed_Value").unwrap().x
+                    );
+                    assert_eq!(
+                        constants.source[2].y,
+                        definition.constant("Flicker_Max").unwrap().x
+                    );
+                    assert_eq!(
+                        constants.source[2].z,
+                        definition.constant("Flicker_Min").unwrap().x
+                    );
+                    assert_eq!(
+                        constants.source[3].x,
+                        definition
+                            .constant_hash("Emissiver_Amount", 227002554)
+                            .unwrap()
+                            .x
+                    );
+                    assert_image(&reveal.as_ref().unwrap().0, None, Some(690691323));
+                }
+                SourceCharacterProgram::Glass => {
+                    assert_eq!(
+                        constants.source[0].z,
+                        definition
+                            .constant_hash("EmissiveDepth", 3526985878)
+                            .unwrap()
+                            .x
+                    );
+                    assert_eq!(
+                        constants.source[0].w,
+                        definition.constant("hdrAmount").unwrap().x
+                    );
+                    assert_eq!(
+                        constants.source[0].x,
+                        definition.constant("ReflectionAmount").unwrap().x
+                    );
+                }
+                SourceCharacterProgram::RevealEmissive { .. } => {
+                    assert_eq!(
+                        constants.source[4].x,
+                        definition
+                            .constant_hash("Diffuse_Emissive_Speed", 2226647986)
+                            .unwrap()
+                            .x
+                    );
+                    assert_eq!(
+                        constants.source[3].w,
+                        definition
+                            .constant_hash("Diffuse_Emissive_Level", 2251066627)
+                            .unwrap()
+                            .x
+                    );
+                }
+            }
+            if matches!(
+                program,
+                SourceCharacterProgram::ClothEmissive | SourceCharacterProgram::SkinEmissive
+            ) {
+                assert_eq!(
+                    constants.source[0].w,
+                    definition
+                        .constant_hash("Emissive_Amount", 2875883048)
+                        .unwrap()
+                        .x
+                );
+            }
+            assert_eq!(
+                state.blend.is_some(),
+                matches!(
+                    program,
+                    SourceCharacterProgram::Hair | SourceCharacterProgram::Glass
+                )
+            );
+            assert_eq!(
+                state.depth_write,
+                !matches!(
+                    program,
+                    SourceCharacterProgram::Hair | SourceCharacterProgram::Glass
+                )
+            );
+            assert_eq!(state.depth_compare, CompareFunction::GreaterEqual);
+            counts[index] += 1;
+        }
+        assert_eq!(counts, families.map(|(_, _, count)| count));
+    }
+
+    #[test]
+    #[ignore = "requires the authorized local Origins export"]
+    fn exported_source_lit_model_variants_bind() {
+        use super::super::native_model::{NativeModelMaterial, SourceLitProgram};
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/assets");
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            bevy::asset::AssetPlugin {
+                file_path: root.to_string_lossy().into_owned(),
+                ..default()
+            },
+        ))
+        .init_asset::<Image>();
+        let server = app.world().resource::<AssetServer>();
+        let families = [
+            (
+                "mc_lit_sm_b0c0n0s0_68f25z0u",
+                SourceLitProgram::BlendedHero,
+                2,
+            ),
+            (
+                "mc_lit_sm_b0c0s0_q94f27qw",
+                SourceLitProgram::GeometricHero,
+                1,
+            ),
+            (
+                "mc_lit_sm_r0c0n0s0_ze50j7jz",
+                SourceLitProgram::NormalHero,
+                4,
+            ),
+            (
+                "mc_lit_sm_t0c0n0s0_f933q84u",
+                SourceLitProgram::CutoutHero,
+                1,
+            ),
+            (
+                "mc_lit_sm_r0c0n0s0_7j414q0z",
+                SourceLitProgram::ColorDetail,
+                3,
+            ),
+            (
+                "mc_lit_sm_r0c0d0n0s0_qwq4q449",
+                SourceLitProgram::NormalDetail,
+                1,
+            ),
+            (
+                "mc_lit_sm_t0c0d0n0s0_68eww765",
+                SourceLitProgram::CutoutNormalDetail,
+                1,
+            ),
+        ];
+        let mut counts = [0; 7];
+        for entry in std::fs::read_dir(root.join("materials/mc")).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().and_then(|x| x.to_str()) != Some("json") {
+                continue;
+            }
+            let definition = MaterialDefinition::read(&path).unwrap();
+            let Some(index) = families
+                .iter()
+                .position(|(family, _, _)| *family == definition.technique_set())
+            else {
+                continue;
+            };
+            let (material, state) = definition.model(server, Handle::default()).unwrap();
+            let NativeModelMaterial::SourceLit {
+                program,
+                color,
+                normal,
+                specular,
+                detail,
+                occlusion,
+                detail_parameters,
+                ..
+            } = material
+            else {
+                panic!("{} lost its source-specific LIT program", path.display());
+            };
+            assert_eq!(program, families[index].1);
+            assert_eq!(occlusion, definition.constant("occlusionAmount").unwrap());
+            let assert_image = |handle: &Handle<Image>, name: &str| {
+                let input = definition
+                    .textures
+                    .iter()
+                    .find(|t| t.name.as_deref() == Some(name))
+                    .unwrap();
+                let expected =
+                    PathBuf::from(format!("images/{}.dds", input.image.replace('*', "_")));
+                assert_eq!(handle.path().unwrap().path(), expected);
+                assert!(root.join(expected).is_file());
+            };
+            assert_image(&color.color_map, "colorMap");
+            assert_image(&specular.0, "specularMap");
+            if let Some((normal_map, _)) = &normal {
+                assert_image(normal_map, "normalMap");
+            }
+            assert_eq!(normal.is_none(), program == SourceLitProgram::GeometricHero);
+            if let Some((detail_map, _)) = &detail {
+                assert_image(
+                    detail_map,
+                    if program == SourceLitProgram::ColorDetail {
+                        "colorDetailMap"
+                    } else {
+                        "detailMap"
+                    },
+                );
+            }
+            assert_eq!(
+                detail.is_some(),
+                matches!(
+                    program,
+                    SourceLitProgram::ColorDetail
+                        | SourceLitProgram::NormalDetail
+                        | SourceLitProgram::CutoutNormalDetail
+                )
+            );
+            assert_eq!(
+                detail_parameters,
+                if matches!(
+                    program,
+                    SourceLitProgram::NormalDetail | SourceLitProgram::CutoutNormalDetail
+                ) {
+                    definition.constant("detailScale").unwrap()
+                } else {
+                    Vec4::ZERO
+                }
+            );
+            let blended = matches!(
+                program,
+                SourceLitProgram::BlendedHero | SourceLitProgram::GeometricHero
+            );
+            assert_eq!(state.blend.is_some(), blended);
+            assert_eq!(state.depth_write, !blended);
+            assert_eq!(state.depth_compare, CompareFunction::GreaterEqual);
+            counts[index] += 1;
+        }
+        assert_eq!(counts, families.map(|(_, _, count)| count));
+    }
+
+    #[test]
+    #[ignore = "requires exported source materials"]
+    fn exported_weapon_authored_reticle_materials_bind() {
+        use super::super::native_model::NativeModelMaterial;
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+            .init_asset::<Image>();
+        let server = app.world().resource::<AssetServer>();
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/assets");
+        for relative in [
+            "materials/mc/mtl_t6_attach_optic_rangefinder_reticle2.json",
+            "materials/mc/mtl_t6_attach_optic_acog_reticle.json",
+            "materials/mc/mtl_t6_attach_optic_holo_reticle.json",
+            "materials/mc/mtl_t6_attach_optic_m32_reticle.json",
+            "materials/mc/mtl_t6_attach_optic_reflex_reticle.json",
+            "materials/mc/mtl_t6_attach_optic_mms_reticle.json",
+        ] {
+            let definition = MaterialDefinition::read(&root.join(relative)).unwrap();
+            let (material, state) = definition.model(server, Handle::default()).unwrap();
+            let NativeModelMaterial::Reticle {
+                textures,
+                constants,
+                ..
+            } = material
+            else {
+                panic!("{relative}: wrong program");
+            };
+            assert_ne!(textures[0].0, textures[1].0);
+            assert_eq!(
+                constants.source[0].w,
+                definition
+                    .constant_hash("Emissive_Amount", 2875883048)
+                    .unwrap()
+                    .x
+            );
+            assert_eq!(
+                constants.source[1].y,
+                definition
+                    .constant_hash("Color_Map_Scale", 4000797241)
+                    .unwrap()
+                    .x
+            );
+            assert_eq!(
+                constants.source[2].x,
+                definition.constant("Background").unwrap().x
+            );
+            assert!(!state.depth_write);
+            assert_eq!(
+                state.blend.unwrap().color.dst_factor,
+                BlendFactor::OneMinusSrcAlpha
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "requires exported source materials"]
+    fn exported_weapon_optic_and_single_layer_materials_bind() {
+        use super::super::native_model::NativeModelMaterial;
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+            .init_asset::<Image>();
+        let server = app.world().resource::<AssetServer>();
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/assets");
+        for relative in [
+            "materials/mc/mtl_t6_attach_optic_acog_lens.json",
+            "materials/mc/mtl_t6_attach_optic_aimpoint_lens.json",
+            "materials/mc/mtl_t6_attach_optic_holo_lens.json",
+            "materials/mc/mtl_t6_attach_optic_m32_lens.json",
+            "materials/mc/mtl_t6_attach_optic_mms_lens.json",
+            "materials/mc/mtl_t6_attach_optic_rangefinder_lens.json",
+            "materials/mc/mtl_t6_attach_optic_reflex_lens.json",
+            "materials/mc/mtl_t6_wpn_sniper_dsr50_scope_lens.json",
+            "materials/mc/mtl_p6_zm_tm_runes.json",
+        ] {
+            let definition = MaterialDefinition::read(&root.join(relative)).unwrap();
+            let (material, state) = definition.model(server, Handle::default()).unwrap();
+            match material {
+                NativeModelMaterial::OpticLens {
+                    textures, controls, ..
+                } => {
+                    assert_eq!(
+                        controls.x,
+                        definition
+                            .constant_hash("Specular_Amount", 1307013020)
+                            .unwrap()
+                            .x
+                    );
+                    assert_eq!(
+                        controls.y,
+                        definition
+                            .constant_hash("Reflection_Amount", 211931156)
+                            .unwrap()
+                            .x
+                    );
+                    assert_eq!(
+                        controls.z,
+                        definition
+                            .constant_hash("Specular_Decay_Threshold", 994574754)
+                            .unwrap()
+                            .x
+                    );
+                    assert_ne!(textures[2].0, textures[3].0);
+                }
+                NativeModelMaterial::SingleLayer { constants, .. } => {
+                    assert_eq!(
+                        constants.source[1].w,
+                        definition.constant("hdrAmount").unwrap().x
+                    );
+                    assert_eq!(
+                        constants.source[1].z,
+                        definition.constant("Layer1Alpha").unwrap().x
+                    );
+                    assert_eq!(
+                        constants.source[3].x,
+                        definition.constant("Layer1Depth").unwrap().x
+                    );
+                }
+                _ => panic!("{relative}: wrong program"),
+            }
+            assert!(state.blend.is_some());
+        }
+    }
+
+    #[test]
+    #[ignore = "requires exported source materials"]
+    fn exported_weapon_staff_materials_bind() {
+        use super::super::native_model::NativeModelMaterial;
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+            .init_asset::<Image>();
+        let server = app.world().resource::<AssetServer>();
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/assets");
+        for relative in [
+            "materials/mc/mtl_t6_wpn_zmb_staff_crystal_air.json",
+            "materials/mc/mtl_t6_wpn_zmb_staff_crystal_bolt.json",
+            "materials/mc/mtl_t6_wpn_zmb_staff_crystal_fire.json",
+            "materials/mc/mtl_t6_wpn_zmb_staff_crystal_water.json",
+            "materials/mc/mtl_t6_wpn_zmb_upg_crystal_air.json",
+            "materials/mc/mtl_t6_wpn_zmb_upg_crystal_air3.json",
+            "materials/mc/mtl_t6_wpn_zmb_upg_crystal_bolt.json",
+            "materials/mc/mtl_t6_wpn_zmb_upg_crystal_bolt3.json",
+            "materials/mc/mtl_t6_wpn_zmb_upg_crystal_fire.json",
+            "materials/mc/mtl_t6_wpn_zmb_upg_crystal_fire1.json",
+            "materials/mc/mtl_t6_wpn_zmb_upg_crystal_fire3.json",
+            "materials/mc/mtl_t6_wpn_zmb_upg_crystal_water.json",
+            "materials/mc/mtl_t6_wpn_zmb_upg_crystal_water3.json",
+            "materials/mc/mtl_t6_wpn_zmb_upg_pwr_srce_air.json",
+            "materials/mc/mtl_t6_wpn_zmb_upg_pwr_srce_bolt.json",
+            "materials/mc/mtl_t6_wpn_zmb_upg_pwr_srce_fire.json",
+            "materials/mc/mtl_t6_wpn_zmb_upg_pwr_srce_water.json",
+        ] {
+            let definition = MaterialDefinition::read(&root.join(relative)).unwrap();
+            let (material, state) = definition.model(server, Handle::default()).unwrap();
+            let NativeModelMaterial::Staff3Layer {
+                textures,
+                off,
+                constants,
+                emission_on,
+            } = material
+            else {
+                panic!("{relative}: wrong program");
+            };
+            assert_eq!(
+                constants.source[10].w,
+                definition
+                    .constant_hash("Charge_Level", 963960723)
+                    .unwrap()
+                    .x
+            );
+            assert_eq!(
+                constants.source[9].z,
+                definition
+                    .constant_hash("Emissive_Amount_Off", 996647064)
+                    .unwrap()
+                    .x
+            );
+            assert_eq!(
+                emission_on,
+                definition
+                    .constant_hash("Emissive_Amount_On", 811104566)
+                    .unwrap()
+            );
+            assert_ne!(textures.layer3_map, off.0);
+            assert_eq!(constants.source[5].x, 0.); // unused original Layer3Alpha
+            assert!(state.depth_write);
+            assert!(state.blend.is_none());
+        }
+    }
+
+    #[test]
+    #[ignore = "requires exported source materials"]
+    fn exported_weapon_viewmodel_unlit_materials_bind() {
+        use super::super::native_model::{NativeModelMaterial, NativeModelUnlitProgram};
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+            .init_asset::<Image>();
+        let server = app.world().resource::<AssetServer>();
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/assets");
+        let paths = [
+            "materials/mc/mat_veh_t6_dlc_zm_drone_unlit_vm.json",
+            "materials/mc/mat_veh_t6_dlc_zm_drone_water_vm.json",
+            "materials/mc/mtl_t6_attach_optic_acog_crosshair.json",
+            "materials/mc/mtl_t6_attach_optic_acog_shade.json",
+            "materials/mc/mtl_t6_attach_zmb_mc96_reticle.json",
+            "materials/mc/mtl_t6_attach_tritium_grn_glo.json",
+            "materials/mc/mtl_t6_attach_tritium_red_glo.json",
+            "materials/mc/mtl_t6_attach_tritium_red_txt.json",
+        ];
+        for relative in paths {
+            let path = root.join(relative);
+            let definition = MaterialDefinition::read(&path).unwrap();
+            let (material, state) = definition.model(server, Handle::default()).unwrap();
+            let NativeModelMaterial::Unlit {
+                base,
+                program,
+                scale_rgb,
+            } = material
+            else {
+                panic!("{relative}: wrong program");
+            };
+            assert_eq!(
+                scale_rgb,
+                definition
+                    .constant_hash("Emissive_Amount", 2875883048)
+                    .unwrap()
+            );
+            assert!(
+                base.color_map
+                    .path()
+                    .unwrap()
+                    .path()
+                    .to_string_lossy()
+                    .contains("images/")
+            );
+            assert!(!state.depth_write);
+            if matches!(program, NativeModelUnlitProgram::ViewmodelOpaque) {
+                assert_eq!(state.polygon_offset, 1);
+                assert_eq!(
+                    state.blend.unwrap().color.src_factor,
+                    BlendFactor::OneMinusDst
+                );
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "requires the authorized local Origins export"]
+    fn exported_model_unlit_blend_materials_bind() {
+        use super::super::native_model::{NativeModelMaterial, NativeModelUnlitProgram};
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/assets");
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            bevy::asset::AssetPlugin {
+                file_path: root.to_string_lossy().into_owned(),
+                ..default()
+            },
+        ))
+        .init_asset::<Image>();
+        let server = app.world().resource::<AssetServer>();
+        for (name, additive, scale, offset, cull) in [
+            ("mat_veh_t6_dlc_zm_drone_water", false, 50., 0, None),
+            ("missing_fx", false, 8., 1, Some(Face::Back)),
+            (
+                "mat_veh_t6_dlc_zm_drone_unlit",
+                true,
+                50.,
+                0,
+                Some(Face::Back),
+            ),
+            (
+                "mtl_t6_attach_trinium_sight_green",
+                true,
+                4.,
+                1,
+                Some(Face::Back),
+            ),
+        ] {
+            let definition =
+                MaterialDefinition::read(&root.join(format!("materials/mc/{name}.json"))).unwrap();
+            let (material, state) = definition.model(server, Handle::default()).unwrap();
+            let NativeModelMaterial::Unlit {
+                base,
+                program,
+                scale_rgb,
+            } = material
+            else {
+                panic!("{name} requires the original color-only unlit stream");
+            };
+            assert!(
+                program
+                    == if additive {
+                        NativeModelUnlitProgram::Add
+                    } else {
+                        NativeModelUnlitProgram::Blend
+                    }
+            );
+            assert_eq!(scale_rgb, Vec4::new(scale, 0., 0., 1.));
+            assert_eq!(definition.sort_key, 40);
+            assert_eq!(definition.camera_region, "emissiveTrans");
+            assert_eq!(state.depth_compare, CompareFunction::GreaterEqual);
+            assert!(!state.depth_write);
+            assert_eq!(state.cull_mode, cull);
+            assert_eq!(state.polygon_offset, offset);
+            assert_eq!(state.color_write, ColorWrites::ALL);
+            let source = &definition.textures[0];
+            let expected = PathBuf::from(format!("images/{}.dds", source.image.replace('*', "_")));
+            assert_eq!(base.color_map.path().unwrap().path(), expected);
+            assert!(root.join(expected).is_file());
+            assert_eq!(
+                base.color_sampler.address_mode_u,
+                if source.sampler_state.clamp_u {
+                    AddressMode::ClampToEdge
+                } else {
+                    AddressMode::Repeat
+                }
+            );
+            assert_eq!(
+                state.blend.unwrap(),
+                BlendState {
+                    color: BlendComponent {
+                        src_factor: if additive {
+                            BlendFactor::One
+                        } else {
+                            BlendFactor::SrcAlpha
+                        },
+                        dst_factor: if additive {
+                            BlendFactor::One
+                        } else {
+                            BlendFactor::OneMinusSrcAlpha
+                        },
+                        operation: BlendOperation::Add,
+                    },
+                    alpha: BlendComponent {
+                        src_factor: if additive {
+                            BlendFactor::Zero
+                        } else {
+                            BlendFactor::OneMinusDstAlpha
+                        },
+                        dst_factor: BlendFactor::One,
+                        operation: BlendOperation::Add,
+                    },
+                }
+            );
+        }
+    }
 
     #[test]
     #[ignore = "requires the authorized local Origins export"]

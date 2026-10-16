@@ -315,7 +315,9 @@ for placement in data["staticModels"]:
 # original definitions through the same SDK, in the game's overlay order.
 fx_catalog = json.loads((root / "gameplay/origins/fx_catalog.json").read_text(encoding="utf-8"))
 fx_materials = set(fx_catalog["materials"])
-exported_fx_materials = set()
+model_materials = set()
+source_materials = {}
+source_attachments = {}
 material_names = material.ZoneNames()
 dynamic_models = {}
 dynamic_names = {
@@ -335,10 +337,7 @@ for source_zone in ("code_post_gfx_zm", "common_zm", "patch_zm", "zm_tomb", "zm_
             continue
         dynamic_models[model_asset.name] = export_model(source_walk, model_asset, assets)
         for model_material in model_asset.record["materialHandles"]:
-            destination = assets / "materials" / (material_file_stem(model_material.name) + ".json")
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            destination.write_text(json.dumps(material.material_json(model_material, material_names),
-                separators=(",", ":")), encoding="utf-8")
+            model_materials.add(model_material.name.lstrip(","))
     for light in source_walk.by_type("lightdef"):
         if light.name not in light_definition_names:
             continue
@@ -349,15 +348,37 @@ for source_zone in ("code_post_gfx_zm", "common_zm", "patch_zm", "zm_tomb", "zm_
             "lmapLookupStart": light.record["lmapLookupStart"],
         }
     for source_material in source_walk.by_type("material"):
-        if source_material.name not in fx_materials:
+        # A comma record references an earlier zone; its empty body must never
+        # overwrite the concrete material. Later concrete definitions do win.
+        if source_material.name.startswith(","):
             continue
-        destination = assets / "materials" / (material_file_stem(source_material.name) + ".json")
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_text(json.dumps(material.material_json(source_material, material_names),
-            separators=(",", ":")), encoding="utf-8")
-        exported_fx_materials.add(source_material.name)
-assert exported_fx_materials == fx_materials, f"Missing original FX materials: {sorted(fx_materials - exported_fx_materials)}"
-print(f"Original FX material definitions: {len(exported_fx_materials)}")
+        source_materials[source_material.name] = material.material_json(source_material, material_names)
+    for attachment in source_walk.by_type("attachment"):
+        if attachment.name.startswith(","):
+            continue
+        record = attachment.record
+        source_attachments[attachment.name] = {
+            "mmsWeapon": bool(record["mmsWeapon"]),
+            "mmsInScope": bool(record["mmsInScope"]),
+            "mmsFOV": record["mmsFOV"],
+            "mmsAspect": record["mmsAspect"],
+            "mmsMaxDist": record["mmsMaxDist"],
+        }
+required_materials = fx_materials | model_materials | {
+    surface["material"].lstrip(",") for surface in data["surfaces"]
+}
+assert required_materials <= source_materials.keys(), (
+    f"Missing original material definitions: {sorted(required_materials - source_materials.keys())}"
+)
+for name in sorted(required_materials):
+    destination = assets / "materials" / (material_file_stem(name) + ".json")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(json.dumps(source_materials[name], separators=(",", ":")), encoding="utf-8")
+print(f"Original FX material definitions: {len(fx_materials)}")
+assert "mms" in source_attachments, "Missing original MMS attachment inputs"
+(assets / "source-attachments.json").write_text(
+    json.dumps(source_attachments, separators=(",", ":")), encoding="utf-8"
+)
 assert set(dynamic_models) == dynamic_names, f"Missing native dynamic models: {sorted(dynamic_names - set(dynamic_models))}"
 (assets / "native_models.json").write_text(json.dumps(dynamic_models, separators=(",", ":")), encoding="utf-8")
 print(f"Original dynamic model inputs: {len(dynamic_models)}")

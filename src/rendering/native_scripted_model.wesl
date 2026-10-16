@@ -401,7 +401,7 @@ fn native_model_phong_fragment(
     let vertex_color = select(input.color.rgb * input.color.rgb, input.color.rgb, transparent);
     let colored = color_sample.rgb * vertex_color;
     return native_model_phong_shade(input, scene, view, specular_suppression, controls,
-        transparent, colored * colored, color_sample.a * input.color.a, vec3<f32>(0.0),
+        transparent, true, colored * colored, color_sample.a * input.color.a, vec3<f32>(0.0),
         normal_map, normal_sampler, specular_map, specular_sampler,
         model_lighting, model_lighting_sampler, reflection_probe, reflection_sampler);
 }
@@ -409,10 +409,26 @@ fn native_model_phong_fragment(
 fn native_model_phong_shade(
     input: NativeScriptedVaryings,
     scene: NativeModelScene, view: NativeModelScriptedScene,
-    specular_suppression: f32, controls: vec3<f32>, transparent: bool,
+    specular_suppression: f32, controls: vec3<f32>, transparent: bool, hero: bool,
     diffuse: vec3<f32>, raw_alpha: f32, emission: vec3<f32>,
     normal_map: texture_2d<f32>, normal_sampler: sampler,
     specular_map: texture_2d<f32>, specular_sampler: sampler,
+    model_lighting: texture_3d<f32>, model_lighting_sampler: sampler,
+    reflection_probe: texture_cube<f32>, reflection_sampler: sampler,
+) -> vec4<f32> {
+    return native_model_phong_shade_samples(input, scene, view, specular_suppression,
+        controls, transparent, hero, diffuse, raw_alpha, emission,
+        textureSample(normal_map, normal_sampler, input.uv).rg,
+        textureSample(specular_map, specular_sampler, input.uv),
+        model_lighting, model_lighting_sampler, reflection_probe, reflection_sampler);
+}
+
+fn native_model_phong_shade_samples(
+    input: NativeScriptedVaryings,
+    scene: NativeModelScene, view: NativeModelScriptedScene,
+    specular_suppression: f32, controls: vec3<f32>, transparent: bool, hero: bool,
+    diffuse: vec3<f32>, raw_alpha: f32, emission: vec3<f32>,
+    normal_sample: vec2<f32>, specular_sample: vec4<f32>,
     model_lighting: texture_3d<f32>, model_lighting_sampler: sampler,
     reflection_probe: texture_cube<f32>, reflection_sampler: sampler,
 ) -> vec4<f32> {
@@ -422,14 +438,12 @@ fn native_model_phong_shade(
     let half_vector = inverseSqrt(dot(half_raw, half_raw)) * half_raw;
     let geometric = inverseSqrt(dot(input.normal, input.normal)) * input.normal;
     let bitangent = native_scripted_bitangent(geometric, input.tangent_sign);
-    let normal_sample = textureSample(normal_map, normal_sampler, input.uv);
-    let slopes = fma(normal_sample.rg, vec2<f32>(4.015748023986816), vec2<f32>(-2.0157480239868164));
+    let slopes = fma(normal_sample, vec2<f32>(4.015748023986816), vec2<f32>(-2.0157480239868164));
     let mapped = fma(vec3<f32>(slopes.y), bitangent,
         fma(vec3<f32>(slopes.x), input.tangent_sign.xyz, geometric));
     let normal = inverseSqrt(dot(mapped, mapped)) * mapped;
     let ndoth = clamp(dot(normal, half_vector), 0.0, 1.0);
     let hdotsun = clamp(dot(half_vector, view.sun_position.xyz), 0.0, 1.0);
-    let specular_sample = textureSample(specular_map, specular_sampler, input.uv);
     let gloss = specular_sample.a;
     let exponent = exp2(gloss * 13.0);
     let lobe = exp2(log2(ndoth) * exponent) * fma(exponent, 0.125, 0.25);
@@ -464,7 +478,7 @@ fn native_model_phong_shade(
         scene, model_lighting, model_lighting_sampler) * select(input.color.a, 1.0, transparent) * 32.0;
     let diffuse_light = fma(vec3<f32>(clamp(dot(view.sun_position.xyz, diffuse_normal), 0.0, 1.0)), sun, irradiance);
     lit = fma(diffuse, diffuse_light, lit) + emission;
-    if !transparent {
+    if hero && !transparent {
         let hero_input = vec4<f32>(lit, 1.0);
         lit = vec3<f32>(dot(hero_input, view.hero_lighting[0]),
             dot(hero_input, view.hero_lighting[1]), dot(hero_input, view.hero_lighting[2]));
@@ -507,7 +521,7 @@ fn native_model_cloth_reveal_fragment(
         material.source[1].rgb - material.source[0].yzw, material.source[0].yzw);
     let edge = (edge_color * (curves.y * curves.x)) * material.source[0].x;
     let result = native_model_phong_shade(input, scene, view, scripts.vectors[0].x,
-        vec3<f32>(1.0, material.source[3].w, 1.0), false, colored * colored, 1.0,
+        vec3<f32>(1.0, material.source[3].w, 1.0), false, true, colored * colored, 1.0,
         (edge * edge) * input.color.a, normal_map, normal_sampler,
         specular_map, specular_sampler, model_lighting, model_lighting_sampler,
         reflection_probe, reflection_sampler);

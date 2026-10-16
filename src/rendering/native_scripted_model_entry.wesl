@@ -1,3 +1,8 @@
+import package::rendering::native_weapon_model_optic::native_optic_fragment;
+import package::rendering::native_weapon_model_staff::native_staff_fragment;
+import package::rendering::native_character_model::{NativeSourceCharacterConstants,
+    native_character_hair, native_character_skin_cutout, native_character_emission, native_character_reveal_emission,
+    native_character_ember_flicker, native_character_ember, native_character_glass, native_character_fritz, native_character_fill, native_character_cornea};
 import package::rendering::native_model::{NativeModelScene, NativeModelObject, NativeModelVertexInput};
 import package::rendering::native_scripted_model::{
     NativeModelScriptedScene, NativeModelScriptInputs, NativeModelParallaxConstants,
@@ -32,6 +37,7 @@ import package::rendering::native_camo::{NativeModelCamoParameters, native_model
 @group(2) @binding(14) var<uniform> camo: NativeModelCamoParameters;
 @group(2) @binding(20) var<uniform> flicker: NativeFlickerConstants;
 @group(2) @binding(21) var<uniform> phong_controls: vec4<f32>;
+@group(2) @binding(23) var<uniform> staff_emission_on: vec4<f32>;
 @group(2) @binding(22) var<uniform> cloth_reveal: NativeClothRevealConstants;
 @group(3) @binding(0) var model_lighting: texture_3d<f32>;
 @group(3) @binding(1) var model_lighting_sampler: sampler;
@@ -462,3 +468,206 @@ fn fragment_cloth_reveal_srgb(input: Varyings) -> @location(0) vec4<f32> { retur
 fn fragment_cloth_reveal_cutout(input: Varyings) -> @location(0) vec4<f32> { return shade_cloth_reveal(input, true); }
 @fragment
 fn fragment_cloth_reveal_cutout_srgb(input: Varyings) -> @location(0) vec4<f32> { return attachment_srgb(shade_cloth_reveal(input, true)); }
+
+@group(2) @binding(26) var<uniform> source_character: NativeSourceCharacterConstants;
+fn shade_source_hair(input: Varyings) -> vec4<f32> {
+    return native_character_hair(source(input), scene, view, source_character,
+        input0, sampler0, input1, sampler1, input2, sampler2,
+        model_lighting, model_lighting_sampler, probe, probe_sampler);
+}
+fn shade_source_skin_cutout(input: Varyings) -> vec4<f32> {
+    return native_character_skin_cutout(source(input), scene, view, scripts, source_character,
+        input0, sampler0, input1, sampler1, input2, sampler2,
+        model_lighting, model_lighting_sampler, probe, probe_sampler);
+}
+fn shade_source_character_emission(input: Varyings) -> vec4<f32> {
+    return native_character_emission(source(input), scene, view, scripts, source_character,
+        input0, sampler0, input1, sampler1, input2, sampler2, input3, sampler3,
+        model_lighting, model_lighting_sampler, probe, probe_sampler);
+}
+fn shade_source_reveal_emission(input: Varyings, cutout: bool) -> vec4<f32> {
+    return native_character_reveal_emission(source(input), scene, view, scripts, source_character, cutout,
+        input0, sampler0, input1, sampler1, input2, sampler2, input3, sampler3, weapon_normal, weapon_normal_sampler,
+        model_lighting, model_lighting_sampler, probe, probe_sampler);
+}
+@fragment
+fn fragment_source_hair(input: Varyings) -> @location(0) vec4<f32> { return shade_source_hair(input); }
+@fragment
+fn fragment_source_hair_srgb(input: Varyings) -> @location(0) vec4<f32> { return attachment_srgb(shade_source_hair(input)); }
+@fragment
+fn fragment_source_skin_cutout(input: Varyings) -> @location(0) vec4<f32> { return shade_source_skin_cutout(input); }
+@fragment
+fn fragment_source_skin_cutout_srgb(input: Varyings) -> @location(0) vec4<f32> { return attachment_srgb(shade_source_skin_cutout(input)); }
+@fragment
+fn fragment_source_cloth_emission(input: Varyings) -> @location(0) vec4<f32> { return shade_source_character_emission(input); }
+@fragment
+fn fragment_source_cloth_emission_srgb(input: Varyings) -> @location(0) vec4<f32> { return attachment_srgb(shade_source_character_emission(input)); }
+@fragment
+fn fragment_source_skin_emission(input: Varyings) -> @location(0) vec4<f32> { return shade_source_character_emission(input); }
+@fragment
+fn fragment_source_skin_emission_srgb(input: Varyings) -> @location(0) vec4<f32> { return attachment_srgb(shade_source_character_emission(input)); }
+@fragment
+fn fragment_source_reveal_emission(input: Varyings) -> @location(0) vec4<f32> { return shade_source_reveal_emission(input, false); }
+@fragment
+fn fragment_source_reveal_emission_srgb(input: Varyings) -> @location(0) vec4<f32> { return attachment_srgb(shade_source_reveal_emission(input, false)); }
+@fragment
+fn fragment_source_reveal_emission_cutout(input: Varyings) -> @location(0) vec4<f32> { return shade_source_reveal_emission(input, true); }
+@fragment
+fn fragment_source_reveal_emission_cutout_srgb(input: Varyings) -> @location(0) vec4<f32> { return attachment_srgb(shade_source_reveal_emission(input, true)); }
+
+@group(2) @binding(27) var character_reveal: texture_2d<f32>;
+@group(2) @binding(28) var character_reveal_sampler: sampler;
+
+struct CharacterExtendedVaryings {
+    @builtin(position) clip_position: vec4<f32>,
+    @location(0) fog_color: vec3<f32>,
+    @location(1) eye_fog: vec4<f32>,
+    @location(2) color: vec4<f32>,
+    @location(3) normal: vec3<f32>,
+    @location(4) tangent_sign: vec4<f32>,
+    @location(5) uv: vec2<f32>,
+    @location(6) grid_coords_and_vis: vec4<f32>,
+    @location(7) reflection_correction: vec3<f32>,
+    @location(8) grid_correction: vec3<f32>,
+    @location(9) extra: vec4<f32>,
+}
+fn character_extended(data: NativeScriptedVaryings, extra: vec4<f32>) -> CharacterExtendedVaryings {
+    return CharacterExtendedVaryings(data.clip_position, data.fog_color, data.eye_fog, data.color,
+        data.normal, data.tangent_sign, data.uv, data.grid_coords_and_vis, data.reflection_correction, data.grid_correction, extra);
+}
+fn character_source(input: CharacterExtendedVaryings) -> NativeScriptedVaryings {
+    return NativeScriptedVaryings(input.clip_position, input.fog_color, input.eye_fog, input.color,
+        input.normal, input.tangent_sign, input.uv, input.grid_coords_and_vis, input.reflection_correction, input.grid_correction);
+}
+@vertex
+fn vertex_source_ember(input: VertexInput) -> CharacterExtendedVaryings {
+    let data = native_scripted_model_vertex(NativeModelVertexInput(input.position, input.color,
+        input.uv, input.packed_normal.xyz, input.packed_tangent.xyz), scene, object);
+    return character_extended(data, vec4<f32>(native_character_ember_flicker(view.game_time.w, source_character), 0.0, 0.0, 0.0));
+}
+@vertex
+fn vertex_source_glass(input: VertexInput) -> CharacterExtendedVaryings {
+    let data = native_scripted_model_vertex(NativeModelVertexInput(input.position, input.color,
+        input.uv, input.packed_normal.xyz, input.packed_tangent.xyz), scene, object);
+    let bitangent = native_scripted_bitangent(data.normal, data.tangent_sign);
+    let eye = inverseSqrt(dot(-data.eye_fog.xyz, -data.eye_fog.xyz)) * -data.eye_fog.xyz;
+    let facing = dot(eye, data.normal);
+    let divided = -vec2<f32>(dot(eye, data.tangent_sign.xyz), dot(eye, bitangent)) / facing;
+    let mask = select(0u, 0xffffffffu, facing > 0.0);
+    let ray = bitcast<vec2<f32>>(bitcast<vec2<u32>>(divided) & vec2<u32>(mask));
+    let emission_uv = fma(ray, vec2<f32>(source_character.source[0].z + 9.999999747378752e-06), data.uv);
+    return character_extended(data, vec4<f32>(emission_uv, 0.0, 0.0));
+}
+fn shade_source_ember(input: CharacterExtendedVaryings) -> vec4<f32> {
+    return native_character_ember(character_source(input), input.extra.x, scene, view, scripts, source_character,
+        input0, sampler0, input1, sampler1, input2, sampler2, input3, sampler3,
+        weapon_normal, weapon_normal_sampler, character_reveal, character_reveal_sampler,
+        model_lighting, model_lighting_sampler, probe, probe_sampler);
+}
+fn shade_source_glass(input: CharacterExtendedVaryings) -> vec4<f32> {
+    return native_character_glass(character_source(input), input.extra.xy, scene, view, source_character,
+        input0, sampler0, input1, sampler1, input2, sampler2,
+        model_lighting, model_lighting_sampler, probe, probe_sampler);
+}
+@fragment
+fn fragment_source_ember(input: CharacterExtendedVaryings) -> @location(0) vec4<f32> { return shade_source_ember(input); }
+@fragment
+fn fragment_source_ember_srgb(input: CharacterExtendedVaryings) -> @location(0) vec4<f32> { return attachment_srgb(shade_source_ember(input)); }
+@fragment
+fn fragment_source_glass(input: CharacterExtendedVaryings) -> @location(0) vec4<f32> { return shade_source_glass(input); }
+@fragment
+fn fragment_source_glass_srgb(input: CharacterExtendedVaryings) -> @location(0) vec4<f32> { return attachment_srgb(shade_source_glass(input)); }
+
+fn shade_source_fritz(input: Varyings, cutout: bool) -> vec4<f32> {
+    return native_character_fritz(source(input), scene, view, scripts, source_character, cutout,
+        input0, sampler0, input1, sampler1, input2, sampler2, input3, sampler3,
+        weapon_normal, weapon_normal_sampler, character_reveal, character_reveal_sampler,
+        model_lighting, model_lighting_sampler, probe, probe_sampler);
+}
+@fragment
+fn fragment_source_fritz(input: Varyings) -> @location(0) vec4<f32> { return shade_source_fritz(input, false); }
+@fragment
+fn fragment_source_fritz_srgb(input: Varyings) -> @location(0) vec4<f32> { return attachment_srgb(shade_source_fritz(input, false)); }
+@fragment
+fn fragment_source_fritz_cutout(input: Varyings) -> @location(0) vec4<f32> { return shade_source_fritz(input, true); }
+@fragment
+fn fragment_source_fritz_cutout_srgb(input: Varyings) -> @location(0) vec4<f32> { return attachment_srgb(shade_source_fritz(input, true)); }
+
+struct CorneaVertexInput {
+    @location(0) position: vec4<f32>, @location(2) uv: vec2<f32>,
+    @location(3) packed_normal: vec4<f32>, @location(4) packed_tangent: vec4<f32>,
+}
+struct CorneaVaryings {
+    @builtin(position) clip_position: vec4<f32>,
+    @location(0) fog_color: vec3<f32>, @location(1) eye_fog: vec4<f32>,
+    @location(3) normal: vec3<f32>, @location(4) tangent_sign: vec4<f32>,
+    @location(5) uv: vec2<f32>, @location(6) grid_coords_and_vis: vec4<f32>,
+    @location(9) fill1: vec3<f32>, @location(10) fill2: vec3<f32>,
+}
+@vertex
+fn vertex_source_cornea(input: CorneaVertexInput) -> CorneaVaryings {
+    let data = native_scripted_model_vertex(NativeModelVertexInput(input.position, vec4<f32>(0.0), input.uv,
+        input.packed_normal.xyz, input.packed_tangent.xyz), scene, object);
+    return CorneaVaryings(data.clip_position, data.fog_color, data.eye_fog, data.normal, data.tangent_sign, data.uv,
+        data.grid_coords_and_vis, native_character_fill(source_character.source[0].xyz, scene), native_character_fill(source_character.source[2].xyz, scene));
+}
+fn shade_source_cornea(input: CorneaVaryings) -> vec4<f32> {
+    let data = NativeScriptedVaryings(input.clip_position, input.fog_color, input.eye_fog, vec4<f32>(0.0), input.normal,
+        input.tangent_sign, input.uv, input.grid_coords_and_vis, vec3<f32>(0.0), vec3<f32>(0.0));
+    return native_character_cornea(data, input.fill1, input.fill2, scene, source_character,
+        input0, sampler0, input1, sampler1, model_lighting, model_lighting_sampler);
+}
+@fragment
+fn fragment_source_cornea(input: CorneaVaryings) -> @location(0) vec4<f32> { return shade_source_cornea(input); }
+@fragment
+fn fragment_source_cornea_srgb(input: CorneaVaryings) -> @location(0) vec4<f32> { return attachment_srgb(shade_source_cornea(input)); }
+
+fn shade_staff(input: ParallaxVaryings) -> vec4<f32> {
+    return native_staff_fragment(source_parallax(input), scene, view, scripts, parallax, staff_emission_on.x,
+        input0, sampler0, input1, sampler1, input2, sampler2, input3, sampler3,
+        weapon_normal, weapon_normal_sampler, probe, probe_sampler);
+}
+@fragment fn fragment_staff(input: ParallaxVaryings) -> @location(0) vec4<f32> { return shade_staff(input); }
+@fragment fn fragment_staff_srgb(input: ParallaxVaryings) -> @location(0) vec4<f32> { return attachment_srgb(shade_staff(input)); }
+
+@group(2) @binding(24) var<uniform> optic_controls: vec4<f32>;
+struct NativeModelSingleLayerConstants { source: array<vec4<f32>, 4> }
+@group(2) @binding(25) var<uniform> single: NativeModelSingleLayerConstants;
+fn shade_optic(input: Varyings) -> vec4<f32> {
+    return native_optic_fragment(source(input), scene, view, optic_controls, input0, sampler0,
+        input1, sampler1, input2, sampler2, input3, sampler3, model_lighting,
+        model_lighting_sampler, probe, probe_sampler);
+}
+@fragment fn fragment_optic(input: Varyings) -> @location(0) vec4<f32> { return shade_optic(input); }
+@fragment fn fragment_optic_srgb(input: Varyings) -> @location(0) vec4<f32> { return attachment_srgb(shade_optic(input)); }
+@vertex fn vertex_single(input: FourInput) -> FourVaryings {
+    let result = native_scripted_model_vertex(NativeModelVertexInput(input.position,
+        vec4<f32>(1.0), input.uv, input.packed_normal.xyz, input.packed_tangent.xyz), scene, object);
+    let bitangent = -native_scripted_bitangent(result.normal, result.tangent_sign);
+    let eye = -result.eye_fog.xyz * inverseSqrt(dot(result.eye_fog.xyz, result.eye_fog.xyz));
+    let facing = dot(eye, result.normal);
+    let divided = -vec2<f32>(dot(eye, result.tangent_sign.xyz), dot(eye, bitangent)) / facing;
+    let ray = bitcast<vec2<f32>>(bitcast<vec2<u32>>(divided) & vec2<u32>(select(0u, 0xffffffffu, facing > 0.0)));
+    let c = single.source;
+    let uv = native_scripted_layer_uv(input.uv, ray, c[0].xy, c[0].zw, c[1].xy,
+        c[2].zw, c[2].xy, c[3].x + 0.000009999999747378752, view.game_time.w);
+    return FourVaryings(result.clip_position, vec4<f32>(result.eye_fog.xyz, 0.0), result.normal,
+        vec3<f32>(0.0), result.reflection_correction, vec4<f32>(uv, 0.0, 0.0), vec4<f32>(0.0));
+}
+fn shade_single(input: FourVaryings) -> vec4<f32> {
+    let c = single.source;
+    let normal = input.normal * inverseSqrt(dot(input.normal, input.normal));
+    let eye = input.eye_fog.xyz * inverseSqrt(dot(input.eye_fog.xyz, input.eye_fog.xyz));
+    let direction = fma(normal, vec3<f32>(-2.0 * dot(eye, normal)), eye);
+    let reflection = textureSampleLevel(probe, probe_sampler, direction, fma(-4.0, c[3].y, 4.0));
+    let decoded = reflection.rgb * (1.0 / (reflection.a + 9.999999974752427e-07));
+    let reflected = (decoded * clamp(fma(0.25, c[3].y, 0.75), 0.0, 1.0)) * c[3].z;
+    let layer = textureSample(input0, sampler0, input.uv12.xy);
+    let emission = (layer.a * layer.rgb) * c[1].w;
+    let lit = fma(reflected, input.reflection_correction, emission * emission);
+    let alpha = sqrt(((1.0 - clamp(scripts.vectors[0].x, 0.0, 1.0)) * c[1].z) * layer.a);
+    if !(alpha > 0.0) { discard; }
+    return vec4<f32>(sqrt(lit * scene.world.hdr_control0.x), alpha);
+}
+@fragment fn fragment_single(input: FourVaryings) -> @location(0) vec4<f32> { return shade_single(input); }
+@fragment fn fragment_single_srgb(input: FourVaryings) -> @location(0) vec4<f32> { return attachment_srgb(shade_single(input)); }

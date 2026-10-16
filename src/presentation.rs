@@ -570,6 +570,7 @@ fn attachment_visuals(
                 rig: entity,
                 selected: selected.into(),
             },
+            crate::rendering::native_weapon_view::NativeWeaponViewOwner(rig.owner),
             Transform::default(),
             Visibility::Inherited,
         ));

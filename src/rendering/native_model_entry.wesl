@@ -1,3 +1,4 @@
+import package::rendering::native_source_lit_model::{native_source_lit_finish, native_source_lit_lighting};
 import package::rendering::native_world::{NativeWorldObject, native_world_unpack_direction};
 import package::rendering::native_scripted_model::NativeModelScriptedScene;
 import package::rendering::native_world_plain::{NativeWorldGeometricVertexInput, native_world_position_fog};
@@ -559,3 +560,98 @@ fn fragment_weapon_detail_srgb(input: Varyings) -> @location(0) vec4<f32> { retu
 fn fragment_weapon_detail_hero(input: Varyings) -> @location(0) vec4<f32> { return shade_weapon_detail_hero(input); }
 @fragment
 fn fragment_weapon_detail_hero_srgb(input: Varyings) -> @location(0) vec4<f32> { return attachment_srgb(shade_weapon_detail_hero(input)); }
+
+fn source_lit_lighting(input: Varyings, normal: vec3<f32>, diffuse: vec3<f32>, specular: vec4<f32>, amount: vec4<f32>) -> vec3<f32> {
+    return native_source_lit_lighting(source(input), scene, normal, diffuse, specular, amount,
+        model_lighting, model_lighting_sampler, reflection_probe, reflection_sampler);
+}
+fn shade_source_hero(input: Varyings, cutout: bool, blend: bool) -> vec4<f32> {
+    let color_sample = textureSample(color_map, color_sampler, input.uv);
+    let color = color_sample * input.color;
+    let normal = native_model_mapped_normal(source(input), textureSample(normal_map, normal_sampler, input.uv).rg);
+    let specular = textureSample(specular_map, specular_sampler, input.uv);
+    let lit = source_lit_lighting(input, normal, color.rgb, specular, occlusion.occlusion_amount);
+    let result = native_source_lit_finish(source(input), scene, view, lit, color.a, true, blend);
+    if cutout && fma(color_sample.a, input.color.a, -0.501960813999176) < 0.0 { discard; }
+    if blend && !(result.a > 0.0) { discard; }
+    return vec4<f32>(result.rgb, select(result.a, color.a, cutout));
+}
+fn shade_source_geometric_hero(input: GeometricVaryings) -> vec4<f32> {
+    let data = NativeModelVaryings(input.clip_position, input.color, input.uv, input.normal_fog,
+        input.fog_color, vec3<f32>(0.0), vec3<f32>(0.0), input.eye_to_vertex,
+        input.grid_coords_and_vis, input.reflection_correction, input.grid_correction);
+    let color = textureSample(color_map, color_sampler, input.uv) * input.color;
+    let normal = input.normal_fog.xyz * inverseSqrt(dot(input.normal_fog.xyz, input.normal_fog.xyz));
+    let specular = textureSample(specular_map, specular_sampler, input.uv);
+    let lit = native_source_lit_lighting(data, scene, normal, color.rgb, specular, occlusion.occlusion_amount,
+        model_lighting, model_lighting_sampler, reflection_probe, reflection_sampler);
+    let result = native_source_lit_finish(data, scene, view, lit, color.a, true, true);
+    if !(result.a > 0.0) { discard; }
+    return result;
+}
+// PS9eb27c7c: weaponParam2 drives real color-detail UV/mask, and
+// occlusionAmount.X supplies atlas diffuse (ordinary explicit specular uses Z).
+fn shade_source_color_detail(input: Varyings) -> vec4<f32> {
+    let uv = fma(input.uv - vec2<f32>(0.5), vec2<f32>(weapon_detail.z), weapon_detail.xy) + vec2<f32>(0.5);
+    let detail_sample = textureSample(detail_map, detail_sampler, uv) + vec4<f32>(0.5, 0.5, 0.5, -0.5);
+    let detail_rgb = clamp(detail_sample.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
+    let color = textureSample(color_map, color_sampler, input.uv);
+    let mask_color = fma(vec3<f32>(color.a), color.rgb - detail_rgb, detail_rgb);
+    let diffuse = fma(vec3<f32>(weapon_detail.w), mask_color - color.rgb, color.rgb) * input.color.rgb;
+    let specular = textureSample(specular_map, specular_sampler, input.uv);
+    let detail_specular = clamp(vec3<f32>(detail_sample.a) + specular.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
+    let mask_specular = fma(vec3<f32>(color.a), specular.rgb - detail_specular, detail_specular);
+    let reflectance = fma(vec3<f32>(weapon_detail.w), mask_specular - specular.rgb, specular.rgb);
+    let normal = native_model_mapped_normal(source(input), textureSample(normal_map, normal_sampler, input.uv).rg);
+    let amounts = occlusion.occlusion_amount;
+    let lit = source_lit_lighting(input, normal, diffuse, vec4<f32>(reflectance, specular.a), amounts.xyxw);
+    return native_source_lit_finish(source(input), scene, view, lit, 1.0, false, false);
+}
+// PS07750f94: original detail normal comes from t2/s3, specular t3/s2.
+// Resource names retain that mapping even though these bind-group slots differ.
+fn shade_source_normal_detail(input: Varyings, cutout: bool) -> vec4<f32> {
+    let detail_sample = textureSample(detail_map, detail_sampler, input.uv * weapon_detail.xy).rg;
+    let normal_sample = textureSample(normal_map, normal_sampler, input.uv).rg;
+    let scale = vec2<f32>(4.015748023986816);
+    let bias = vec2<f32>(-2.0157480239868164);
+    let slopes = fma(vec2<f32>(weapon_detail.z), fma(detail_sample, scale, bias), fma(normal_sample, scale, bias));
+    let mapped = fma(vec3<f32>(slopes.y), input.bitangent,
+        fma(vec3<f32>(slopes.x), input.tangent, input.normal_fog.xyz));
+    let normal = mapped * inverseSqrt(dot(mapped, mapped));
+    let color_sample = textureSample(color_map, color_sampler, input.uv);
+    let color = color_sample * input.color;
+    let specular = textureSample(specular_map, specular_sampler, input.uv);
+    let lit = source_lit_lighting(input, normal, color.rgb, specular, occlusion.occlusion_amount);
+    let result = native_source_lit_finish(source(input), scene, view, lit, 1.0, false, false);
+    if cutout && fma(color_sample.a, input.color.a, -0.501960813999176) < 0.0 { discard; }
+    return vec4<f32>(result.rgb, select(1.0, color.a, cutout));
+}
+@fragment
+fn fragment_source_blended_hero(input: Varyings) -> @location(0) vec4<f32> { return shade_source_hero(input, false, true); }
+@fragment
+fn fragment_source_blended_hero_srgb(input: Varyings) -> @location(0) vec4<f32> { return attachment_srgb(shade_source_hero(input, false, true)); }
+@fragment
+fn fragment_source_geometric_hero(input: GeometricVaryings) -> @location(0) vec4<f32> { return shade_source_geometric_hero(input); }
+@fragment
+fn fragment_source_geometric_hero_srgb(input: GeometricVaryings) -> @location(0) vec4<f32> { return attachment_srgb(shade_source_geometric_hero(input)); }
+@fragment
+fn fragment_source_normal_hero(input: Varyings) -> @location(0) vec4<f32> { return shade_source_hero(input, false, false); }
+@fragment
+fn fragment_source_normal_hero_srgb(input: Varyings) -> @location(0) vec4<f32> { return attachment_srgb(shade_source_hero(input, false, false)); }
+@fragment
+fn fragment_source_cutout_hero(input: Varyings) -> @location(0) vec4<f32> { return shade_source_hero(input, true, false); }
+@fragment
+fn fragment_source_cutout_hero_srgb(input: Varyings) -> @location(0) vec4<f32> { return attachment_srgb(shade_source_hero(input, true, false)); }
+@fragment
+fn fragment_source_color_detail(input: Varyings) -> @location(0) vec4<f32> { return shade_source_color_detail(input); }
+@fragment
+fn fragment_source_color_detail_srgb(input: Varyings) -> @location(0) vec4<f32> { return attachment_srgb(shade_source_color_detail(input)); }
+@fragment
+fn fragment_source_normal_detail(input: Varyings) -> @location(0) vec4<f32> { return shade_source_normal_detail(input, false); }
+@fragment
+fn fragment_source_normal_detail_srgb(input: Varyings) -> @location(0) vec4<f32> { return attachment_srgb(shade_source_normal_detail(input, false)); }
+
+@fragment
+fn fragment_source_normal_detail_cutout(input: Varyings) -> @location(0) vec4<f32> { return shade_source_normal_detail(input, true); }
+@fragment
+fn fragment_source_normal_detail_cutout_srgb(input: Varyings) -> @location(0) vec4<f32> { return attachment_srgb(shade_source_normal_detail(input, true)); }

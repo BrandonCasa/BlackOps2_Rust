@@ -443,6 +443,9 @@ impl LoadedModels {
                         continue;
                     }
                     let source = &self.materials[&surface.material_file];
+                    if !source.has_camera_pass() {
+                        continue;
+                    }
                     match source.model(server, probes[usize::from(probe_index)].clone()) {
                         Ok((material, state)) => {
                             for image in material.images() {
@@ -500,6 +503,9 @@ impl LoadedModels {
                             surfaces: lod
                                 .surfaces
                                 .iter()
+                                .filter(|surface| {
+                                    self.materials[&surface.material_file].has_camera_pass()
+                                })
                                 .map(|surface| {
                                     let (material, state) =
                                         &bound[&(surface.material_file.as_str(), probe_index)];

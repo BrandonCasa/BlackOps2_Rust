@@ -571,18 +571,41 @@ mod tests {
         .init_asset::<Image>();
         let server = app.world().resource::<AssetServer>();
         let mut failures = Vec::new();
+        let mut sky_materials = 0;
+        let mut invisible_materials = 0;
         for path in &material_paths {
             match MaterialDefinition::read(&root.join(path)) {
                 Ok(material) => {
-                    if let Err(error) = material.model(server, Handle::default()) {
-                        failures.push(error);
+                    if !material.has_camera_pass() {
+                        invisible_materials += 1;
+                        continue;
+                    }
+                    if material.technique_set() == "mc_skycubemaphdr_1f117w7u" {
+                        // NativeSky validates and draws the GfxWorld sky model.
+                        sky_materials += 1;
+                        continue;
+                    }
+                    match material.model(server, Handle::default()) {
+                        Ok((bound, _)) => {
+                            for image in bound.images() {
+                                if let Some(image_path) = image.path()
+                                    && !root.join(image_path.path()).is_file()
+                                {
+                                    failures.push(format!(
+                                        "Material {path}: missing image {}",
+                                        image_path.path().display()
+                                    ));
+                                }
+                            }
+                        }
+                        Err(error) => failures.push(error),
                     }
                 }
                 Err(error) => failures.push(error),
             }
         }
         println!(
-            "Checked {} unique materials across {models} exported models; {} binding failures",
+            "Checked {} unique materials across {models} exported models; {sky_materials} dedicated sky, {invisible_materials} without camera pass; {} binding failures",
             material_paths.len(),
             failures.len()
         );
@@ -1032,6 +1055,9 @@ fn bind_animated_draws(
         let mut surfaces = Vec::new();
         for (index, surface) in model.definition.lods[lod].surfaces.iter().enumerate() {
             let source = &model.materials[&surface.material_file];
+            if !source.has_camera_pass() {
+                continue;
+            }
             let (material, state) =
                 source
                     .model(&server, probe_image.clone())

@@ -15,6 +15,8 @@ pub(crate) mod native_light;
 pub(crate) mod native_model;
 pub(crate) mod native_sky;
 pub(crate) mod native_water;
+pub(crate) mod native_weapon_view;
+pub(crate) mod native_rangefinder_ui;
 pub(crate) mod reflection;
 pub(crate) mod shadow;
 pub(crate) mod skinning;
@@ -33,6 +35,8 @@ impl Plugin for GameRenderingPlugin {
             native_effect::NativeEffectPlugin,
             model_lighting::ModelLightingPlugin,
             native_model::NativeModelPlugin,
+            native_weapon_view::NativeWeaponViewPlugin,
+            native_rangefinder_ui::NativeRangefinderUiPlugin,
             native_sky::NativeSkyPlugin,
             skinning::NativeSkinningPlugin,
             animated_models::AnimatedModelPlugin,
@@ -238,6 +242,7 @@ fn source_camera_constants(
         }
         let mut scene = native::NativeWorldScene {
             view_projection_rows: rows,
+            inverse_view_rows: source_inverse_view_rows(rotation),
             fog_color: Vec4::ZERO,
             fog_consts: Vec4::ZERO,
             fog_consts2: Vec4::ZERO,
@@ -324,5 +329,52 @@ fn camera_follow(
             .map_or(BASE_FOV_DEGREES.to_radians(), |w| {
                 inventory.ads_fov(BASE_FOV_DEGREES, w)
             });
+    }
+}
+
+// 0074b5a0 constructs source view columns (-refdef.axis[1], axis[2], axis[0]);
+// 0046b5b0 supplies code0xd8, its inverse, directly to 00475c50's row upload.
+// The three register rows are source-space camera right, up and positive-Z forward.
+fn source_inverse_view_rows(rotation: Quat) -> [Vec4; 3] {
+    [Vec3::X, Vec3::Y, -Vec3::Z].map(|axis| {
+        let direction = rotation * axis;
+        Vec3::new(direction.x, -direction.z, direction.y)
+            .normalize()
+            .extend(0.)
+    })
+}
+
+#[cfg(test)]
+mod source_camera_matrix_tests {
+    use super::*;
+
+    #[test]
+    fn source_inverse_view_preserves_original_axis_order_and_forward_sign() {
+        assert_eq!(
+            source_inverse_view_rows(Quat::IDENTITY),
+            [Vec4::X, Vec4::Z, Vec4::Y]
+        );
+        let position = Vec3::new(64., -12., 9.);
+        for rotation in [
+            Quat::IDENTITY,
+            Quat::from_rotation_y(0.7),
+            Quat::from_euler(EulerRot::YXZ, -1.2, 0.4, 0.1),
+        ] {
+            let rows = source_inverse_view_rows(rotation);
+            for row in rows {
+                assert!((row.truncate().length() - 1.).abs() < 1e-6);
+                assert_eq!(row.w, 0.);
+            }
+            let expected = rotation.inverse() * world::source_frame().transform_vector3(position)
+                / crate::assets::SOURCE_UNIT_METERS;
+            let actual = Vec3::new(
+                rows[0].truncate().dot(position),
+                rows[1].truncate().dot(position),
+                rows[2].truncate().dot(position),
+            );
+            assert!(actual.abs_diff_eq(Vec3::new(expected.x, expected.y, -expected.z), 1e-5));
+            let forward = rows[2].truncate() * 100.;
+            assert!((rows[2].truncate().dot(forward) - 100.).abs() < 1e-4);
+        }
     }
 }

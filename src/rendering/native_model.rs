@@ -7,6 +7,7 @@ use super::animated_models::{AnimatedModel, DynamicLightingOrigin};
 use super::native_effect::{
     ExtractedEffectView, NativeFxFrame, PreparedEffectView, effect_scene_layout,
 };
+use super::native_weapon_view::{NativeModelDrawMatrices, NativeWeaponOwners, draw_constants};
 use super::skinning::{PreparedAnimatedModel, PreparedSkin};
 use super::{
     lighting::lighting_lookup_scale,
@@ -122,6 +123,11 @@ pub(crate) struct NativeModelTileSpecular {
 }
 
 #[derive(Clone, Copy, ShaderType)]
+pub(crate) struct NativeModelSingleLayerConstants {
+    pub source: [Vec4; 4],
+}
+
+#[derive(Clone, Copy, ShaderType)]
 pub(crate) struct NativeModelFourLayerConstants {
     pub source: [Vec4; 13],
 }
@@ -206,6 +212,57 @@ pub(crate) enum NormalSpecularProgram {
     Blended { unattenuated_reflection: bool },
 }
 
+#[derive(Clone, Copy, ShaderType)]
+pub(crate) struct NativeSourceCharacterConstants {
+    pub source: [Vec4; 5],
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub(crate) enum SourceCharacterProgram {
+    Ember,
+    Glass,
+    Fritz { cutout: bool },
+    Hair,
+    SkinCutout,
+    ClothEmissive,
+    SkinEmissive,
+    RevealEmissive { cutout: bool },
+}
+
+impl SourceCharacterProgram {
+    fn extra_textures(self) -> usize {
+        match self {
+            Self::Ember | Self::Fritz { .. } => 3,
+            Self::Glass | Self::Hair | Self::SkinCutout => 0,
+            Self::ClothEmissive | Self::SkinEmissive => 1,
+            Self::RevealEmissive { .. } => 2,
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub(crate) enum SourceLitProgram {
+    BlendedHero,
+    GeometricHero,
+    NormalHero,
+    CutoutHero,
+    ColorDetail,
+    NormalDetail,
+    CutoutNormalDetail,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum NativeModelUnlitProgram {
+    Replace,
+    Multiply,
+    Blend,
+    Add,
+    ViewmodelAdd,
+    ViewmodelSqrtAlpha,
+    ViewmodelAlpha,
+    ViewmodelOpaque,
+}
+
 /// Original weaponParam2 and selected color-detail texture. Base weapon setup
 /// 0052c1d0 supplies zero; 0052b7c0 overrides XY/scale/enable for selected camo.
 #[derive(Clone)]
@@ -229,8 +286,158 @@ struct NativeModelFlagParams {
     params: Vec4,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum NativeReticleProgram {
+    Dynamic,
+    DynamicTwoColor,
+    Static,
+    Ui3d,
+}
+#[derive(Clone, Copy, ShaderType)]
+pub(crate) struct NativeReticleConstants {
+    pub source: [Vec4; 5],
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub(crate) enum NativeEffectModelProgram {
+    DistortOpaque,
+    DistortAlpha,
+    ScrollingFeather,
+    ScrollingFalloff,
+    ElectricDisc,
+    LightSphere,
+    Portal,
+    SkyPillar,
+    ElectricSphere,
+    ElectricSphereAlpha,
+    IceBlizzard,
+    IceStatic,
+    Tendril,
+    WaterReveal,
+    OrbScroll,
+}
+impl NativeEffectModelProgram {
+    const ALL: [Self; 15] = [
+        Self::DistortOpaque,
+        Self::DistortAlpha,
+        Self::ScrollingFeather,
+        Self::ScrollingFalloff,
+        Self::ElectricDisc,
+        Self::LightSphere,
+        Self::Portal,
+        Self::SkyPillar,
+        Self::ElectricSphere,
+        Self::ElectricSphereAlpha,
+        Self::IceBlizzard,
+        Self::IceStatic,
+        Self::Tendril,
+        Self::WaterReveal,
+        Self::OrbScroll,
+    ];
+    fn texture_count(self) -> usize {
+        match self {
+            Self::DistortOpaque => 1,
+            Self::DistortAlpha => 2,
+            Self::ScrollingFeather => 1,
+            Self::ScrollingFalloff => 1,
+            Self::ElectricDisc => 7,
+            Self::LightSphere => 0,
+            Self::Portal => 6,
+            Self::SkyPillar => 4,
+            Self::ElectricSphere => 3,
+            Self::ElectricSphereAlpha => 3,
+            Self::IceBlizzard => 4,
+            Self::IceStatic => 3,
+            Self::Tendril => 3,
+            Self::WaterReveal => 6,
+            Self::OrbScroll => 2,
+        }
+    }
+    pub(crate) fn probe(self) -> bool {
+        matches!(
+            self,
+            Self::ElectricSphere
+                | Self::ElectricSphereAlpha
+                | Self::IceBlizzard
+                | Self::IceStatic
+                | Self::WaterReveal
+                | Self::OrbScroll
+        )
+    }
+    fn depth(self) -> bool {
+        matches!(
+            self,
+            Self::DistortAlpha
+                | Self::ScrollingFeather
+                | Self::ElectricDisc
+                | Self::LightSphere
+                | Self::SkyPillar
+                | Self::ElectricSphere
+                | Self::ElectricSphereAlpha
+                | Self::IceBlizzard
+        )
+    }
+    fn atlas_owner(self) -> bool {
+        matches!(
+            self,
+            Self::ElectricSphere
+                | Self::ElectricSphereAlpha
+                | Self::IceBlizzard
+                | Self::IceStatic
+                | Self::WaterReveal
+                | Self::OrbScroll
+        )
+    }
+    fn atlas_texture(self) -> bool {
+        matches!(self, Self::WaterReveal)
+    }
+    fn scripts(self) -> bool {
+        matches!(self, Self::SkyPillar | Self::WaterReveal)
+    }
+}
+#[derive(Clone, Copy, ShaderType)]
+pub(crate) struct NativeEffectModelConstants {
+    pub source: [Vec4; 12],
+}
+
 #[derive(Asset, TypePath, Clone)]
 pub(crate) enum NativeModelMaterial {
+    Objective {
+        base: NativeModelColorTexture,
+        constants: NativeSourceCharacterConstants,
+    },
+    ProjectedDecal(NativeModelColorTexture),
+    Cornea {
+        normal: (Handle<Image>, SamplerDescriptor<'static>),
+        mask: (Handle<Image>, SamplerDescriptor<'static>),
+        constants: NativeSourceCharacterConstants,
+    },
+    Effect {
+        program: NativeEffectModelProgram,
+        textures: Vec<(Handle<Image>, SamplerDescriptor<'static>)>,
+        probe: Option<(Handle<Image>, SamplerDescriptor<'static>)>,
+        constants: NativeEffectModelConstants,
+    },
+    SourceCharacter {
+        program: SourceCharacterProgram,
+        base: NativeModelTextures,
+        specular: (Handle<Image>, SamplerDescriptor<'static>),
+        emission: Option<(Handle<Image>, SamplerDescriptor<'static>)>,
+        temporal: Option<(Handle<Image>, SamplerDescriptor<'static>)>,
+        reveal: Option<(Handle<Image>, SamplerDescriptor<'static>)>,
+        constants: NativeSourceCharacterConstants,
+    },
+    SourceLit {
+        program: SourceLitProgram,
+        color: NativeModelColorTexture,
+        normal: Option<(Handle<Image>, SamplerDescriptor<'static>)>,
+        specular: (Handle<Image>, SamplerDescriptor<'static>),
+        probe: (Handle<Image>, SamplerDescriptor<'static>),
+        detail: Option<(Handle<Image>, SamplerDescriptor<'static>)>,
+        occlusion: Vec4,
+        detail_parameters: Vec4,
+    },
     SmokePillar {
         textures: [(Handle<Image>, SamplerDescriptor<'static>); 6],
         constants: NativeModelSmokeConstants,
@@ -287,9 +494,11 @@ pub(crate) enum NativeModelMaterial {
     },
     Unlit {
         base: NativeModelColorTexture,
-        scale_rgb: Option<Vec4>,
+        program: NativeModelUnlitProgram,
+        scale_rgb: Vec4,
     },
     DecalMultiply(NativeModelColorTexture),
+    DecalAdd(NativeModelColorTexture),
     TileBlend {
         // Macro AO/mix, macro normal, micro normals 1/2, micro colors 1/2.
         textures: [(Handle<Image>, SamplerDescriptor<'static>); 6],
@@ -330,6 +539,33 @@ pub(crate) enum NativeModelMaterial {
         specular_map: Handle<Image>,
         specular_sampler: SamplerDescriptor<'static>,
         occlusion_amount: Vec4,
+    },
+    Ui3dReticle {
+        noise: (Handle<Image>, SamplerDescriptor<'static>),
+        constants: NativeReticleConstants,
+    },
+    Reticle {
+        program: NativeReticleProgram,
+        textures: [(Handle<Image>, SamplerDescriptor<'static>); 2],
+        constants: NativeReticleConstants,
+    },
+    OpticLens {
+        textures: [(Handle<Image>, SamplerDescriptor<'static>); 4],
+        probe: Handle<Image>,
+        probe_sampler: SamplerDescriptor<'static>,
+        controls: Vec4,
+    },
+    SingleLayer {
+        layer: (Handle<Image>, SamplerDescriptor<'static>),
+        probe: Handle<Image>,
+        probe_sampler: SamplerDescriptor<'static>,
+        constants: NativeModelSingleLayerConstants,
+    },
+    Staff3Layer {
+        textures: NativeModelThreeLayerTextures,
+        off: (Handle<Image>, SamplerDescriptor<'static>),
+        constants: NativeModelParallaxConstants,
+        emission_on: Vec4,
     },
     Crystal3Layer {
         vertex_lit: bool,
@@ -403,6 +639,79 @@ impl NativeModelMaterial {
 
     fn textures(&self) -> impl Iterator<Item = (u32, &Handle<Image>, &SamplerDescriptor<'static>)> {
         let bindings = match self {
+            Self::Objective { base, .. } | Self::ProjectedDecal(base) => [
+                Some((0, &base.color_map, &base.color_sampler)),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            ],
+            Self::Cornea { normal, mask, .. } => [
+                Some((0, &normal.0, &normal.1)),
+                Some((2, &mask.0, &mask.1)),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            ],
+            Self::Effect {
+                textures, probe, ..
+            } => std::array::from_fn(|index| {
+                if index == 8 {
+                    probe.as_ref().map(|(image, sampler)| (28, image, sampler))
+                } else {
+                    textures
+                        .get(index)
+                        .map(|(image, sampler)| (index as u32 * 2, image, sampler))
+                }
+            }),
+            Self::SourceCharacter {
+                base,
+                specular,
+                emission,
+                temporal,
+                reveal,
+                ..
+            } => [
+                Some((0, &base.normal_map, &base.normal_sampler)),
+                Some((2, &base.color_map, &base.color_sampler)),
+                Some((4, &specular.0, &specular.1)),
+                emission
+                    .as_ref()
+                    .map(|(image, sampler)| (6, image, sampler)),
+                Some((8, &base.reflection_probe, &base.reflection_sampler)),
+                temporal
+                    .as_ref()
+                    .map(|(image, sampler)| (10, image, sampler)),
+                reveal.as_ref().map(|(image, sampler)| (27, image, sampler)),
+                None,
+                None,
+            ],
+            Self::SourceLit {
+                color,
+                normal,
+                specular,
+                probe,
+                detail,
+                ..
+            } => [
+                Some((0, &color.color_map, &color.color_sampler)),
+                normal.as_ref().map(|(image, sampler)| (2, image, sampler)),
+                Some((4, &probe.0, &probe.1)),
+                Some((6, &specular.0, &specular.1)),
+                detail.as_ref().map(|(image, sampler)| (10, image, sampler)),
+                None,
+                None,
+                None,
+                None,
+            ],
             Self::SmokePillar { textures, .. } => [
                 Some((0, &textures[0].0, &textures[0].1)),
                 Some((2, &textures[1].0, &textures[1].1)),
@@ -521,7 +830,7 @@ impl NativeModelMaterial {
                 None,
                 None,
             ],
-            Self::Unlit { base, .. } | Self::DecalMultiply(base) => [
+            Self::Unlit { base, .. } | Self::DecalMultiply(base) | Self::DecalAdd(base) => [
                 Some((0, &base.color_map, &base.color_sampler)),
                 None,
                 None,
@@ -623,6 +932,71 @@ impl NativeModelMaterial {
                 Some((6, specular_map, specular_sampler)),
                 None,
                 None,
+                None,
+                None,
+                None,
+            ],
+            Self::Ui3dReticle { noise, .. } => [
+                Some((0, &noise.0, &noise.1)),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            ],
+            Self::Reticle { textures, .. } => [
+                Some((0, &textures[0].0, &textures[0].1)),
+                Some((2, &textures[1].0, &textures[1].1)),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            ],
+            Self::OpticLens {
+                textures,
+                probe,
+                probe_sampler,
+                ..
+            } => [
+                Some((0, &textures[0].0, &textures[0].1)),
+                Some((2, &textures[1].0, &textures[1].1)),
+                Some((4, &textures[2].0, &textures[2].1)),
+                Some((6, &textures[3].0, &textures[3].1)),
+                Some((8, probe, probe_sampler)),
+                None,
+                None,
+                None,
+                None,
+            ],
+            Self::SingleLayer {
+                layer,
+                probe,
+                probe_sampler,
+                ..
+            } => [
+                Some((0, &layer.0, &layer.1)),
+                Some((8, probe, probe_sampler)),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            ],
+            Self::Staff3Layer { textures, off, .. } => [
+                Some((0, &textures.normal_map, &textures.normal_sampler)),
+                Some((2, &textures.layer1_map, &textures.layer1_sampler)),
+                Some((4, &textures.layer2_map, &textures.layer2_sampler)),
+                Some((6, &textures.layer3_map, &textures.layer3_sampler)),
+                Some((8, &textures.reflection_probe, &textures.reflection_sampler)),
+                Some((10, &off.0, &off.1)),
                 None,
                 None,
                 None,
@@ -763,6 +1137,12 @@ impl NativeModelMaterial {
 
     fn family(&self) -> NativeModelFamily {
         match self {
+            Self::Objective { .. } => NativeModelFamily::Objective,
+            Self::ProjectedDecal(_) => NativeModelFamily::ProjectedDecal,
+            Self::Cornea { .. } => NativeModelFamily::Cornea,
+            Self::Effect { program, .. } => NativeModelFamily::Effect(*program),
+            Self::SourceCharacter { program, .. } => NativeModelFamily::SourceCharacter(*program),
+            Self::SourceLit { program, .. } => NativeModelFamily::SourceLit(*program),
             Self::SmokePillar { .. } => NativeModelFamily::SmokePillar,
             Self::Flag { detail, .. } => NativeModelFamily::Flag(detail.is_some()),
             Self::Canopy { quasi, .. } => NativeModelFamily::Canopy(*quasi),
@@ -787,10 +1167,9 @@ impl NativeModelMaterial {
                 fog: *fog,
             },
             Self::DetailDiffuse { vertex_lit, .. } => NativeModelFamily::DetailDiffuse(*vertex_lit),
-            Self::Unlit { scale_rgb, .. } => NativeModelFamily::Unlit {
-                replace: scale_rgb.is_some(),
-            },
+            Self::Unlit { program, .. } => NativeModelFamily::Unlit(*program),
             Self::DecalMultiply(_) => NativeModelFamily::DecalMultiply,
+            Self::DecalAdd(_) => NativeModelFamily::DecalAdd,
             Self::TileBlend {
                 specular,
                 vertex_lit,
@@ -817,6 +1196,11 @@ impl NativeModelMaterial {
             Self::NormalSpecular { program, .. } => NativeModelFamily::NormalSpecular(*program),
             Self::AlphaSpecular { vertex_lit, .. } => NativeModelFamily::AlphaSpecular(*vertex_lit),
             Self::Crystal3Layer { vertex_lit, .. } => NativeModelFamily::Crystal3Layer(*vertex_lit),
+            Self::Ui3dReticle { .. } => NativeModelFamily::Reticle(NativeReticleProgram::Ui3d),
+            Self::Reticle { program, .. } => NativeModelFamily::Reticle(*program),
+            Self::OpticLens { .. } => NativeModelFamily::OpticLens,
+            Self::SingleLayer { .. } => NativeModelFamily::SingleLayer,
+            Self::Staff3Layer { .. } => NativeModelFamily::Staff3Layer,
             Self::Camo3Layer { .. } => NativeModelFamily::Camo3Layer,
             Self::PhongEmissive {
                 program,
@@ -842,6 +1226,12 @@ impl NativeModelMaterial {
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum NativeModelFamily {
+    Objective,
+    ProjectedDecal,
+    Cornea,
+    Effect(NativeEffectModelProgram),
+    SourceCharacter(SourceCharacterProgram),
+    SourceLit(SourceLitProgram),
     SmokePillar,
     Flag(bool),
     Canopy(bool),
@@ -860,10 +1250,9 @@ enum NativeModelFamily {
         fog: bool,
     },
     DetailDiffuse(bool),
-    Unlit {
-        replace: bool,
-    },
+    Unlit(NativeModelUnlitProgram),
     DecalMultiply,
+    DecalAdd,
     TileBlend {
         specular: bool,
         vertex_lit: bool,
@@ -881,6 +1270,10 @@ enum NativeModelFamily {
     GeometricDiffuse(GeometricProgram),
     NormalSpecular(NormalSpecularProgram),
     AlphaSpecular(bool),
+    Reticle(NativeReticleProgram),
+    OpticLens,
+    SingleLayer,
+    Staff3Layer,
     Crystal3Layer(bool),
     Camo3Layer,
     PhongEmissive {
@@ -900,13 +1293,24 @@ enum NativeModelFamily {
 }
 
 impl NativeModelFamily {
+    fn draw_matrices(self) -> bool {
+        matches!(
+            self,
+            Self::Reticle(_) | Self::Objective | Self::ProjectedDecal
+        )
+    }
+
     fn geometric(self) -> bool {
         matches!(
             self,
-            Self::GeometricDiffuse(_)
+            Self::Objective
+                | Self::ProjectedDecal
+                | Self::SourceLit(SourceLitProgram::GeometricHero)
+                | Self::GeometricDiffuse(_)
                 | Self::GeometricSpecular { .. }
-                | Self::Unlit { .. }
+                | Self::Unlit(_)
                 | Self::DecalMultiply
+                | Self::DecalAdd
                 | Self::Canopy(_)
                 | Self::SmokePillar
         )
@@ -951,7 +1355,12 @@ impl NativeModelFamily {
     fn scripted_vertex(self) -> bool {
         matches!(
             self,
-            Self::Crystal3Layer(_)
+            Self::Cornea
+                | Self::SourceCharacter(_)
+                | Self::OpticLens
+                | Self::SingleLayer
+                | Self::Staff3Layer
+                | Self::Crystal3Layer(_)
                 | Self::Unlit3Layer { .. }
                 | Self::Feather3Layer
                 | Self::FourLayers { .. }
@@ -967,7 +1376,11 @@ impl NativeModelFamily {
     }
 
     fn view_constants(self) -> bool {
-        self.scripted_vertex()
+        if matches!(self, Self::Effect(_)) {
+            return true;
+        }
+        matches!(self, Self::SourceLit(_))
+            || self.scripted_vertex()
             || matches!(
                 self,
                 Self::MappedOcclusion {
@@ -978,9 +1391,15 @@ impl NativeModelFamily {
     }
 
     fn script_inputs(self) -> bool {
+        if let Self::Effect(program) = self {
+            return program.scripts();
+        }
         matches!(
             self,
-            Self::Crystal3Layer(_)
+            Self::SourceCharacter(_)
+                | Self::SingleLayer
+                | Self::Staff3Layer
+                | Self::Crystal3Layer(_)
                 | Self::Unlit3Layer { .. }
                 | Self::Feather3Layer
                 | Self::FourLayers { .. }
@@ -996,32 +1415,52 @@ impl NativeModelFamily {
     }
 
     fn depth(self) -> bool {
-        matches!(self, Self::Feather3Layer | Self::SmokePillar)
+        if let Self::Effect(program) = self {
+            return program.depth();
+        }
+        matches!(
+            self,
+            Self::ProjectedDecal | Self::Feather3Layer | Self::SmokePillar
+        )
     }
 
     fn atlas(self) -> bool {
+        if let Self::Effect(program) = self {
+            return program.atlas_owner();
+        }
         !matches!(
             self,
-            Self::ZombieEyes
-                | Self::Unlit { .. }
+            Self::Objective
+                | Self::Reticle(_)
+                | Self::ZombieEyes
+                | Self::Unlit(_)
                 | Self::DecalMultiply
+                | Self::DecalAdd
                 | Self::Feather3Layer
                 | Self::SmokePillar
         )
     }
 
     fn atlas_texture(self) -> bool {
+        if let Self::Effect(program) = self {
+            return program.atlas_texture();
+        }
         !matches!(
             self,
-            Self::ZombieEyes
+            Self::Objective
+                | Self::Reticle(_)
+                | Self::ZombieEyes
                 | Self::Canopy(_)
                 | Self::SmokePillar
+                | Self::SingleLayer
+                | Self::Staff3Layer
                 | Self::Crystal3Layer(_)
                 | Self::Unlit3Layer { .. }
                 | Self::Feather3Layer
                 | Self::Camo3Layer
-                | Self::Unlit { .. }
+                | Self::Unlit(_)
                 | Self::DecalMultiply
+                | Self::DecalAdd
                 | Self::FourLayers { .. }
         )
     }
@@ -1260,7 +1699,11 @@ impl Plugin for NativeModelPlugin {
             ));
         load_shader_library!(app, "native_model.wesl");
         load_shader_library!(app, "native_model_variants.wesl");
+        load_shader_library!(app, "native_source_lit_model.wesl");
         load_shader_library!(app, "native_scripted_model.wesl");
+        load_shader_library!(app, "native_character_model.wesl");
+        load_shader_library!(app, "native_weapon_model_staff.wesl");
+        load_shader_library!(app, "native_weapon_model_optic.wesl");
         load_shader_library!(app, "native_camo.wesl");
         embedded_asset!(app, "native_model_entry.wesl");
         embedded_asset!(app, "native_skinning.wesl");
@@ -1273,6 +1716,83 @@ impl Plugin for NativeModelPlugin {
         let unlit_shader = load_embedded_asset!(app, "native_unlit_model_entry.wesl");
         embedded_asset!(app, "native_plinth_model_entry.wesl");
         let plinth_shader = load_embedded_asset!(app, "native_plinth_model_entry.wesl");
+        embedded_asset!(
+            app,
+            "native_effect_model_scrolling_alpha2_distort_z58wq263.wesl"
+        );
+        embedded_asset!(
+            app,
+            "native_effect_model_scrolling_alpha2_distort_qwj8139f.wesl"
+        );
+        embedded_asset!(
+            app,
+            "native_effect_model_scrolling_falloff_zfeather_69456263.wesl"
+        );
+        embedded_asset!(app, "native_effect_model_scrolling_falloff_2ff9qe6w.wesl");
+        embedded_asset!(app, "native_effect_model_zm_elec_disc_w323fq8j.wesl");
+        embedded_asset!(app, "native_effect_model_light_sphere_46j58w7u.wesl");
+        embedded_asset!(app, "native_effect_model_portal_e96z3z92.wesl");
+        embedded_asset!(app, "native_effect_model_zmb_sky_pillar_on_6821fw2w.wesl");
+        embedded_asset!(app, "native_effect_model_zm_sphere_elec_9j108eq6.wesl");
+        embedded_asset!(app, "native_effect_model_zm_sphere_elec_535e0f02.wesl");
+        embedded_asset!(
+            app,
+            "native_effect_model_zm_ice_script_static_blizzard_45q67691.wesl"
+        );
+        embedded_asset!(
+            app,
+            "native_effect_model_zm_ice_script_static_877zz4j0.wesl"
+        );
+        embedded_asset!(app, "native_effect_model_zmb_sphere_tendril_j0598qze.wesl");
+        embedded_asset!(
+            app,
+            "native_effect_model_water_on_surface_reveal_77320z68.wesl"
+        );
+        embedded_asset!(app, "native_effect_model_unlit_scroll_jq69qew7.wesl");
+        let effect_shaders = [
+            load_embedded_asset!(
+                app,
+                "native_effect_model_scrolling_alpha2_distort_z58wq263.wesl"
+            ),
+            load_embedded_asset!(
+                app,
+                "native_effect_model_scrolling_alpha2_distort_qwj8139f.wesl"
+            ),
+            load_embedded_asset!(
+                app,
+                "native_effect_model_scrolling_falloff_zfeather_69456263.wesl"
+            ),
+            load_embedded_asset!(app, "native_effect_model_scrolling_falloff_2ff9qe6w.wesl"),
+            load_embedded_asset!(app, "native_effect_model_zm_elec_disc_w323fq8j.wesl"),
+            load_embedded_asset!(app, "native_effect_model_light_sphere_46j58w7u.wesl"),
+            load_embedded_asset!(app, "native_effect_model_portal_e96z3z92.wesl"),
+            load_embedded_asset!(app, "native_effect_model_zmb_sky_pillar_on_6821fw2w.wesl"),
+            load_embedded_asset!(app, "native_effect_model_zm_sphere_elec_9j108eq6.wesl"),
+            load_embedded_asset!(app, "native_effect_model_zm_sphere_elec_535e0f02.wesl"),
+            load_embedded_asset!(
+                app,
+                "native_effect_model_zm_ice_script_static_blizzard_45q67691.wesl"
+            ),
+            load_embedded_asset!(
+                app,
+                "native_effect_model_zm_ice_script_static_877zz4j0.wesl"
+            ),
+            load_embedded_asset!(app, "native_effect_model_zmb_sphere_tendril_j0598qze.wesl"),
+            load_embedded_asset!(
+                app,
+                "native_effect_model_water_on_surface_reveal_77320z68.wesl"
+            ),
+            load_embedded_asset!(app, "native_effect_model_unlit_scroll_jq69qew7.wesl"),
+        ];
+
+        load_shader_library!(app, "native_weapon_model_code.wesl");
+        load_shader_library!(app, "native_model_draw.wesl");
+        embedded_asset!(app, "native_objective_model_entry.wesl");
+        let objective_shader = load_embedded_asset!(app, "native_objective_model_entry.wesl");
+        embedded_asset!(app, "native_projected_model_entry.wesl");
+        let projected_shader = load_embedded_asset!(app, "native_projected_model_entry.wesl");
+        embedded_asset!(app, "native_weapon_model_reticle_entry.wesl");
+        let reticle_shader = load_embedded_asset!(app, "native_weapon_model_reticle_entry.wesl");
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
@@ -1283,6 +1803,10 @@ impl Plugin for NativeModelPlugin {
                 tile_shader,
                 unlit_shader,
                 plinth_shader,
+                reticle_shader,
+                objective_shader,
+                projected_shader,
+                effect_shaders,
             ))
             .init_resource::<SpecializedRenderPipelines<ModelPipeline>>()
             .init_resource::<ModelUniforms>()
@@ -1299,7 +1823,9 @@ impl Plugin for NativeModelPlugin {
                     queue_models
                         .after(super::native::queue_native_world)
                         .in_set(RenderSystems::Queue),
-                    prepare_model_groups.in_set(RenderSystems::PrepareBindGroups),
+                    prepare_model_groups
+                        .after(super::native_rangefinder_ui::RangefinderUiSystems::Prepare)
+                        .in_set(RenderSystems::PrepareBindGroups),
                 ),
             );
     }
@@ -1312,17 +1838,30 @@ struct ModelPipeline {
     tile_shader: Handle<Shader>,
     unlit_shader: Handle<Shader>,
     plinth_shader: Handle<Shader>,
-    unlit_replace_layout: BindGroupLayoutDescriptor,
+    reticle_shader: Handle<Shader>,
+    objective_shader: Handle<Shader>,
+    projected_shader: Handle<Shader>,
+    effect_shaders: [Handle<Shader>; 15],
+    effect_layouts: [BindGroupLayoutDescriptor; 15],
+    unlit_scale_layout: BindGroupLayoutDescriptor,
     tile_layouts: [BindGroupLayoutDescriptor; 2],
     scene_layout: BindGroupLayoutDescriptor,
     scripted_scene_layout: BindGroupLayoutDescriptor,
     object_layout: BindGroupLayoutDescriptor,
+    draw_matrix_object_layout: BindGroupLayoutDescriptor,
+    reticle_material_layout: BindGroupLayoutDescriptor,
+    ui3d_material_layout: BindGroupLayoutDescriptor,
+    ui3d_view_layout: BindGroupLayoutDescriptor,
     scripted_object_layout: BindGroupLayoutDescriptor,
     material_layout: BindGroupLayoutDescriptor,
     diffuse_material_layout: BindGroupLayoutDescriptor,
     detail_material_layout: BindGroupLayoutDescriptor,
     geometric_material_layout: BindGroupLayoutDescriptor,
     geometric_specular_material_layout: BindGroupLayoutDescriptor,
+    source_lit_layouts: [BindGroupLayoutDescriptor; 3],
+    source_character_layouts: [BindGroupLayoutDescriptor; 4],
+    cornea_layout: BindGroupLayoutDescriptor,
+    objective_layout: BindGroupLayoutDescriptor,
     specular_material_layout: BindGroupLayoutDescriptor,
     mapped_occlusion_layouts: [BindGroupLayoutDescriptor; 2],
     reveal_layout: BindGroupLayoutDescriptor,
@@ -1334,6 +1873,9 @@ struct ModelPipeline {
     smoke_material_layout: BindGroupLayoutDescriptor,
     four_layer_layout: BindGroupLayoutDescriptor,
     camo_material_layout: BindGroupLayoutDescriptor,
+    staff_material_layout: BindGroupLayoutDescriptor,
+    optics_material_layout: BindGroupLayoutDescriptor,
+    single_layer_layout: BindGroupLayoutDescriptor,
     disc_material_layout: BindGroupLayoutDescriptor,
     cloth_material_layout: BindGroupLayoutDescriptor,
     cloth_reveal_layout: BindGroupLayoutDescriptor,
@@ -1350,6 +1892,10 @@ impl ModelPipeline {
         tile_shader: Handle<Shader>,
         unlit_shader: Handle<Shader>,
         plinth_shader: Handle<Shader>,
+        reticle_shader: Handle<Shader>,
+        objective_shader: Handle<Shader>,
+        projected_shader: Handle<Shader>,
+        effect_shaders: [Handle<Shader>; 15],
     ) -> Self {
         let textures = BindGroupLayoutEntries::sequential(
             ShaderStages::FRAGMENT,
@@ -1478,6 +2024,9 @@ impl ModelPipeline {
                 (14, uniform_buffer::<NativeModelCamoParameters>(false)),
             ),
         ));
+        let mut staff_entries = camo_entries.clone();
+        staff_entries.retain(|entry| entry.binding != 14);
+        staff_entries.push(uniform_buffer::<Vec4>(false).build(23, ShaderStages::FRAGMENT));
         let cloth_entries: Vec<_> = textures
             .iter()
             .copied()
@@ -1486,6 +2035,17 @@ impl ModelPipeline {
         let mut disc_entries = textures.to_vec();
         disc_entries.push(
             uniform_buffer::<NativeModelEmissiveConstants>(false).build(13, ShaderStages::FRAGMENT),
+        );
+        let mut optics_entries = textures.to_vec();
+        optics_entries.push(uniform_buffer::<Vec4>(false).build(24, ShaderStages::FRAGMENT));
+        let mut single_entries: Vec<_> = textures
+            .iter()
+            .copied()
+            .filter(|entry| matches!(entry.binding, 0 | 1 | 8 | 9))
+            .collect();
+        single_entries.push(
+            uniform_buffer::<NativeModelSingleLayerConstants>(false)
+                .build(25, ShaderStages::VERTEX_FRAGMENT),
         );
         let tile_layouts = [false, true].map(|specular| {
             let mut entries = Vec::new();
@@ -1513,13 +2073,44 @@ impl ModelPipeline {
             );
             BindGroupLayoutDescriptor::new("original model tile blend", &entries)
         });
+        let effect_layouts = NativeEffectModelProgram::ALL.map(|program| {
+            let mut entries = Vec::new();
+            for index in 0..program.texture_count() as u32 {
+                entries.push(
+                    texture_2d(TextureSampleType::Float { filterable: true })
+                        .build(index * 2, ShaderStages::FRAGMENT),
+                );
+                entries.push(
+                    sampler(SamplerBindingType::Filtering)
+                        .build(index * 2 + 1, ShaderStages::FRAGMENT),
+                );
+            }
+            if program.probe() {
+                entries.push(
+                    texture_cube(TextureSampleType::Float { filterable: true })
+                        .build(28, ShaderStages::FRAGMENT),
+                );
+                entries
+                    .push(sampler(SamplerBindingType::Filtering).build(29, ShaderStages::FRAGMENT));
+            }
+            entries.push(
+                uniform_buffer::<NativeEffectModelConstants>(false)
+                    .build(31, ShaderStages::VERTEX_FRAGMENT),
+            );
+            BindGroupLayoutDescriptor::new("original source effect-model inputs", &entries)
+        });
         Self {
+            effect_shaders,
+            effect_layouts,
             shader,
             scripted_shader,
             tile_shader,
             unlit_shader,
             plinth_shader,
-            unlit_replace_layout: BindGroupLayoutDescriptor::new(
+            reticle_shader,
+            objective_shader,
+            projected_shader,
+            unlit_scale_layout: BindGroupLayoutDescriptor::new(
                 "native unlit model color and scale",
                 &BindGroupLayoutEntries::sequential(
                     ShaderStages::FRAGMENT,
@@ -1545,6 +2136,50 @@ impl ModelPipeline {
                     (
                         uniform_buffer::<NativeModelScene>(true),
                         uniform_buffer::<NativeModelScriptedScene>(true),
+                    ),
+                ),
+            ),
+            draw_matrix_object_layout: BindGroupLayoutDescriptor::new(
+                "native weapon model source view",
+                &BindGroupLayoutEntries::with_indices(
+                    ShaderStages::VERTEX_FRAGMENT,
+                    (
+                        (0, uniform_buffer::<NativeModelObject>(true)),
+                        (2, uniform_buffer::<NativeModelDrawMatrices>(true)),
+                    ),
+                ),
+            ),
+            ui3d_material_layout: BindGroupLayoutDescriptor::new(
+                "native UI3D reticle authored noise",
+                &BindGroupLayoutEntries::with_indices(
+                    ShaderStages::FRAGMENT,
+                    (
+                        (0, texture_2d(TextureSampleType::Float { filterable: true })),
+                        (1, sampler(SamplerBindingType::Filtering)),
+                        (26, uniform_buffer::<NativeReticleConstants>(false)),
+                    ),
+                ),
+            ),
+            ui3d_view_layout: BindGroupLayoutDescriptor::new(
+                "native UI3D generated window5",
+                &BindGroupLayoutEntries::sequential(
+                    ShaderStages::FRAGMENT,
+                    (
+                        texture_2d(TextureSampleType::Float { filterable: true }),
+                        sampler(SamplerBindingType::Filtering),
+                    ),
+                ),
+            ),
+            reticle_material_layout: BindGroupLayoutDescriptor::new(
+                "native reticle material",
+                &BindGroupLayoutEntries::with_indices(
+                    ShaderStages::VERTEX_FRAGMENT,
+                    (
+                        (0, texture_2d(TextureSampleType::Float { filterable: true })),
+                        (1, sampler(SamplerBindingType::Filtering)),
+                        (2, texture_2d(TextureSampleType::Float { filterable: true })),
+                        (3, sampler(SamplerBindingType::Filtering)),
+                        (26, uniform_buffer::<NativeReticleConstants>(false)),
                     ),
                 ),
             ),
@@ -1619,6 +2254,89 @@ impl ModelPipeline {
                     ),
                 ),
             ),
+            objective_layout: BindGroupLayoutDescriptor::new(
+                "native objective inputs",
+                &BindGroupLayoutEntries::with_indices(
+                    ShaderStages::FRAGMENT,
+                    (
+                        (0, texture_2d(TextureSampleType::Float { filterable: true })),
+                        (1, sampler(SamplerBindingType::Filtering)),
+                        (26, uniform_buffer::<NativeSourceCharacterConstants>(false)),
+                    ),
+                ),
+            ),
+            cornea_layout: BindGroupLayoutDescriptor::new(
+                "native cornea inputs",
+                &BindGroupLayoutEntries::with_indices(
+                    ShaderStages::VERTEX_FRAGMENT,
+                    (
+                        (0, texture_2d(TextureSampleType::Float { filterable: true })),
+                        (1, sampler(SamplerBindingType::Filtering)),
+                        (2, texture_2d(TextureSampleType::Float { filterable: true })),
+                        (3, sampler(SamplerBindingType::Filtering)),
+                        (26, uniform_buffer::<NativeSourceCharacterConstants>(false)),
+                    ),
+                ),
+            ),
+            source_character_layouts: [0, 1, 2, 3].map(|extras| {
+                let mut entries = cloth_entries.clone();
+                entries.push(
+                    uniform_buffer::<NativeSourceCharacterConstants>(false)
+                        .build(26, ShaderStages::VERTEX_FRAGMENT),
+                );
+                for binding in [6, 10, 27].into_iter().take(extras) {
+                    entries.push(
+                        texture_2d(TextureSampleType::Float { filterable: true })
+                            .build(binding, ShaderStages::FRAGMENT),
+                    );
+                    entries.push(
+                        sampler(SamplerBindingType::Filtering)
+                            .build(binding + 1, ShaderStages::FRAGMENT),
+                    );
+                }
+                BindGroupLayoutDescriptor::new("native source character material", &entries)
+            }),
+            source_lit_layouts: [0, 1, 2].map(|kind| {
+                let mut entries = BindGroupLayoutEntries::with_indices(
+                    ShaderStages::FRAGMENT,
+                    (
+                        (0, texture_2d(TextureSampleType::Float { filterable: true })),
+                        (1, sampler(SamplerBindingType::Filtering)),
+                        (
+                            4,
+                            texture_cube(TextureSampleType::Float { filterable: true }),
+                        ),
+                        (5, sampler(SamplerBindingType::Filtering)),
+                        (6, texture_2d(TextureSampleType::Float { filterable: true })),
+                        (7, sampler(SamplerBindingType::Filtering)),
+                        (8, uniform_buffer::<NativeModelOcclusion>(false)),
+                    ),
+                )
+                .to_vec();
+                if kind != 0 {
+                    entries.extend_from_slice(&BindGroupLayoutEntries::with_indices(
+                        ShaderStages::FRAGMENT,
+                        (
+                            (2, texture_2d(TextureSampleType::Float { filterable: true })),
+                            (3, sampler(SamplerBindingType::Filtering)),
+                        ),
+                    ));
+                }
+                if kind == 2 {
+                    entries.extend_from_slice(&BindGroupLayoutEntries::with_indices(
+                        ShaderStages::FRAGMENT,
+                        (
+                            (
+                                10,
+                                texture_2d(TextureSampleType::Float { filterable: true }),
+                            ),
+                            (11, sampler(SamplerBindingType::Filtering)),
+                            (18, uniform_buffer::<Vec4>(false)),
+                        ),
+                    ));
+                }
+                BindGroupLayoutDescriptor::new("native source-lit model inputs", &entries)
+            }),
             geometric_specular_material_layout: BindGroupLayoutDescriptor::new(
                 "native geometric specular textures and occlusion",
                 &BindGroupLayoutEntries::with_indices(
@@ -1704,6 +2422,18 @@ impl ModelPipeline {
                 "native crystal original three layers",
                 &crystal_entries,
             ),
+            optics_material_layout: BindGroupLayoutDescriptor::new(
+                "native optic lens",
+                &optics_entries,
+            ),
+            single_layer_layout: BindGroupLayoutDescriptor::new(
+                "native single parallax layer",
+                &single_entries,
+            ),
+            staff_material_layout: BindGroupLayoutDescriptor::new(
+                "native staff charge layers",
+                &staff_entries,
+            ),
             camo_material_layout: BindGroupLayoutDescriptor::new(
                 "native selected weapon camo original three layers",
                 &camo_entries,
@@ -1760,6 +2490,7 @@ impl ModelPipeline {
 
     fn material_layout(&self, family: NativeModelFamily) -> &BindGroupLayoutDescriptor {
         match family {
+            NativeModelFamily::Effect(program) => &self.effect_layouts[program as usize],
             NativeModelFamily::Flag(detail) => &self.flag_layouts[usize::from(detail)],
             NativeModelFamily::Canopy(_) => &self.canopy_layout,
             NativeModelFamily::RevealDiffuse => &self.reveal_layout,
@@ -1768,10 +2499,10 @@ impl ModelPipeline {
             }
             NativeModelFamily::FourLayers { .. } => &self.four_layer_layout,
             NativeModelFamily::DetailDiffuse(_) => &self.detail_material_layout,
-            NativeModelFamily::Unlit { replace: true } => &self.unlit_replace_layout,
-            NativeModelFamily::Unlit { replace: false } | NativeModelFamily::DecalMultiply => {
-                &self.geometric_material_layout
-            }
+            NativeModelFamily::Unlit(NativeModelUnlitProgram::Multiply)
+            | NativeModelFamily::DecalMultiply
+            | NativeModelFamily::DecalAdd => &self.geometric_material_layout,
+            NativeModelFamily::Unlit(_) => &self.unlit_scale_layout,
             NativeModelFamily::TileBlend { specular, .. } => {
                 &self.tile_layouts[usize::from(specular)]
             }
@@ -1783,6 +2514,21 @@ impl ModelPipeline {
             | NativeModelFamily::AlphaDiffuse => &self.diffuse_material_layout,
             NativeModelFamily::GeometricSpecular { .. } => &self.geometric_specular_material_layout,
             NativeModelFamily::GeometricDiffuse(_) => &self.geometric_material_layout,
+            NativeModelFamily::Objective => &self.objective_layout,
+            NativeModelFamily::ProjectedDecal => &self.geometric_material_layout,
+            NativeModelFamily::Cornea => &self.cornea_layout,
+            NativeModelFamily::SourceCharacter(program) => {
+                &self.source_character_layouts[program.extra_textures()]
+            }
+            NativeModelFamily::SourceLit(program) => {
+                &self.source_lit_layouts[match program {
+                    SourceLitProgram::GeometricHero => 0,
+                    SourceLitProgram::ColorDetail
+                    | SourceLitProgram::NormalDetail
+                    | SourceLitProgram::CutoutNormalDetail => 2,
+                    _ => 1,
+                }]
+            }
             NativeModelFamily::NormalSpecular(_) | NativeModelFamily::AlphaSpecular(_) => {
                 &self.specular_material_layout
             }
@@ -1790,6 +2536,11 @@ impl ModelPipeline {
             NativeModelFamily::Feather3Layer => &self.feather_material_layout,
             NativeModelFamily::Unlit3Layer { .. } => &self.falloff_material_layout,
             NativeModelFamily::Crystal3Layer(_) => &self.crystal_material_layout,
+            NativeModelFamily::Reticle(NativeReticleProgram::Ui3d) => &self.ui3d_material_layout,
+            NativeModelFamily::Reticle(_) => &self.reticle_material_layout,
+            NativeModelFamily::OpticLens => &self.optics_material_layout,
+            NativeModelFamily::SingleLayer => &self.single_layer_layout,
+            NativeModelFamily::Staff3Layer => &self.staff_material_layout,
             NativeModelFamily::Camo3Layer => &self.camo_material_layout,
             NativeModelFamily::PhongEmissive { .. } => &self.disc_material_layout,
             NativeModelFamily::ClanTag => &self.clan_tag_layout,
@@ -1842,10 +2593,15 @@ impl SpecializedRenderPipeline for ModelPipeline {
                 shader_location: 3,
             },
         ];
-        if matches!(
+        if key.family == NativeModelFamily::ProjectedDecal {
+            attributes.retain(|attribute| attribute.shader_location == 0);
+        } else if key.family == NativeModelFamily::Objective {
+            attributes.retain(|attribute| matches!(attribute.shader_location, 0 | 2 | 3));
+        } else if matches!(
             key.family,
-            NativeModelFamily::Unlit { .. }
+            NativeModelFamily::Unlit(_)
                 | NativeModelFamily::DecalMultiply
+                | NativeModelFamily::DecalAdd
                 | NativeModelFamily::SmokePillar
         ) {
             attributes.retain(|attribute| attribute.shader_location <= 2);
@@ -1859,6 +2615,132 @@ impl SpecializedRenderPipeline for ModelPipeline {
             });
         }
         let fragment = match (key.family, key.target.is_srgb()) {
+            (NativeModelFamily::Objective, false) => "fragment_objective",
+            (NativeModelFamily::Objective, true) => "fragment_objective_srgb",
+            (NativeModelFamily::ProjectedDecal, false) => "fragment_projected",
+            (NativeModelFamily::ProjectedDecal, true) => "fragment_projected_srgb",
+            (NativeModelFamily::Cornea, false) => "fragment_source_cornea",
+            (NativeModelFamily::Cornea, true) => "fragment_source_cornea_srgb",
+            (
+                NativeModelFamily::SourceCharacter(SourceCharacterProgram::Fritz { cutout: false }),
+                false,
+            ) => "fragment_source_fritz",
+            (
+                NativeModelFamily::SourceCharacter(SourceCharacterProgram::Fritz { cutout: false }),
+                true,
+            ) => "fragment_source_fritz_srgb",
+            (
+                NativeModelFamily::SourceCharacter(SourceCharacterProgram::Fritz { cutout: true }),
+                false,
+            ) => "fragment_source_fritz_cutout",
+            (
+                NativeModelFamily::SourceCharacter(SourceCharacterProgram::Fritz { cutout: true }),
+                true,
+            ) => "fragment_source_fritz_cutout_srgb",
+            (NativeModelFamily::Effect(_), false) => "fragment",
+            (NativeModelFamily::Effect(_), true) => "fragment_srgb",
+            (NativeModelFamily::SourceCharacter(SourceCharacterProgram::Ember), false) => {
+                "fragment_source_ember"
+            }
+            (NativeModelFamily::SourceCharacter(SourceCharacterProgram::Ember), true) => {
+                "fragment_source_ember_srgb"
+            }
+            (NativeModelFamily::SourceCharacter(SourceCharacterProgram::Glass), false) => {
+                "fragment_source_glass"
+            }
+            (NativeModelFamily::SourceCharacter(SourceCharacterProgram::Glass), true) => {
+                "fragment_source_glass_srgb"
+            }
+            (NativeModelFamily::SourceCharacter(SourceCharacterProgram::Hair), false) => {
+                "fragment_source_hair"
+            }
+            (NativeModelFamily::SourceCharacter(SourceCharacterProgram::Hair), true) => {
+                "fragment_source_hair_srgb"
+            }
+            (NativeModelFamily::SourceCharacter(SourceCharacterProgram::SkinCutout), false) => {
+                "fragment_source_skin_cutout"
+            }
+            (NativeModelFamily::SourceCharacter(SourceCharacterProgram::SkinCutout), true) => {
+                "fragment_source_skin_cutout_srgb"
+            }
+            (NativeModelFamily::SourceCharacter(SourceCharacterProgram::ClothEmissive), false) => {
+                "fragment_source_cloth_emission"
+            }
+            (NativeModelFamily::SourceCharacter(SourceCharacterProgram::ClothEmissive), true) => {
+                "fragment_source_cloth_emission_srgb"
+            }
+            (NativeModelFamily::SourceCharacter(SourceCharacterProgram::SkinEmissive), false) => {
+                "fragment_source_skin_emission"
+            }
+            (NativeModelFamily::SourceCharacter(SourceCharacterProgram::SkinEmissive), true) => {
+                "fragment_source_skin_emission_srgb"
+            }
+            (
+                NativeModelFamily::SourceCharacter(SourceCharacterProgram::RevealEmissive {
+                    cutout: false,
+                }),
+                false,
+            ) => "fragment_source_reveal_emission",
+            (
+                NativeModelFamily::SourceCharacter(SourceCharacterProgram::RevealEmissive {
+                    cutout: false,
+                }),
+                true,
+            ) => "fragment_source_reveal_emission_srgb",
+            (
+                NativeModelFamily::SourceCharacter(SourceCharacterProgram::RevealEmissive {
+                    cutout: true,
+                }),
+                false,
+            ) => "fragment_source_reveal_emission_cutout",
+            (
+                NativeModelFamily::SourceCharacter(SourceCharacterProgram::RevealEmissive {
+                    cutout: true,
+                }),
+                true,
+            ) => "fragment_source_reveal_emission_cutout_srgb",
+            (NativeModelFamily::SourceLit(SourceLitProgram::BlendedHero), false) => {
+                "fragment_source_blended_hero"
+            }
+            (NativeModelFamily::SourceLit(SourceLitProgram::BlendedHero), true) => {
+                "fragment_source_blended_hero_srgb"
+            }
+            (NativeModelFamily::SourceLit(SourceLitProgram::GeometricHero), false) => {
+                "fragment_source_geometric_hero"
+            }
+            (NativeModelFamily::SourceLit(SourceLitProgram::GeometricHero), true) => {
+                "fragment_source_geometric_hero_srgb"
+            }
+            (NativeModelFamily::SourceLit(SourceLitProgram::NormalHero), false) => {
+                "fragment_source_normal_hero"
+            }
+            (NativeModelFamily::SourceLit(SourceLitProgram::NormalHero), true) => {
+                "fragment_source_normal_hero_srgb"
+            }
+            (NativeModelFamily::SourceLit(SourceLitProgram::CutoutHero), false) => {
+                "fragment_source_cutout_hero"
+            }
+            (NativeModelFamily::SourceLit(SourceLitProgram::CutoutHero), true) => {
+                "fragment_source_cutout_hero_srgb"
+            }
+            (NativeModelFamily::SourceLit(SourceLitProgram::ColorDetail), false) => {
+                "fragment_source_color_detail"
+            }
+            (NativeModelFamily::SourceLit(SourceLitProgram::ColorDetail), true) => {
+                "fragment_source_color_detail_srgb"
+            }
+            (NativeModelFamily::SourceLit(SourceLitProgram::CutoutNormalDetail), false) => {
+                "fragment_source_normal_detail_cutout"
+            }
+            (NativeModelFamily::SourceLit(SourceLitProgram::CutoutNormalDetail), true) => {
+                "fragment_source_normal_detail_cutout_srgb"
+            }
+            (NativeModelFamily::SourceLit(SourceLitProgram::NormalDetail), false) => {
+                "fragment_source_normal_detail"
+            }
+            (NativeModelFamily::SourceLit(SourceLitProgram::NormalDetail), true) => {
+                "fragment_source_normal_detail_srgb"
+            }
             (NativeModelFamily::SmokePillar, false) => "fragment_smoke",
             (NativeModelFamily::SmokePillar, true) => "fragment_smoke_srgb",
             (NativeModelFamily::Flag(true), false) => "fragment_flag_detail",
@@ -2048,6 +2930,36 @@ impl SpecializedRenderPipeline for ModelPipeline {
             ) => "fragment_three_alpha_srgb",
             (NativeModelFamily::Crystal3Layer(_), false) => "fragment_crystal",
             (NativeModelFamily::Crystal3Layer(_), true) => "fragment_crystal_srgb",
+            (NativeModelFamily::Reticle(NativeReticleProgram::Dynamic), false) => {
+                "fragment_reticle_dynamic"
+            }
+            (NativeModelFamily::Reticle(NativeReticleProgram::Dynamic), true) => {
+                "fragment_reticle_dynamic_srgb"
+            }
+            (NativeModelFamily::Reticle(NativeReticleProgram::DynamicTwoColor), false) => {
+                "fragment_reticle_two_color"
+            }
+            (NativeModelFamily::Reticle(NativeReticleProgram::DynamicTwoColor), true) => {
+                "fragment_reticle_two_color_srgb"
+            }
+            (NativeModelFamily::Reticle(NativeReticleProgram::Ui3d), false) => {
+                "fragment_reticle_ui3d"
+            }
+            (NativeModelFamily::Reticle(NativeReticleProgram::Ui3d), true) => {
+                "fragment_reticle_ui3d_srgb"
+            }
+            (NativeModelFamily::Reticle(NativeReticleProgram::Static), false) => {
+                "fragment_reticle_static"
+            }
+            (NativeModelFamily::Reticle(NativeReticleProgram::Static), true) => {
+                "fragment_reticle_static_srgb"
+            }
+            (NativeModelFamily::OpticLens, false) => "fragment_optic",
+            (NativeModelFamily::OpticLens, true) => "fragment_optic_srgb",
+            (NativeModelFamily::SingleLayer, false) => "fragment_single",
+            (NativeModelFamily::SingleLayer, true) => "fragment_single_srgb",
+            (NativeModelFamily::Staff3Layer, false) => "fragment_staff",
+            (NativeModelFamily::Staff3Layer, true) => "fragment_staff_srgb",
             (NativeModelFamily::Camo3Layer, false) => "fragment_camo",
             (NativeModelFamily::Camo3Layer, true) => "fragment_camo_srgb",
             (
@@ -2106,12 +3018,52 @@ impl SpecializedRenderPipeline for ModelPipeline {
             ) => "fragment_diffuse_srgb",
             (NativeModelFamily::TileBlend { specular: true, .. }, false) => "fragment_specular",
             (NativeModelFamily::TileBlend { specular: true, .. }, true) => "fragment_specular_srgb",
-            (NativeModelFamily::Unlit { replace: true }, false) => "fragment_replace",
-            (NativeModelFamily::Unlit { replace: true }, true) => "fragment_replace_srgb",
-            (NativeModelFamily::Unlit { replace: false }, false) => "fragment_multiply",
-            (NativeModelFamily::Unlit { replace: false }, true) => "fragment_multiply_srgb",
+            (NativeModelFamily::Unlit(NativeModelUnlitProgram::Replace), false) => {
+                "fragment_replace"
+            }
+            (NativeModelFamily::Unlit(NativeModelUnlitProgram::Replace), true) => {
+                "fragment_replace_srgb"
+            }
+            (NativeModelFamily::Unlit(NativeModelUnlitProgram::Multiply), false) => {
+                "fragment_multiply"
+            }
+            (NativeModelFamily::Unlit(NativeModelUnlitProgram::Multiply), true) => {
+                "fragment_multiply_srgb"
+            }
+            (NativeModelFamily::Unlit(NativeModelUnlitProgram::Blend), false) => "fragment_blend",
+            (NativeModelFamily::Unlit(NativeModelUnlitProgram::Blend), true) => {
+                "fragment_blend_srgb"
+            }
+            (NativeModelFamily::Unlit(NativeModelUnlitProgram::ViewmodelAdd), false) => {
+                "fragment_viewmodel_add"
+            }
+            (NativeModelFamily::Unlit(NativeModelUnlitProgram::ViewmodelAdd), true) => {
+                "fragment_viewmodel_add_srgb"
+            }
+            (NativeModelFamily::Unlit(NativeModelUnlitProgram::ViewmodelSqrtAlpha), false) => {
+                "fragment_viewmodel_sqrt_alpha"
+            }
+            (NativeModelFamily::Unlit(NativeModelUnlitProgram::ViewmodelSqrtAlpha), true) => {
+                "fragment_viewmodel_sqrt_alpha_srgb"
+            }
+            (NativeModelFamily::Unlit(NativeModelUnlitProgram::ViewmodelAlpha), false) => {
+                "fragment_viewmodel_alpha"
+            }
+            (NativeModelFamily::Unlit(NativeModelUnlitProgram::ViewmodelAlpha), true) => {
+                "fragment_viewmodel_alpha_srgb"
+            }
+            (NativeModelFamily::Unlit(NativeModelUnlitProgram::ViewmodelOpaque), false) => {
+                "fragment_viewmodel_opaque"
+            }
+            (NativeModelFamily::Unlit(NativeModelUnlitProgram::ViewmodelOpaque), true) => {
+                "fragment_viewmodel_opaque_srgb"
+            }
+            (NativeModelFamily::Unlit(NativeModelUnlitProgram::Add), false) => "fragment_add",
+            (NativeModelFamily::Unlit(NativeModelUnlitProgram::Add), true) => "fragment_add_srgb",
             (NativeModelFamily::DecalMultiply, false) => "fragment_decal_multiply",
             (NativeModelFamily::DecalMultiply, true) => "fragment_decal_multiply_srgb",
+            (NativeModelFamily::DecalAdd, false) => "fragment_decal_add",
+            (NativeModelFamily::DecalAdd, true) => "fragment_decal_add_srgb",
             (NativeModelFamily::DetailDiffuse(_), false) => "fragment_detail_diffuse",
             (NativeModelFamily::DetailDiffuse(_), true) => "fragment_detail_diffuse_srgb",
             (NativeModelFamily::FourLayers { fog: false, .. }, false) => "fragment_four_nofog",
@@ -2187,11 +3139,21 @@ impl SpecializedRenderPipeline for ModelPipeline {
             (NativeModelFamily::ZombieEyes, false) => "fragment_eyes",
             (NativeModelFamily::ZombieEyes, true) => "fragment_eyes_srgb",
         };
-        let shader = if key.family.depth() {
+        let shader = if key.family == NativeModelFamily::Objective {
+            &self.objective_shader
+        } else if key.family == NativeModelFamily::ProjectedDecal {
+            &self.projected_shader
+        } else if matches!(key.family, NativeModelFamily::Reticle(_)) {
+            &self.reticle_shader
+        } else if let NativeModelFamily::Effect(program) = key.family {
+            &self.effect_shaders[program as usize]
+        } else if key.family.depth() {
             &self.plinth_shader
         } else if matches!(
             key.family,
-            NativeModelFamily::Unlit { .. } | NativeModelFamily::DecalMultiply
+            NativeModelFamily::Unlit(_)
+                | NativeModelFamily::DecalMultiply
+                | NativeModelFamily::DecalAdd
         ) {
             &self.unlit_shader
         } else if matches!(key.family, NativeModelFamily::TileBlend { .. }) {
@@ -2202,19 +3164,25 @@ impl SpecializedRenderPipeline for ModelPipeline {
             &self.shader
         };
         let mut layout = vec![
-            if key.family.view_constants() {
+            if key.family == NativeModelFamily::ProjectedDecal {
+                effect_scene_layout(key.depth_filtering)
+            } else if key.family.view_constants() {
                 self.scripted_scene_layout.clone()
             } else {
                 self.scene_layout.clone()
             },
-            if key.family.script_inputs() {
+            if key.family.draw_matrices() {
+                self.draw_matrix_object_layout.clone()
+            } else if key.family.script_inputs() {
                 self.scripted_object_layout.clone()
             } else {
                 self.object_layout.clone()
             },
             self.material_layout(key.family).clone(),
         ];
-        if key.family.atlas_texture() {
+        if key.family == NativeModelFamily::Reticle(NativeReticleProgram::Ui3d) {
+            layout.push(self.ui3d_view_layout.clone());
+        } else if key.family.atlas_texture() {
             layout.push(self.lighting_layout.clone());
         } else if key.family.depth() {
             layout.push(effect_scene_layout(key.depth_filtering));
@@ -2241,7 +3209,32 @@ impl SpecializedRenderPipeline for ModelPipeline {
             vertex: VertexState {
                 shader: shader.clone(),
                 entry_point: Some(
-                    if key.family == NativeModelFamily::SmokePillar {
+                    if key.family == NativeModelFamily::Objective {
+                        "vertex_objective"
+                    } else if key.family == NativeModelFamily::ProjectedDecal {
+                        "vertex_projected"
+                    } else if key.family == NativeModelFamily::Cornea {
+                        "vertex_source_cornea"
+                    } else if matches!(key.family, NativeModelFamily::Effect(_)) {
+                        "vertex"
+                    } else if let NativeModelFamily::Reticle(program) = key.family {
+                        if matches!(
+                            program,
+                            NativeReticleProgram::Static | NativeReticleProgram::Ui3d
+                        ) {
+                            "vertex_reticle_static"
+                        } else {
+                            "vertex_reticle_dynamic"
+                        }
+                    } else if key.family
+                        == NativeModelFamily::SourceCharacter(SourceCharacterProgram::Ember)
+                    {
+                        "vertex_source_ember"
+                    } else if key.family
+                        == NativeModelFamily::SourceCharacter(SourceCharacterProgram::Glass)
+                    {
+                        "vertex_source_glass"
+                    } else if key.family == NativeModelFamily::SmokePillar {
                         "vertex_smoke"
                     } else if matches!(key.family, NativeModelFamily::Flag(_)) {
                         "vertex_flag"
@@ -2263,11 +3256,15 @@ impl SpecializedRenderPipeline for ModelPipeline {
                         } else {
                             "vertex_four_nofog"
                         }
+                    } else if key.family == NativeModelFamily::DecalAdd {
+                        "vertex_no_fog"
                     } else if matches!(
                         key.family,
-                        NativeModelFamily::Unlit { .. } | NativeModelFamily::DecalMultiply
+                        NativeModelFamily::Unlit(_) | NativeModelFamily::DecalMultiply
                     ) {
                         "vertex_unlit"
+                    } else if key.family == NativeModelFamily::SingleLayer {
+                        "vertex_single"
                     } else if key.family == NativeModelFamily::Crystal3Layer(true) {
                         "vertex_crystal_mlv"
                     } else if key.family.geometric() && key.family.vertex_lit() {
@@ -2280,7 +3277,9 @@ impl SpecializedRenderPipeline for ModelPipeline {
                         "vertex_eyes"
                     } else if matches!(
                         key.family,
-                        NativeModelFamily::Crystal3Layer(_) | NativeModelFamily::Camo3Layer
+                        NativeModelFamily::Staff3Layer
+                            | NativeModelFamily::Crystal3Layer(_)
+                            | NativeModelFamily::Camo3Layer
                     ) {
                         "vertex_parallax"
                     } else if key.family.scripted_vertex() {
@@ -2378,11 +3377,21 @@ impl RenderAsset for PreparedModelMaterial {
             views.push((binding, &image.texture_view));
             samplers.push(device.create_sampler(descriptor));
         }
+        let mut effect_uniform = match &source {
+            NativeModelMaterial::Effect { constants, .. } => Some(UniformBuffer::from(*constants)),
+            _ => None,
+        };
+        if let Some(uniform) = &mut effect_uniform {
+            uniform.write_buffer(device, queue);
+        }
         let mut unlit_uniform = match &source {
             NativeModelMaterial::Unlit {
-                scale_rgb: Some(value),
+                program,
+                scale_rgb: value,
                 ..
-            } => Some(UniformBuffer::from(NativeUnlitScale { scale_rgb: *value })),
+            } if *program != NativeModelUnlitProgram::Multiply => {
+                Some(UniformBuffer::from(NativeUnlitScale { scale_rgb: *value }))
+            }
             _ => None,
         };
         if let Some(uniform) = &mut unlit_uniform {
@@ -2460,6 +3469,11 @@ impl RenderAsset for PreparedModelMaterial {
             uniform.write_buffer(device, queue);
         }
         let mut occlusion_uniform = match &source {
+            NativeModelMaterial::SourceLit { occlusion, .. } => {
+                Some(UniformBuffer::from(NativeModelOcclusion {
+                    occlusion_amount: *occlusion,
+                }))
+            }
             NativeModelMaterial::Flag {
                 occlusion_amount, ..
             } => Some(UniformBuffer::from(NativeModelOcclusion {
@@ -2485,7 +3499,8 @@ impl RenderAsset for PreparedModelMaterial {
             NativeModelMaterial::Feather3Layer { constants, .. }
             | NativeModelMaterial::Unlit3Layer { constants, .. }
             | NativeModelMaterial::Crystal3Layer { constants, .. }
-            | NativeModelMaterial::Camo3Layer { constants, .. } => {
+            | NativeModelMaterial::Camo3Layer { constants, .. }
+            | NativeModelMaterial::Staff3Layer { constants, .. } => {
                 Some(UniformBuffer::from(*constants))
             }
             _ => None,
@@ -2494,6 +3509,11 @@ impl RenderAsset for PreparedModelMaterial {
             uniform.write_buffer(device, queue);
         }
         let mut weapon_detail_uniform = match &source {
+            NativeModelMaterial::SourceLit {
+                detail: Some(_),
+                detail_parameters,
+                ..
+            } => Some(UniformBuffer::from(*detail_parameters)),
             NativeModelMaterial::MappedOcclusion {
                 detail: Some(detail),
                 ..
@@ -2501,6 +3521,17 @@ impl RenderAsset for PreparedModelMaterial {
             _ => None,
         };
         if let Some(uniform) = &mut weapon_detail_uniform {
+            uniform.write_buffer(device, queue);
+        }
+        let mut source_character_uniform = match &source {
+            NativeModelMaterial::SourceCharacter { constants, .. }
+            | NativeModelMaterial::Objective { constants, .. }
+            | NativeModelMaterial::Cornea { constants, .. } => {
+                Some(UniformBuffer::from(*constants))
+            }
+            _ => None,
+        };
+        if let Some(uniform) = &mut source_character_uniform {
             uniform.write_buffer(device, queue);
         }
         let mut cloth_reveal_uniform = match &source {
@@ -2548,6 +3579,41 @@ impl RenderAsset for PreparedModelMaterial {
         if let Some(uniform) = &mut disc_uniform {
             uniform.write_buffer(device, queue);
         }
+        let mut reticle_uniform = match &source {
+            NativeModelMaterial::Reticle { constants, .. }
+            | NativeModelMaterial::Ui3dReticle { constants, .. } => {
+                Some(UniformBuffer::from(*constants))
+            }
+            _ => None,
+        };
+        if let Some(uniform) = &mut reticle_uniform {
+            uniform.write_buffer(device, queue);
+        }
+        let mut optics_uniform = match &source {
+            NativeModelMaterial::OpticLens { controls, .. } => Some(UniformBuffer::from(*controls)),
+            _ => None,
+        };
+        if let Some(uniform) = &mut optics_uniform {
+            uniform.write_buffer(device, queue);
+        }
+        let mut single_uniform = match &source {
+            NativeModelMaterial::SingleLayer { constants, .. } => {
+                Some(UniformBuffer::from(*constants))
+            }
+            _ => None,
+        };
+        if let Some(uniform) = &mut single_uniform {
+            uniform.write_buffer(device, queue);
+        }
+        let mut staff_uniform = match &source {
+            NativeModelMaterial::Staff3Layer { emission_on, .. } => {
+                Some(UniformBuffer::from(*emission_on))
+            }
+            _ => None,
+        };
+        if let Some(uniform) = &mut staff_uniform {
+            uniform.write_buffer(device, queue);
+        }
         let mut camo_uniform = match &source {
             NativeModelMaterial::Camo3Layer { weapon_param6, .. } => {
                 assert!(
@@ -2573,6 +3639,14 @@ impl RenderAsset for PreparedModelMaterial {
             entries.push(BindGroupEntry {
                 binding: binding + 1,
                 resource: BindingResource::Sampler(sampler),
+            });
+        }
+        if let Some(uniform) = &effect_uniform {
+            entries.push(BindGroupEntry {
+                binding: 31,
+                resource: uniform
+                    .binding()
+                    .expect("source effect-model constants upload"),
             });
         }
         if let Some(uniform) = &unlit_uniform {
@@ -2643,6 +3717,30 @@ impl RenderAsset for PreparedModelMaterial {
                 resource: uniform.binding().expect("original crypt disc constants"),
             });
         }
+        if let Some(uniform) = &reticle_uniform {
+            entries.push(BindGroupEntry {
+                binding: 26,
+                resource: uniform.binding().expect("original reticle constants"),
+            });
+        }
+        if let Some(uniform) = &optics_uniform {
+            entries.push(BindGroupEntry {
+                binding: 24,
+                resource: uniform.binding().expect("original optic controls"),
+            });
+        }
+        if let Some(uniform) = &single_uniform {
+            entries.push(BindGroupEntry {
+                binding: 25,
+                resource: uniform.binding().expect("original single-layer constants"),
+            });
+        }
+        if let Some(uniform) = &staff_uniform {
+            entries.push(BindGroupEntry {
+                binding: 23,
+                resource: uniform.binding().expect("original staff on emission"),
+            });
+        }
         if let Some(uniform) = &camo_uniform {
             entries.push(BindGroupEntry {
                 binding: 14,
@@ -2653,6 +3751,14 @@ impl RenderAsset for PreparedModelMaterial {
             entries.push(BindGroupEntry {
                 binding: 18,
                 resource: uniform.binding().expect("original weaponParam2"),
+            });
+        }
+        if let Some(uniform) = &source_character_uniform {
+            entries.push(BindGroupEntry {
+                binding: 26,
+                resource: uniform
+                    .binding()
+                    .expect("original source character constants"),
             });
         }
         if let Some(uniform) = &cloth_reveal_uniform {
@@ -2694,6 +3800,8 @@ struct ModelUniforms {
     scripted_scenes: DynamicUniformBuffer<NativeModelScriptedScene>,
     objects: DynamicUniformBuffer<NativeModelObject>,
     scripts: DynamicUniformBuffer<NativeModelScriptInputs>,
+    draw_matrices: DynamicUniformBuffer<NativeModelDrawMatrices>,
+    draw_matrix_offsets: HashMap<(RetainedViewEntity, MainEntity), u32>,
     scene_offsets: HashMap<RetainedViewEntity, u32>,
     scripted_scene_offsets: HashMap<RetainedViewEntity, u32>,
     object_offsets: HashMap<(MainEntity, bool), u32>,
@@ -2735,8 +3843,10 @@ struct ModelBindGroups {
     scene: Option<(BufferId, BindGroup)>,
     scripted_scene: Option<((BufferId, BufferId), BindGroup)>,
     object: Option<(BufferId, BindGroup)>,
+    draw_matrices: Option<((BufferId, BufferId), BindGroup)>,
     scripted_object: Option<((BufferId, BufferId), BindGroup)>,
     lighting: Option<(TextureViewId, BindGroup)>,
+    ui3d: Option<(TextureViewId, BindGroup)>,
 }
 
 fn prepare_model_groups(
@@ -2747,12 +3857,32 @@ fn prepare_model_groups(
     mut uniforms: ResMut<ModelUniforms>,
     atlas: Option<Res<ModelLightingAtlas>>,
     mut groups: ResMut<ModelBindGroups>,
+    ui3d: Option<Res<super::native_rangefinder_ui::PreparedRangefinderUi>>,
 ) {
+    if let Some(ui3d) = ui3d {
+        if groups
+            .ui3d
+            .as_ref()
+            .is_none_or(|(id, _)| *id != ui3d.view.id())
+        {
+            groups.ui3d = Some((
+                ui3d.view.id(),
+                device.create_bind_group(
+                    "native rangefinder generated UI3D",
+                    &cache.get_bind_group_layout(&pipeline.ui3d_view_layout),
+                    &BindGroupEntries::sequential((&ui3d.view, &ui3d.sampler)),
+                ),
+            ));
+        }
+    } else {
+        groups.ui3d = None;
+    }
     if uniforms.objects.is_empty() {
         groups.scene = None;
         groups.scripted_scene = None;
         groups.object = None;
         groups.scripted_object = None;
+        groups.draw_matrices = None;
         groups.lighting = None;
         return;
     }
@@ -2760,6 +3890,7 @@ fn prepare_model_groups(
     uniforms.objects.write_buffer(&device, &queue);
     uniforms.scripted_scenes.write_buffer(&device, &queue);
     uniforms.scripts.write_buffer(&device, &queue);
+    uniforms.draw_matrices.write_buffer(&device, &queue);
     let scene_buffer = uniforms
         .scenes
         .buffer()
@@ -2805,6 +3936,28 @@ fn prepare_model_groups(
                 ),
             ),
         ));
+    }
+    if let (Some(objects), Some(draw_matrices)) =
+        (uniforms.objects.buffer(), uniforms.draw_matrices.buffer())
+    {
+        let key = (objects.id(), draw_matrices.id());
+        if groups
+            .draw_matrices
+            .as_ref()
+            .is_none_or(|(current, _)| *current != key)
+        {
+            groups.draw_matrices = Some((
+                key,
+                device.create_bind_group(
+                    "native model source view matrices",
+                    &cache.get_bind_group_layout(&pipeline.draw_matrix_object_layout),
+                    &BindGroupEntries::with_indices((
+                        (0, uniforms.objects.binding().unwrap()),
+                        (2, uniforms.draw_matrices.binding().unwrap()),
+                    )),
+                ),
+            ));
+        }
     }
     if let Some(atlas) = atlas {
         if groups
@@ -2908,6 +4061,7 @@ fn queue_models(
     atlas: Option<ResMut<ModelLightingAtlas>>,
     frame: Res<FrameCount>,
     script_owners: Res<ModelScriptOwners>,
+    weapon_owners: Res<NativeWeaponOwners>,
     mut uniforms: ResMut<ModelUniforms>,
     mut queued: Local<HashMap<RetainedViewEntity, Vec<MainEntity>>>,
     mut ordered: ResMut<NativeOrderedDraws>,
@@ -2926,6 +4080,8 @@ fn queue_models(
     uniforms.scripted_scenes.clear();
     uniforms.objects.clear();
     uniforms.scripts.clear();
+    uniforms.draw_matrices.clear();
+    uniforms.draw_matrix_offsets.clear();
     uniforms.scene_offsets.clear();
     uniforms.scripted_scene_offsets.clear();
     uniforms.object_offsets.clear();
@@ -3051,6 +4207,29 @@ fn queue_models(
                     reflection_lighting_sh2: source_object.reflection_lighting_sh2,
                 });
                 uniforms.object_offsets.insert(object_key, offset);
+            }
+            if material.family.draw_matrices()
+                && !uniforms
+                    .draw_matrix_offsets
+                    .contains_key(&(view.retained_view_entity, surface.placement))
+            {
+                let inputs = weapon_owners
+                    .0
+                    .get(&surface.placement)
+                    .copied()
+                    .unwrap_or_default();
+                let offset = uniforms.draw_matrices.push(&draw_constants(
+                    source_object,
+                    scene,
+                    UVec2::new(
+                        target.main_texture().width(),
+                        target.main_texture().height(),
+                    ),
+                    inputs,
+                ));
+                uniforms
+                    .draw_matrix_offsets
+                    .insert((view.retained_view_entity, surface.placement), offset);
             }
             let pipeline = variants.specialize(
                 &cache,
@@ -3246,7 +4425,12 @@ fn draw_model<'w>(
     else {
         return RenderCommandResult::Skip;
     };
-    if material.family.view_constants() {
+    if material.family == NativeModelFamily::ProjectedDecal {
+        let Some((depth, frame)) = depth else {
+            return RenderCommandResult::Skip;
+        };
+        pass.set_bind_group(0, &depth.bind_group, &[frame.index()]);
+    } else if material.family.view_constants() {
         let (Some((_, scripted_scene)), Some(&offset)) = (
             &groups.scripted_scene,
             uniforms
@@ -3259,7 +4443,17 @@ fn draw_model<'w>(
     } else {
         pass.set_bind_group(0, scene, &[scene_offset]);
     }
-    if material.family.script_inputs() {
+    if material.family.draw_matrices() {
+        let (Some((_, matrices)), Some(&offset)) = (
+            &groups.draw_matrices,
+            uniforms
+                .draw_matrix_offsets
+                .get(&(view.retained_view_entity, surface.placement)),
+        ) else {
+            return RenderCommandResult::Skip;
+        };
+        pass.set_bind_group(1, matrices, &[object_offset, offset]);
+    } else if material.family.script_inputs() {
         let (Some((_, scripted_object)), Some(&offset)) = (
             &groups.scripted_object,
             uniforms.script_offsets.get(&surface.placement),
@@ -3271,13 +4465,18 @@ fn draw_model<'w>(
         pass.set_bind_group(1, object, &[object_offset]);
     }
     pass.set_bind_group(2, &material.bind_group, &[]);
-    if material.family.atlas_texture() {
+    if material.family == NativeModelFamily::Reticle(NativeReticleProgram::Ui3d) {
+        let Some((_, ui3d)) = &groups.ui3d else {
+            return RenderCommandResult::Skip;
+        };
+        pass.set_bind_group(3, ui3d, &[]);
+    } else if material.family.atlas_texture() {
         let Some((_, lighting)) = &groups.lighting else {
             return RenderCommandResult::Skip;
         };
         pass.set_bind_group(3, lighting, &[]);
     }
-    if material.family.depth() {
+    if material.family.depth() && material.family != NativeModelFamily::ProjectedDecal {
         let Some((depth, frame)) = depth else {
             return RenderCommandResult::Skip;
         };
@@ -3349,6 +4548,70 @@ impl ModelOrderedRenderer<'_, '_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn objective_and_projected_model_pipelines_keep_source_resource_contracts() {
+        let pipeline = ModelPipeline::new(
+            default(),
+            default(),
+            default(),
+            default(),
+            default(),
+            default(),
+            default(),
+            default(),
+            std::array::from_fn(|_| default()),
+        );
+        let state = NativeWorldState {
+            blend: None,
+            alpha_test: false,
+            depth_compare: CompareFunction::GreaterEqual,
+            depth_write: true,
+            polygon_offset: 0,
+            cull_mode: Some(Face::Back),
+            front_face: FrontFace::Cw,
+            color_write: ColorWrites::ALL,
+        };
+        for (family, vertex, fragment, attributes, groups) in [
+            (
+                NativeModelFamily::Objective,
+                "vertex_objective",
+                "fragment_objective",
+                vec![0, 2, 3],
+                3,
+            ),
+            (
+                NativeModelFamily::ProjectedDecal,
+                "vertex_projected",
+                "fragment_projected",
+                vec![0],
+                4,
+            ),
+        ] {
+            let descriptor = pipeline.specialize(ModelPipelineKey {
+                target: TextureFormat::Rgba8Unorm,
+                samples: 1,
+                state,
+                family,
+                depth_filtering: true,
+            });
+            assert_eq!(descriptor.layout.len(), groups);
+            assert_eq!(descriptor.vertex.entry_point.as_deref(), Some(vertex));
+            assert_eq!(
+                descriptor.fragment.as_ref().unwrap().entry_point.as_deref(),
+                Some(fragment)
+            );
+            assert_eq!(
+                descriptor.vertex.buffers[0]
+                    .attributes
+                    .iter()
+                    .map(|a| a.shader_location)
+                    .collect::<Vec<_>>(),
+                attributes
+            );
+        }
+    }
+
     use bevy::{ecs::schedule::ScheduleLabel, render::extract_plugin::ExtractPlugin};
 
     #[test]

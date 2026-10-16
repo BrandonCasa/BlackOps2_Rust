@@ -20,6 +20,8 @@ struct NativeOmniLights {
 struct NativeWorldScene {
     // Original cb0[36..40]: dot products with these ROWS produce clip position.
     view_projection_rows: array<vec4<f32>, 4>,
+    inverse_view_rows: array<vec4<f32>, 3>, // Original cb0[40..42], right/up/forward.
+
     fog_color: vec4<f32>,       // cb0[26]
     fog_consts: vec4<f32>,      // cb0[27]
     fog_consts2: vec4<f32>,     // cb0[28]
