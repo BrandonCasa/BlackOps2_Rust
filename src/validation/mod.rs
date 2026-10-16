@@ -507,7 +507,15 @@ fn tick_input(world: &mut World) {
         let target = aim.map(Vec3::from_array).or_else(|| {
             aim_entity.and_then(Entity::try_from_bits).and_then(|e| {
                 world.get::<Transform>(e).map(|t| {
-                    t.transform_point(aim_offset.map(Vec3::from_array).unwrap_or(Vec3::ZERO))
+                    let local = aim_offset
+                        .map(Vec3::from_array)
+                        .or_else(|| {
+                            world
+                                .get::<crate::hit_regions::Hitboxes>(e)
+                                .and_then(state::aim_point)
+                        })
+                        .unwrap_or(Vec3::ZERO);
+                    t.transform_point(local)
                 })
             })
         });

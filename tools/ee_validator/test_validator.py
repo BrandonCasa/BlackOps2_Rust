@@ -10,13 +10,14 @@ class RunnerTests(unittest.TestCase):
         from unittest.mock import Mock
         for speed in [1, 10]:
             client = Mock()
-            client.state.return_value = {"speed":speed, "firing":{"interval":.096,"automatic":False,"magazine":8,"ready":True},
+            client.state.return_value = {"speed":speed, "firing":{"interval":.096,"automatic":False,"magazine":8,"ready":True,"aim_seconds":.2},
                 "player":{"eye":[0,1.62,0],"yaw":0,"pitch":0},
-                "enemies":[{"entity":42,"position":[0,0,-5],"head":[0,1.62,-5]}]}
+                "enemies":[{"entity":42,"position":[0,0,-5],"aim":[0,1.62,-5]}]}
             shoot_at(client, 42)
             client.send.assert_called_once()
             steps = client.send.call_args.args[0]
-            self.assertEqual([(s["ticks"],s["held"]) for s in steps[1:]], [(1,["fire"]),(5,[])]*4)
+            self.assertEqual([(s["ticks"],s["held"]) for s in steps[1:-1]], [(1,["aim","fire"]),(5,["aim"])]*4)
+            self.assertEqual(steps[-1]["held"],[])
             self.assertTrue(all(s["aim_entity"]==42 for s in steps))
             client.input.assert_not_called()
 
@@ -24,9 +25,9 @@ class RunnerTests(unittest.TestCase):
         from unittest.mock import Mock
         client = Mock()
         busy = {"firing": {"ready":False,"magazine":0}}
-        loaded = {"firing":{"ready":True,"magazine":8,"interval":.096,"automatic":False},
+        loaded = {"firing":{"ready":True,"magazine":8,"interval":.096,"automatic":False,"aim_seconds":.2},
                   "player":{"eye":[0,1.62,0],"yaw":0,"pitch":0},
-                  "enemies":[{"entity":42,"position":[0,1.62,-5]}]}
+                  "enemies":[{"entity":42,"position":[0,1.62,-5],"aim":[0,1.62,-5]}]}
         client.state.return_value = busy
         client.wait.return_value = loaded
         shoot_at(client, 42)

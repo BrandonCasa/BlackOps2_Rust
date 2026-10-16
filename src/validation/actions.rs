@@ -281,8 +281,13 @@ fn require_playing(state: GameState) -> Result<(), String> {
 }
 
 pub(super) fn look_delta(world: &mut World, target: Vec3) -> Vec2 {
-    let Ok((player, pose, inventory)) = world
-        .query::<(&Player, &Transform, &WeaponInventory)>()
+    let Ok((player, pose, inventory, feedback)) = world
+        .query::<(
+            &Player,
+            &Transform,
+            &WeaponInventory,
+            &crate::movement::MotionFeedback,
+        )>()
         .single(world)
     else {
         return Vec2::ZERO;
@@ -291,9 +296,11 @@ pub(super) fn look_delta(world: &mut World, target: Vec3) -> Vec2 {
     let direction = (target - eye).normalize_or_zero();
     let yaw = (-direction.x).atan2(-direction.z);
     let pitch = direction.y.asin().clamp(-1.5, 1.5);
-    let dy = (yaw - player.yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU)
+    let view_yaw = player.yaw + inventory.recoil.x + feedback.view_angles.y.to_radians();
+    let view_pitch = player.pitch + inventory.recoil.y - feedback.view_angles.x.to_radians();
+    let dy = (yaw - view_yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU)
         - std::f32::consts::PI;
-    let dp = pitch - player.pitch;
+    let dp = pitch - view_pitch;
     let game = world.resource::<crate::assets::GameDefinition>();
     let settings = world.resource::<crate::input::ControlSettings>();
     let hip = game.tuning.mouse_sensitivity * settings.sensitivity;

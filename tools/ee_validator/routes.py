@@ -1,5 +1,6 @@
 """Watchable route functions. Every step inspects the actual game state."""
 import math
+import json
 import struct
 import time
 from client import ValidationFailure
@@ -98,7 +99,7 @@ def shoot_at(client, entity, *, shots=4, label="Fire equipped weapon at its nati
                             seconds=10)
         firing = state["firing"]
     enemy = next(e for e in state["enemies"] if e["entity"] == entity)
-    target = enemy["position"]
+    target = enemy["aim"]
     eye = state["player"]["eye"]
     yaw = math.atan2(eye[0] - target[0], eye[2] - target[2])
     pitch = math.atan2(target[1] - eye[1], distance(eye, target))
@@ -106,16 +107,17 @@ def shoot_at(client, entity, *, shots=4, label="Fire equipped weapon at its nati
                abs(pitch - state["player"]["pitch"]))
     aiming = {"op": "input", "aim_entity": entity, "look": [0, 0]}
     steps = []
-    steps.append({**aiming, "ticks": max(1, math.ceil(turn / (math.pi / 2) * 60)), "held": []})
+    steps.append({**aiming, "ticks": max(1, math.ceil(turn / (math.pi / 2) * 60),
+                                        math.ceil(firing["aim_seconds"] * 60) + 1), "held": ["aim"]})
     count = min(shots, firing["magazine"])
     interval = max(2, math.ceil(firing["interval"] * 60))
     if firing["automatic"]:
-        steps.append({**aiming, "ticks": interval * count, "held": ["fire"]})
-        steps.append({**aiming, "ticks": 1, "held": []})
+        steps.append({**aiming, "ticks": interval * count, "held": ["aim", "fire"]})
     else:
         for _ in range(count):
-            steps.extend([{**aiming, "ticks": 1, "held": ["fire"]},
-                          {**aiming, "ticks": interval - 1, "held": []}])
+            steps.extend([{**aiming, "ticks": 1, "held": ["aim", "fire"]},
+                          {**aiming, "ticks": interval - 1, "held": ["aim"]}])
+    steps.append({**aiming, "ticks": 1, "held": []})
     client.send(steps, label=label)
 
 
@@ -290,14 +292,7 @@ def generators_tank(client):
         live = [e for e in guards if e["emerged"] and e["life"] == "ActorAlive"]
         if live:
             enemy = min(live, key=lambda e: distance(e["position"], state["player"]["feet"]))
-            attack = "melee" if distance(enemy["position"], state["player"]["feet"]) < 1.5 else "fire"
-            if attack == "fire":
-                shoot_at(client, enemy["entity"], label="Defend the generator at the equipped rifle's native cadence")
-            else:
-                client.send([{"op":"input","ticks":20,"held":[],"aim_entity":enemy["entity"]},
-                             {"op":"input","ticks":8,"held":["melee"],"aim_entity":enemy["entity"]},
-                             {"op":"input","ticks":6,"held":[],"aim_entity":enemy["entity"]}],
-                            label="Knife the nearby generator guard")
+            shoot_at(client, enemy["entity"], label="Defend the generator at the equipped rifle's native cadence")
             client.send({"op": "assist", "god": True, "points": state["round"]["points"], "ammo": True, "doors": False})
         else:
             client.input(12, label="Hold the generator capture area")
@@ -378,6 +373,7 @@ def first_lightning_part(client):
     results["ride"] = {"supported_observations": supported}
     results["ride_capture"] = capture(client, "tank-ride")
     walk_to(client, [1.7, 2.36, -6.4], tolerance=0.3, seconds=10, on_tank=True)
+    client.input(30, label="Settle on the front deck before timing the jump")
     state = client.state()
     sequence = state["evidence"]["sequence"]
     landing = [43.5, -3.76, -83.9]
@@ -389,6 +385,10 @@ def first_lightning_part(client):
     yaw = math.atan2(33.9852 - 32.209994, 83.769708 - 73.9902)
     takeoff = tank_point({"position": [32.49491, 0, -82.2],
                           "rotation": [0, math.sin(yaw / 2), 0, math.cos(yaw / 2)]}, local)
+    (client.report / "tank-jump-plan.json").write_text(json.dumps({
+        "feet":state["player"]["feet"],"velocity":state["player"]["velocity"],
+        "tank":tank["position"],"local":local,"wait_point":takeoff,"runup_ticks":10,"aim":landing,
+    },indent=2))
     client.send([
         {"op": "input", "ticks": 1800, "held": [], "aim": landing, "look": [0, 0],
          "arrival_point": takeoff, "arrival_radius": 0.2},

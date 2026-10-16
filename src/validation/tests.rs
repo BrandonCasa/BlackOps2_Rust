@@ -408,6 +408,110 @@ fn expired_real_time_watchdog_recovers_without_a_runner_even_while_paused() {
 }
 
 #[test]
+fn aiming_tracks_the_animated_torso_without_new_network_inputs() {
+    let mut app = harness();
+    let game: crate::assets::GameDefinition = serde_json::from_slice(
+        &std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("gameplay/origins/game.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    app.insert_resource(game);
+    let player = app
+        .world_mut()
+        .spawn((
+            crate::player::Player {
+                yaw: 0.,
+                pitch: 0.,
+                velocity: Vec3::ZERO,
+                height: 1.8,
+                grounded: true,
+                crouched: false,
+                prone: false,
+                eye_height: 1.62,
+            },
+            Transform::from_xyz(0., 0.9, 0.),
+            crate::weapons::WeaponInventory::default(),
+        ))
+        .id();
+    let target = app
+        .world_mut()
+        .spawn((
+            Transform::from_xyz(0., 1., -5.),
+            crate::hit_regions::Hitboxes::humanoid(1.8, 0.3),
+        ))
+        .id();
+    command(
+        &mut app,
+        1,
+        Command::Input {
+            ticks: 30,
+            held: vec![],
+            look: [0., 0.],
+            aim: None,
+            aim_entity: Some(target.to_bits()),
+            aim_offset: None,
+            arrival_point: None,
+            arrival_radius: None,
+        },
+    );
+    frame(&mut app, 6);
+    let expected = ((1.072_f32 - 1.62) / 5.).atan();
+    assert!(
+        (app.world()
+            .get::<crate::player::Player>(player)
+            .unwrap()
+            .pitch
+            - expected)
+            .abs()
+            < 1e-6
+    );
+    {
+        let mut boxes = app
+            .world_mut()
+            .get_mut::<crate::hit_regions::Hitboxes>(target)
+            .unwrap();
+        let torso = boxes
+            .volumes
+            .iter_mut()
+            .find(|v| v.region == crate::weapons::HitRegion::Torso)
+            .unwrap();
+        torso.start.y += 1.;
+        torso.end.y += 1.;
+    }
+    app.world_mut()
+        .get_mut::<crate::weapons::WeaponInventory>(player)
+        .unwrap()
+        .recoil = Vec2::new(0.05, 0.1);
+    app.world_mut()
+        .get_mut::<crate::movement::MotionFeedback>(player)
+        .unwrap()
+        .view_angles = Vec2::new(1., 2.);
+    frame(&mut app, 12);
+    let expected = ((2.072_f32 - 1.62) / 5.).atan() - 0.1 + 1_f32.to_radians();
+    assert!(
+        (app.world()
+            .get::<crate::player::Player>(player)
+            .unwrap()
+            .pitch
+            - expected)
+            .abs()
+            < 1e-6
+    );
+    assert!(
+        (app.world()
+            .get::<crate::player::Player>(player)
+            .unwrap()
+            .yaw
+            + 0.05
+            + 2_f32.to_radians())
+        .abs()
+            < 1e-6
+    );
+}
+
+#[test]
 fn scripted_look_runs_once_per_fixed_tick_before_movement_and_never_in_zero_tick_frames() {
     let mut app = harness();
     let game: crate::assets::GameDefinition = serde_json::from_slice(
@@ -462,7 +566,10 @@ fn scripted_look_runs_once_per_fixed_tick_before_movement_and_never_in_zero_tick
     );
     frame(&mut app, 2);
     let trace = &app.world().resource::<Trace>().0;
-    assert!((trace[0].4 + 6. * sensitivity).abs() < 1e-7, "trace={trace:?}; sensitivity={sensitivity}");
+    assert!(
+        (trace[0].4 + 6. * sensitivity).abs() < 1e-7,
+        "trace={trace:?}; sensitivity={sensitivity}"
+    );
     assert!((trace[1].4 + 12. * sensitivity).abs() < 1e-7);
     request.id = 2;
     assert!(submit(app.world_mut(), request).is_ok());

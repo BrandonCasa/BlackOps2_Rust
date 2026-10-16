@@ -81,6 +81,7 @@ pub(super) fn snapshot(world: &mut World) -> Value {
         let definition = game.content.weapons.iter().find(|weapon| weapon.id == active.definition)?;
         Some(json!({"interval":definition.fire_interval * inventory.firing.interval_scale,
             "automatic":matches!(definition.mechanics.fire, crate::origins::content::FirePattern::Automatic),
+            "aim_seconds":definition.mechanics.ads_seconds[0],
             "ready":inventory.action == crate::weapons::WeaponAction::Ready,
             "magazine":active.magazine}))
     });
@@ -89,7 +90,8 @@ pub(super) fn snapshot(world: &mut World) -> Value {
     });
     let enemies:Vec<_>=world.query::<(Entity,&crate::enemies::Zombie,&Transform,&Vitality,Option<&crate::rounds::SpawnZone>,Option<&crate::generators::GeneratorDefender>,Option<&crate::hit_regions::Hitboxes>)>().iter(world).map(|(e,z,t,h,zone,defender,boxes)| {
         let head=boxes.and_then(|boxes|boxes.volumes.iter().find(|v|v.region.head())).map(|v|t.transform_point((v.start+v.end)*0.5).to_array());
-        json!({"entity":e.to_bits(),"position":t.translation.to_array(),"head":head,"definition":z.definition.0,"generator":defender.map(|d|&d.generator.0),"health":h.current(),"life":format!("{:?}",h.state()),"emerged":z.completed_emerging(),"zone":zone.map(|z|z.0.0.clone())})
+        let aim=t.transform_point(boxes.and_then(aim_point).unwrap_or(Vec3::ZERO));
+        json!({"entity":e.to_bits(),"position":t.translation.to_array(),"aim":aim.to_array(),"head":head,"definition":z.definition.0,"generator":defender.map(|d|&d.generator.0),"health":h.current(),"life":format!("{:?}",h.state()),"emerged":z.completed_emerging(),"zone":zone.map(|z|z.0.0.clone())})
     }).collect();
     let mut targets:Vec<_>=world.query::<(Entity,&crate::environment::digging::DigTarget,&Transform)>().iter(world).map(|(e,target,t)|json!({"entity":e.to_bits(),"target":target,"position":t.translation.to_array()})).collect();
     targets.extend(
@@ -183,6 +185,19 @@ pub(super) fn snapshot(world: &mut World) -> Value {
         result["tank"] = json!({"entity":tank.entity.map(Entity::to_bits),"phase":format!("{:?}",tank.phase),"station":tank.station,"trips":tank.trips,"timer":tank.timer,"position":pose.map(|p|p.translation.to_array()),"rotation":pose.map(|p|p.rotation.to_array()),"model_scale":model_scale});
     }
     result
+}
+
+pub(super) fn aim_point(boxes: &crate::hit_regions::Hitboxes) -> Option<Vec3> {
+    use crate::weapons::HitRegion;
+    [HitRegion::UpperTorso, HitRegion::MidTorso, HitRegion::Torso]
+        .into_iter()
+        .find_map(|region| {
+            boxes
+                .volumes
+                .iter()
+                .find(|v| v.region == region)
+                .map(|v| (v.start + v.end) * 0.5)
+        })
 }
 #[derive(Component)]
 pub(super) struct Overlay;
