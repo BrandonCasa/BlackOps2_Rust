@@ -1028,7 +1028,8 @@ impl Plugin for AnimatedModelPlugin {
                 bind_animated_draws
                     .in_set(AnimatedModelSystems::BindDraws)
                     .after(bevy::transform::TransformSystems::Propagate)
-                    .before(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate)
+                    .after(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate)
+                    .before(bevy::camera::visibility::VisibilitySystems::CheckVisibility)
                     .before(super::world::object_constants),
             )
             .add_systems(
@@ -1126,6 +1127,7 @@ fn bind_animated_draws(
     sonar_actors: Query<&super::native_sonar::NativeSonarActor>,
     meshes: Query<(
         &GlobalTransform,
+        &InheritedVisibility,
         Option<&RenderLayers>,
         Has<NoFrustumCulling>,
     )>,
@@ -1154,7 +1156,7 @@ fn bind_animated_draws(
         let Some(model) = models.get(&instance.model) else {
             continue;
         };
-        let Ok((mesh_transform, layers, no_culling)) = meshes.get(binding.mesh) else {
+        let Ok((mesh_transform, mesh_visibility, layers, no_culling)) = meshes.get(binding.mesh) else {
             continue;
         };
         let origin = source_frame.transform_point3(root_transform.translation());
@@ -1219,6 +1221,7 @@ fn bind_animated_draws(
                 axes,
                 mesh_transform.mul_transform(axes),
                 Visibility::Inherited,
+                *mesh_visibility,
                 layers.cloned().unwrap_or_default(),
                 binding.bounds,
                 super::world::WorldSurfaceLighting(sh),
