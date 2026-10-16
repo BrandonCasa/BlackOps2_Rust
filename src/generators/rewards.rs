@@ -524,48 +524,48 @@ fn collect(
         {
             continue;
         }
-        // The church box is a native 64-inch unitrigger_box_use centered on its origin.
-        let box_shape = Collider::cuboid(1.6256, 1.6256, 1.6256);
-        let box_pose = Transform::from_translation(Vec3::from_array(profile.position));
-        let box_state = crate::environment::triggers::TriggerState {
-            enabled: true,
-            contents: 0x200000,
-            spawnflags: 0,
-            excluded_clients: default(),
-            team: None,
-            team_inverted: false,
-            automatic: false,
-            touch_callback: false,
-            look_at: false,
-            delete_on_activation: false,
-        };
-        let (trigger, shape, trigger_pose, state) = if let Some(id) = profile.source_trigger {
+        let eye = pose.translation + Vec3::Y * (player.eye_height - player.height * 0.5);
+        let forward = Quat::from_euler(EulerRot::YXZ, player.yaw, player.pitch, 0.) * Vec3::NEG_Z;
+        let usable = if let Some(id) = profile.source_trigger {
             let Some((e, _, shape, pose, state)) =
                 triggers.iter().find(|(_, t, _, _, _)| t.0 == id)
             else {
                 continue;
             };
-            (e, shape, pose, state)
+            crate::environment::support::use_candidate(
+                e,
+                shape,
+                pose,
+                state,
+                &spatial,
+                owner,
+                mode.0,
+                eye,
+                forward,
+                false,
+                game.tuning.use_radius,
+            )
+            .is_some()
         } else {
-            (reward, &box_shape, &box_pose, &box_state)
+            // The 64-inch unitrigger is centered on the box origin, which can be
+            // below the floor. Trace to its nearest face instead of its buried center.
+            let delta = church_use_point(eye) - eye;
+            let distance = delta.length();
+            mode.0 == 0
+                && distance <= game.tuning.use_radius
+                && Dir3::new(delta).is_ok_and(|direction| {
+                    spatial
+                        .cast_ray(
+                            eye,
+                            direction,
+                            (distance - 0.01).max(0.),
+                            true,
+                            &crate::environment::solids([owner, reward]),
+                        )
+                        .is_none()
+                })
         };
-        let eye = pose.translation + Vec3::Y * (player.eye_height - player.height * 0.5);
-        let forward = Quat::from_euler(EulerRot::YXZ, player.yaw, player.pitch, 0.) * Vec3::NEG_Z;
-        if crate::environment::support::use_candidate(
-            trigger,
-            shape,
-            trigger_pose,
-            state,
-            &spatial,
-            owner,
-            mode.0,
-            eye,
-            forward,
-            false,
-            game.tuning.use_radius,
-        )
-        .is_none()
-        {
+        if !usable {
             continue;
         }
         focus.target = Some(reward);
@@ -608,10 +608,22 @@ fn collect(
         break;
     }
 }
+fn church_use_point(eye: Vec3) -> Vec3 {
+    let origin = Vec3::from_array(CHURCH_BOX);
+    eye.clamp(origin - Vec3::splat(0.8128), origin + Vec3::splat(0.8128))
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn church_use_ray_reaches_the_volume_above_the_native_floor() {
+        let eye = Vec3::new(32.2329, 9.378765, 94.2881);
+        let point = church_use_point(eye);
+        assert!(point.y > 7.778765);
+        assert!((point.y - (CHURCH_BOX[1] + 0.8128)).abs() < 0.00001);
+        assert!(point.distance(eye) < 1.6256);
+    }
     #[test]
     fn only_church_capture_opens_the_fire_reward_and_recaptures_do_not_reset_it() {
         let mut rewards = CaptureRewards::default();

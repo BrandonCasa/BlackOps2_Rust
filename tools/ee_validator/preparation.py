@@ -143,6 +143,97 @@ def take_crystal_and_return(client, element, index):
         raise ValidationFailure("Gramophone was not retrieved after portal travel")
 
 
+def select_snow(client):
+    if client.state()["weather"]["selection"] is not None:
+        return
+    accepted = client.send({"op": "weather_choice", "kind": "snow"}, wait=False,
+                           label="Choose snow only at the owner's eligible next round opportunity")
+    command = accepted["request"]["id"]
+    client.wait(lambda s: client.receipt(command)["phase"] != "accepted", realtime=True)
+    if client.receipt(command)["phase"] not in ("executed", "rejected"):
+        raise ValidationFailure("Weather opportunity did not resolve normally")
+
+
+def dig_snow_parts(client):
+    regions = {"lower_staff": "bunker", "middle_staff": "nml", "upper_staff": "village"}
+    client.input(180, label="Allow native snow presentation and mound replenishment")
+    while True:
+        state = client.state()
+        missing = {f"part.elemental_staff_water.{piece}": region for piece, region in regions.items()
+                   if state["parts"]["pieces"].get(f"part.elemental_staff_water.{piece}", {}).get("state") != "owned"}
+        for name in list(missing):
+            if state["parts"]["pieces"].get(name, {}).get("state") == "available":
+                collect_part(client, name)
+                del missing[name]
+        if not missing or state["weather"]["kind"] != "snow":
+            return
+        mounds = [t for t in state["targets"] if t["target"]["kind"] == "mound"
+                  and any(region in t["zone"] for region in missing.values())]
+        if not mounds:
+            return
+        mound = min(mounds, key=lambda t: distance(t["position"], state["player"]["feet"]))
+        stage_near(client, mound, f"snow dig in {mound['zone']}")
+        x, y, z = mound["position"]
+        use_target(client, mound, "Dig the ordinary snow mound", aim=[x, y + 0.508, z])
+        client.input(60, label="Let the normal dig reward rise")
+
+
+def clear_round(client):
+    state = client.state()
+    round_number = state["round"]["number"]
+    deadline = state["control"]["simulation_seconds"] + 600
+    sequence = state["evidence"]["sequence"]
+    last_progress = state["control"]["simulation_seconds"]
+    previous_kills = state["evidence"]["kills"]
+    while state["round"]["number"] == round_number:
+        if state["control"]["simulation_seconds"] > deadline:
+            raise ValidationFailure(f"Normal combat could not finish round {round_number}")
+        if state["evidence"]["kills"] != previous_kills:
+            previous_kills = state["evidence"]["kills"]
+            last_progress = state["control"]["simulation_seconds"]
+        planes = [p for p in state["planes"] if not p["quest"]]
+        if planes:
+            shoot_at(client, planes[0]["entity"], shots=2, label="Shoot the glowing fire-part plane normally")
+        else:
+            live = [e for e in state["enemies"] if e["life"] == "ActorAlive" and e["emerged"]
+                    and e["generator"] is None]
+            if live:
+                enemy = min(live, key=lambda e: distance(e["position"], state["player"]["feet"]))
+                # Staging stays on native floors; every kill still uses the equipped weapon.
+                if distance(enemy["position"], state["player"]["feet"]) > 25 or state["control"]["simulation_seconds"] - last_progress > 20:
+                    stage_near(client, enemy, "ordinary combat approach")
+                    last_progress = client.state()["control"]["simulation_seconds"]
+                client.send({"op": "assist", "god": True, "points": state["round"]["points"], "ammo": True, "doors": False})
+                shoot_at(client, enemy["entity"], shots=8, head=enemy["definition"] == "enemy.panzer",
+                         label=f"Clear round {round_number} with player-attributed weapon fire")
+            else:
+                client.input(60, label=f"Wait for the next native round {round_number} spawn")
+        state = client.state()
+    kills = [e for e in state["evidence"]["events"] if e["sequence"] > sequence and e["kind"] == "kill"]
+    if not kills:
+        raise ValidationFailure("Round advanced without any observed player-attributed kill")
+    return {"round": round_number, "kills": len(kills)}
+
+
+def fire_and_ice_parts(client):
+    result = []
+    names = [f"part.elemental_staff_fire.{p}" for p in ("middle_staff", "lower_staff")]
+    names += [f"part.elemental_staff_water.{p}" for p in ("upper_staff", "middle_staff", "lower_staff")]
+    while True:
+        state = client.state()
+        for name in names:
+            if state["parts"]["pieces"].get(name, {}).get("state") == "available":
+                collect_part(client, name)
+        if all(client.state()["parts"]["pieces"].get(name, {}).get("state") == "owned" for name in names):
+            return result
+        if state["round"]["number"] > 15:
+            raise ValidationFailure("Fire and snow opportunities did not yield their normal parts by round 15")
+        dig_snow_parts(client)
+        select_snow(client)
+        stage_near(client, {"position": [20.024852, 3.519932, -11.958066]}, "open No Man's Land combat area")
+        result.append(clear_round(client))
+
+
 def preparation(client):
     result = {"opportunities": opportunity_rejections(client)}
     speed = int(client.state()["speed"])
@@ -170,6 +261,7 @@ def preparation(client):
     result["drone"] = capture(client, "maxis-drone-crafted")
     for index, element in enumerate(("fire", "air", "lightning", "water")):
         collect_crystal(client, element, index)
+    result["fire_and_ice"] = fire_and_ice_parts(client)
     pieces = client.state()["parts"]["pieces"]
     missing = [f"part.elemental_staff_{element}.{piece}"
                for element in ("fire", "air", "lightning", "water")
