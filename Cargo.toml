@@ -33,8 +33,8 @@ rodio = { optional = true, version = "=0.22.2", default-features = false }
 raw-window-handle = "=0.6.2"
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
-log = { version = "=0.4.34", features = ["max_level_debug", "release_max_level_off"] }
-tracing = { version = "=0.1.44", default-features = false, features = ["std", "release_max_level_off"] }
+log = { version = "=0.4.34", features = ["max_level_debug", "release_max_level_info"] }
+tracing = { version = "=0.1.44", default-features = false, features = ["std", "release_max_level_info"] }
 tracy-client = { version = "=0.19.0", default-features = false, features = ["only-localhost"], optional = true }
 
 
@@ -57,7 +57,7 @@ codegen-units = 64
 [profile.release]
 opt-level = 3
 lto = true
-codegen-units = 256
+codegen-units = 1
 incremental = true
 debug = false
 debug-assertions = false

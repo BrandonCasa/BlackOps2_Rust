@@ -64,6 +64,7 @@ pub mod rendering;
 pub mod rituals;
 pub mod robots;
 pub mod rounds;
+mod run_log;
 mod session;
 pub mod side_rewards;
 pub mod side_secrets;
@@ -91,11 +92,8 @@ pub enum GameState {
 }
 
 pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
+    let log = run_log::RunLog::open().expect("Create the game run log");
     let options = assets::LaunchOptions::parse(arguments);
-    configured_app(options)
-}
-
-pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
     let cinematics = cinematics::Cinematics::load(&options.asset_root);
     // Reserve stack space for the debug glTF asset-loading task frames.
     bevy::tasks::IoTaskPool::get_or_init(|| {
@@ -106,6 +104,7 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
             .build()
     });
     let mut app = App::new();
+    app.insert_resource(log);
     app.insert_resource(bevy::anti_alias::dlss::DlssProjectId(
         bevy::asset::uuid::Uuid::from_u128(0x8e091984_d832_4d03_9f7c_38a3fca674dc),
     ));
@@ -119,10 +118,12 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
     let asset_root = options.asset_root.to_string_lossy().into_owned();
     app.insert_resource(options);
     let default_plugins = DefaultPlugins.build();
-    #[cfg(all(not(debug_assertions), not(feature = "dev-tools")))]
-    let default_plugins = default_plugins.disable::<bevy::log::LogPlugin>();
     app.add_plugins(
         default_plugins
+            .set(bevy::log::LogPlugin {
+                custom_layer: run_log::layer,
+                ..default()
+            })
             .set(AssetPlugin {
                 file_path: asset_root,
                 ..default()
