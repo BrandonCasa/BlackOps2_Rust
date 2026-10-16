@@ -168,7 +168,8 @@ pub(crate) fn bind(game: &mut GameDefinition, root: &Path) -> Result<(), String>
         if let Some(throwable) = &mut weapon.throwable {
             throwable.speed = number("projectileSpeed")? * crate::assets::SOURCE_UNIT_METERS;
             throwable.up_speed = number("projectileSpeedUp")? * crate::assets::SOURCE_UNIT_METERS;
-            throwable.relative_up_speed = number("projectileSpeedRelativeUp")? * crate::assets::SOURCE_UNIT_METERS;
+            throwable.relative_up_speed =
+                number("projectileSpeedRelativeUp")? * crate::assets::SOURCE_UNIT_METERS;
             throwable.rotating = text("rotate") == Some("1");
         }
         weapon.effects = super::content::WeaponEffects {

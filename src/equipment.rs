@@ -910,12 +910,19 @@ fn grenade_spin(
         (-velocity.z).atan2(velocity.x),
         0.,
     );
-    let rotating = tuning.native_launch.as_ref().map_or(tuning.rotating, |native| native.rotating);
+    let rotating = tuning
+        .native_launch
+        .as_ref()
+        .map_or(tuning.rotating, |native| native.rotating);
     if !rotating || !thrown {
         return (angles, Vec3::ZERO);
     }
     angles.x -= 120_f32.to_radians();
-    let spin = if tuning.native_launch.as_ref().is_some_and(|native| native.rotation_mode == 1) {
+    let spin = if tuning
+        .native_launch
+        .as_ref()
+        .is_some_and(|native| native.rotation_mode == 1)
+    {
         Vec3::new(1500_f32.to_radians(), 0., 0.)
     } else {
         let signed = |offset: u64, low: f32, high: f32| {
@@ -1410,6 +1417,39 @@ mod native_grenade_tests {
             rest_normal: Vec3::ZERO,
             lure_active: false,
         }
+    }
+
+    #[test]
+    fn grenade_fuse_keeps_the_last_flight_interval_without_flying_past_detonation() {
+        for native in [false, true] {
+            let mut body = grenade();
+            body.remaining = 0.075;
+            assert_eq!(body.advance_time(1. / 60., native), 0.);
+            assert_eq!(body.remaining, 0.075);
+            let mut flight = 0.;
+            while body.remaining > 0. {
+                flight += body.advance_time(1. / 60., native);
+            }
+            assert!((flight - 0.075).abs() < 0.000001, "native={native}");
+            assert_eq!(body.advance_time(1. / 60., native), 0.);
+        }
+    }
+
+    #[test]
+    fn grenade_launch_keeps_view_relative_up_separate_from_world_up_and_rotates() {
+        let mut tuning = profile();
+        tuning.native_launch = None;
+        tuning.speed = 0.;
+        tuning.up_speed = 2.;
+        tuning.relative_up_speed = 3.;
+        tuning.rotating = true;
+        let rotation = Quat::from_rotation_x(std::f32::consts::FRAC_PI_2);
+        let velocity = native_launch_velocity(&tuning, rotation, Vec3::ZERO);
+        assert!(velocity.abs_diff_eq(Vec3::Y * 2. + Vec3::Z * 3., 0.00001));
+        assert_ne!(grenade_spin(&tuning, velocity, 1, true).1, Vec3::ZERO);
+        assert_eq!(grenade_spin(&tuning, velocity, 1, false).1, Vec3::ZERO);
+        tuning.rotating = false;
+        assert_eq!(grenade_spin(&tuning, velocity, 1, true).1, Vec3::ZERO);
     }
 
     #[test]

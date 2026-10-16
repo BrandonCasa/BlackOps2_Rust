@@ -189,6 +189,8 @@ struct PendingRagdoll {
 struct RejectedRagdoll;
 #[derive(Component)]
 pub(super) struct PhysicalRagdoll {
+    // Avian sleeps resting joint islands and wakes them on impulses or contact.
+    // Keep the bodies dynamic so later impacts can move the whole corpse.
     bodies: Vec<Option<Entity>>,
     seconds: f32,
 }
@@ -996,6 +998,137 @@ fn cleanup(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn blast_impulses_lift_fall_off_and_respect_directional_mines() {
+        let mut blast = RagdollExplosion {
+            center: Vec3::ZERO,
+            inner_radius: 2.,
+            radius: 6.,
+            direction: None,
+            magnitude: 1.,
+        };
+        let near = blast.impulse(Vec3::X, 18.);
+        assert!(near.x > 0. && near.y > 0.);
+        assert!(
+            blast
+                .impulse(Vec3::X * 4., 18.)
+                .abs_diff_eq(near * 0.5, 0.00001)
+        );
+        assert_eq!(blast.impulse(Vec3::X * 6., 18.), Vec3::ZERO);
+        assert!(blast.impulse(Vec3::ZERO, 18.).is_finite());
+        assert!(blast.impulse(Vec3::ZERO, 18.).y > 0.);
+        blast.direction = Some((Vec3::X, 0.5));
+        assert_eq!(blast.impulse(Vec3::NEG_X, 18.), Vec3::ZERO);
+        assert_eq!(blast.impulse(Vec3::Z, 18.), Vec3::ZERO);
+        assert!(blast.impulse(Vec3::X, 18.).x > 0.);
+    }
+
+    #[test]
+    fn blasts_push_more_than_four_sleeping_corpses_without_a_camera() {
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            AssetPlugin::default(),
+            bevy::mesh::MeshPlugin,
+            TransformPlugin,
+            PhysicsPlugins::new(PostUpdate),
+        ))
+        .insert_resource(Gravity(Vec3::ZERO))
+        .insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+            Duration::from_secs_f32(1. / 60.),
+        ))
+        .init_resource::<super::super::gibs::GibCounter>()
+        .add_message::<RagdollExplosion>();
+        let mut parts = Vec::new();
+        for index in 0..6 {
+            let part = app
+                .world_mut()
+                .spawn((
+                    RigidBody::Dynamic,
+                    Collider::sphere(0.05),
+                    Mass(0.02),
+                    NoAutoMass,
+                    CollisionLayers::new(CLIENT_PHYSICS_LAYER, 1u32),
+                    Transform::from_xyz(2., 0., index as f32 * 0.2),
+                ))
+                .id();
+            app.world_mut().spawn(PhysicalRagdoll {
+                bodies: vec![Some(part)],
+                seconds: 10.,
+            });
+            parts.push(part);
+        }
+        let blocked = app
+            .world_mut()
+            .spawn((
+                RigidBody::Dynamic,
+                Collider::sphere(0.05),
+                CollisionLayers::new(CLIENT_PHYSICS_LAYER, 1u32),
+                Transform::from_xyz(2., 0., 4.),
+            ))
+            .id();
+        app.world_mut().spawn(PhysicalRagdoll {
+            bodies: vec![Some(blocked)],
+            seconds: 10.,
+        });
+        app.world_mut().spawn((
+            RigidBody::Static,
+            Collider::cuboid(0.2, 2., 0.4),
+            Transform::from_xyz(1., 0., 2.),
+        ));
+        let mut dead = crate::life::Vitality::ordinary_actor(100, 100).unwrap();
+        dead.apply(crate::life::ResolvedDamage::new(100).unwrap())
+            .unwrap();
+        let dying = app
+            .world_mut()
+            .spawn((
+                Zombie::new(
+                    Vec3::new(3., 0., -2.),
+                    crate::origins::ContentId("enemy.zombie".into()),
+                    crate::rounds::Gait::Walk,
+                ),
+                dead,
+                Transform::from_xyz(3., 0., -2.),
+            ))
+            .id();
+        app.update();
+        for &part in parts.iter().chain(std::iter::once(&blocked)) {
+            app.world_mut().entity_mut(part).insert(Sleeping);
+        }
+        app.world_mut()
+            .resource_mut::<Messages<RagdollExplosion>>()
+            .write(RagdollExplosion {
+                center: Vec3::ZERO,
+                inner_radius: 0.,
+                radius: 6.,
+                direction: None,
+                magnitude: 1.,
+            });
+        app.world_mut().run_system_cached(explosions).unwrap();
+        assert!(
+            app.world()
+                .entity(dying)
+                .contains::<ClientRagdollRequested>()
+        );
+        assert_eq!(app.world().get::<DeathBlasts>(dying).unwrap().0.len(), 1);
+        assert_eq!(
+            *app.world().get::<LinearVelocity>(blocked).unwrap(),
+            LinearVelocity::ZERO
+        );
+        for &part in &parts {
+            let velocity = app.world().get::<LinearVelocity>(part).unwrap();
+            assert!(velocity.x > 0. && velocity.y > 0.);
+        }
+        app.update();
+        for part in parts {
+            assert!(!app.world().entity(part).contains::<Sleeping>());
+            assert_eq!(
+                *app.world().get::<RigidBody>(part).unwrap(),
+                RigidBody::Dynamic
+            );
+        }
+    }
 
     #[test]
     fn ragdoll_snapshots_omit_collapsed_limbs_and_preserve_source_units() {
