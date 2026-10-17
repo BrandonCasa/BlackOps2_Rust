@@ -343,6 +343,70 @@ mod tests {
     }
 
     #[test]
+    fn replacing_scene_retires_native_bindings_before_the_new_scene_is_ready() {
+        let mut app = App::new();
+        app.init_resource::<Assets<SkinnedMeshInverseBindposes>>()
+            .add_observer(invalidate_native_instance)
+            .add_systems(Update, (update_native_bounds, update_native_palettes));
+        let bind = app
+            .world_mut()
+            .resource_mut::<Assets<SkinnedMeshInverseBindposes>>()
+            .add(SkinnedMeshInverseBindposes::from(vec![Mat4::IDENTITY]));
+        let owner = app.world_mut().spawn_empty().id();
+        let scene = app.world_mut().spawn(ChildOf(owner)).id();
+        let joint = app
+            .world_mut()
+            .spawn((ChildOf(scene), GlobalTransform::IDENTITY))
+            .id();
+        let mesh = app
+            .world_mut()
+            .spawn((
+                ChildOf(scene),
+                Mesh3d::default(),
+                GlobalTransform::IDENTITY,
+                Aabb::default(),
+            ))
+            .id();
+        let surface = app.world_mut().spawn(ChildOf(mesh)).id();
+        app.world_mut().entity_mut(owner).insert((
+            NativeBoneBinding {
+                mesh,
+                joints: vec![joint],
+                inverse_bindposes: bind,
+                bounds_meshes: vec![mesh],
+                bounds: Aabb::default(),
+            },
+            NativeSkinPalette(vec![Mat4::IDENTITY]),
+            AnimatedModelInstance {
+                model: Handle::default(),
+                lod: Some(0),
+            },
+            AnimatedDraws {
+                model: Handle::<AnimatedModel>::default().id(),
+                lod: 0,
+                probe: 0,
+                surfaces: vec![surface],
+                materials: BTreeMap::new(),
+            },
+            DynamicLightingOrigin(Vec3::ZERO),
+            InheritedVisibility::VISIBLE,
+        ));
+        app.update();
+        // Bevy removes the old scene before an asynchronously loaded
+        // replacement sends WorldInstanceReady. The persistent owner stays.
+        app.world_mut().despawn(scene);
+        app.update();
+        app.update();
+        let root = app.world().entity(owner);
+        assert!(!root.contains::<NativeBoneBinding>());
+        assert!(!root.contains::<NativeSkinPalette>());
+        assert!(!root.contains::<AnimatedModelInstance>());
+        assert!(!root.contains::<AnimatedDraws>());
+        assert!(!root.contains::<DynamicLightingOrigin>());
+        assert!(app.world().get_entity(surface).is_err());
+    }
+
+    #[test]
     fn native_palette_cancels_bind_pose_and_instance_scale() {
         let axes = Mat4::from_cols(Vec4::X, -Vec4::Z, Vec4::Y, Vec4::W);
         let owner = Mat4::from_scale_rotation_translation(
@@ -1041,6 +1105,7 @@ impl Plugin for AnimatedModelPlugin {
         app.init_asset::<AnimatedModel>()
             .init_asset_loader::<AnimatedModelLoader>()
             .add_observer(load_native_instance)
+            .add_observer(invalidate_native_instance)
             .add_systems(Update, bind_native_bones)
             .add_systems(
                 PostUpdate,
@@ -1073,6 +1138,32 @@ impl Plugin for AnimatedModelPlugin {
                     .after(bevy::transform::TransformSystems::Propagate)
                     .after(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate),
             );
+    }
+}
+
+// A scene root can survive while Bevy despawns its old scene and waits for
+// the replacement asset. Retire references with their mesh, before another
+// bounds/palette update; WorldInstanceReady installs the replacement model.
+fn invalidate_native_instance(
+    event: On<Despawn<Mesh3d>>,
+    parents: Query<&ChildOf>,
+    instances: Query<&NativeBoneBinding>,
+    mut commands: Commands,
+) {
+    for owner in parents.iter_ancestors(event.entity) {
+        if instances
+            .get(owner)
+            .is_ok_and(|binding| binding.mesh == event.entity)
+        {
+            commands.entity(owner).try_remove::<(
+                NativeBoneBinding,
+                NativeSkinPalette,
+                AnimatedModelInstance,
+                AnimatedDraws,
+                DynamicLightingOrigin,
+            )>();
+            break;
+        }
     }
 }
 

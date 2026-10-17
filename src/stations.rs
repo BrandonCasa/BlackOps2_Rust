@@ -11,6 +11,7 @@ use crate::{
 };
 use avian3d::prelude::*;
 use bevy::prelude::*;
+use bevy::world_serialization::WorldAssetRoot;
 
 const BOX_POSITIONS: [[f32; 3]; 6] = [
     [9.144, -3.2512, -64.6176],
@@ -21,6 +22,116 @@ const BOX_POSITIONS: [[f32; 3]; 6] = [
     [28.448, 7.6708, 69.088],
 ];
 const BOX_GENERATORS: [u32; 6] = [3, 1, 2, 4, 5, 6];
+const BOX_YAWS: [f32; 6] = [0., 0., 90., 0., 90., 285.];
+
+#[derive(Clone, Copy, PartialEq)]
+enum BoxPose {
+    Closed,
+    Open,
+    Leaving,
+}
+
+#[derive(Component)]
+#[require(crate::animation::SceneClips)]
+pub(crate) struct BoxVisual {
+    index: usize,
+    pose: BoxPose,
+    elapsed: f32,
+    open_seconds: Option<f32>,
+}
+impl BoxVisual {
+    pub(crate) fn new(index: usize) -> Self {
+        Self {
+            index,
+            pose: BoxPose::Closed,
+            elapsed: f32::MAX,
+            open_seconds: None,
+        }
+    }
+}
+
+pub(crate) fn present_boxes(
+    time: Res<Time>,
+    game: Res<GameDefinition>,
+    stations: Res<Stations>,
+    effects: Res<crate::powerups::PowerupEffects>,
+    mut assets: crate::animation::ClipAssets,
+    mut boxes: Query<(
+        &mut BoxVisual,
+        &WorldAssetRoot,
+        &mut Visibility,
+        &mut crate::animation::SceneClips,
+        &mut AnimationPlayer,
+        &mut AnimationGraphHandle,
+    )>,
+) {
+    for (mut visual, source, mut visibility, mut clips, mut player, mut graph) in &mut boxes {
+        let Some(phase) = stations.boxes.get(visual.index) else {
+            continue;
+        };
+        let desired = match phase {
+            BoxPhase::Rolling { .. } | BoxPhase::Reward { .. } => BoxPose::Open,
+            BoxPhase::Relocating { .. } => BoxPose::Leaving,
+            BoxPhase::Idle => BoxPose::Closed,
+        };
+        if visual.pose != desired {
+            visual.pose = desired;
+            visual.elapsed = 0.;
+        }
+        let visible = visual.index >= BOX_POSITIONS.len()
+            || stations.normal_box == visual.index
+            || effects.fire_sale > 0.
+            || desired != BoxPose::Closed;
+        if !visible || !clips.ready {
+            *visibility = Visibility::Hidden;
+            continue;
+        }
+        let name = match desired {
+            BoxPose::Open => "o_zombie_dlc4_magic_box_open",
+            BoxPose::Closed => "o_zombie_dlc4_magic_box_close",
+            BoxPose::Leaving => "o_zombie_dlc4_magic_box_leave",
+        };
+        let scene = source.0.path().expect("Mystery Box scene");
+        let paths = &game.scene_animations[scene.path().to_str().expect("Mystery Box scene path")];
+        let path = paths[name]
+            .as_deref()
+            .expect("Mystery Box source animation");
+        let duration = if desired == BoxPose::Open {
+            visual.open_seconds
+        } else {
+            None
+        };
+        let Some(duration) = duration.or_else(|| {
+            clips
+                .node(path, &mut graph, &mut assets)
+                .map(|(_, duration)| duration)
+        }) else {
+            *visibility = Visibility::Hidden;
+            continue;
+        };
+        if desired == BoxPose::Open {
+            visual.open_seconds = Some(duration);
+        }
+        let (path, elapsed, looping) = if desired == BoxPose::Open && visual.elapsed >= duration {
+            (
+                paths["o_zombie_dlc4_magic_box_open_idle"]
+                    .as_deref()
+                    .expect("Mystery Box open idle"),
+                visual.elapsed - duration,
+                true,
+            )
+        } else {
+            (path, visual.elapsed.min(duration), false)
+        };
+        *visibility = if clips.sample(path, elapsed, looping, &mut player, &mut graph, &mut assets)
+        {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        };
+        visual.elapsed += time.delta_secs();
+    }
+}
 const BOX_WEAPONS: &[&str] = &[
     "hamr_zm",
     "mg08_zm",
@@ -121,7 +232,9 @@ impl Default for Stations {
 }
 impl Stations {
     pub(crate) fn add_sandbox_box(&mut self) -> usize {
-        if let Some(index) = self.free_boxes.pop() { return index; }
+        if let Some(index) = self.free_boxes.pop() {
+            return index;
+        }
         let index = self.boxes.len();
         self.boxes.push(BoxPhase::Idle);
         index
@@ -171,6 +284,7 @@ pub struct StationPlugin;
 impl Plugin for StationPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Stations>()
+            .add_systems(Update, present_boxes.run_if(in_state(GameState::Playing)))
             .add_systems(
                 OnEnter(GameState::StartingSession),
                 setup.in_set(crate::session::SessionSetup::World),
@@ -185,15 +299,34 @@ impl Plugin for StationPlugin {
             );
     }
 }
-fn setup(mut commands: Commands, mut stations: ResMut<Stations>, mut session: ResMut<Session>) {
+fn setup(
+    mut commands: Commands,
+    mut stations: ResMut<Stations>,
+    mut session: ResMut<Session>,
+    game: Res<GameDefinition>,
+    server: Res<AssetServer>,
+) {
     *stations = Stations::default();
     stations.normal_box = [0, 2][session.random() as usize % 2];
     for (index, position) in BOX_POSITIONS.iter().enumerate() {
-        commands.spawn((
-            Station::Box(index),
-            SessionEntity,
-            Transform::from_translation(Vec3::from_array(*position)),
-        ));
+        let scene = crate::assets::native_scene(&game, "p6_anim_zm_tm_magic_box")
+            .expect("Origins Mystery Box model");
+        commands
+            .spawn((
+                Station::Box(index),
+                SessionEntity,
+                Transform::from_translation(Vec3::from_array(*position))
+                    .with_rotation(Quat::from_rotation_y(BOX_YAWS[index].to_radians())),
+                Visibility::Inherited,
+            ))
+            .with_children(|parent| {
+                parent.spawn((
+                    BoxVisual::new(index),
+                    WorldAssetRoot(server.load(scene.clone())),
+                    Transform::IDENTITY,
+                    Visibility::Hidden,
+                ));
+            });
     }
     commands.spawn((
         Station::PackAPunch,
@@ -434,7 +567,8 @@ pub(crate) fn interact(
         .iter()
         .filter_map(|(entity, station, transform)| {
             if let Station::Box(index) = station {
-                if *index < 6 && *index != stations.normal_box
+                if *index < 6
+                    && *index != stations.normal_box
                     && !sale
                     && matches!(stations.boxes[*index], BoxPhase::Idle)
                 {
@@ -484,15 +618,20 @@ pub(crate) fn interact(
             let phase = stations.boxes[index].clone();
             match phase {
                 BoxPhase::Idle => {
-                    let powered = index >= 6 || definition
-                        .content
-                        .generators
-                        .iter()
-                        .find(|g| BOX_GENERATORS.get(index).is_some_and(|number| g.number as u32 == *number))
-                        .and_then(|g| generators.sites.get(&g.id))
-                        .is_some_and(|site| {
-                            site.state == crate::generators::GeneratorState::Active
-                        });
+                    let powered = index >= 6
+                        || definition
+                            .content
+                            .generators
+                            .iter()
+                            .find(|g| {
+                                BOX_GENERATORS
+                                    .get(index)
+                                    .is_some_and(|number| g.number as u32 == *number)
+                            })
+                            .and_then(|g| generators.sites.get(&g.id))
+                            .is_some_and(|site| {
+                                site.state == crate::generators::GeneratorState::Active
+                            });
                     if !powered {
                         focus.prompt = "Mystery Box requires its local generator".into();
                         focus.rejection = Some(InteractionRejection::NoPower);

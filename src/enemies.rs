@@ -1140,13 +1140,8 @@ pub(crate) fn lifecycle(
                 let dug = motion.alias == "rise" && matches!(zombie.eye_spawn, eyes::EyeSpawn::Dug);
                 let supported = if dug {
                     Some(motion.end)
-                } else if motion.alias == "rise" {
-                    resolve_floor_overlap(&query, shape, motion.end, &filter, &definition.tuning)
                 } else {
-                    query
-                        .shape_intersections(shape, motion.end, Quat::IDENTITY, &filter)
-                        .is_empty()
-                        .then_some(motion.end)
+                    resolve_floor_overlap(&query, shape, motion.end, &filter, &definition.tuning)
                 };
                 let landing = if dug {
                     supported
@@ -1394,7 +1389,15 @@ pub(crate) fn lifecycle(
             };
         }
         let step = if let Some(entrance) = &entrance {
-            navigation.entrance_traversal(feet, entrance, &access)
+            navigation
+                .entrance_traversal(feet, entrance, &access)
+                .or_else(|| {
+                    navigation.traversal(
+                        feet,
+                        zombie.destination - Vec3::Y * half_height,
+                        &access,
+                    )
+                })
         } else {
             navigation.traversal(feet, zombie.destination - Vec3::Y * half_height, &access)
         };
@@ -1675,12 +1678,7 @@ pub(crate) fn lifecycle(
         let velocity = if zombie.action == EnemyAnimation::Attack {
             zombie.combat_rotation * displacement / dt
         } else {
-            direction
-                * if approaching_barrier {
-                    displacement.xz().length().min(delta.xz().length()) / dt
-                } else {
-                    displacement.xz().length() / dt
-                }
+            direction * displacement.xz().length().min(delta.xz().length()) / dt
         };
         zombie.velocity.x = velocity.x;
         zombie.velocity.z = velocity.z;
@@ -1742,9 +1740,18 @@ pub(crate) fn lifecycle(
         if moving {
             let speed = transform.translation.xz().distance(before.xz()) / dt;
             zombie.stuck = if speed < 0.05 { zombie.stuck + dt } else { 0. };
-            if zombie.stuck > 0.8 {
+            if zombie.stuck > 1. {
                 zombie.destination = if let Some(entrance) = &entrance {
-                    navigation.entrance_destination(feet, entrance, &access)
+                    let next = navigation
+                        .alternate_entrance(feet, entrance, &access)
+                        .unwrap_or_else(|| entrance.clone());
+                    let destination = navigation.entrance_destination(feet, &next, &access);
+                    if next.node != entrance.node {
+                        barriers.release(entity);
+                        zombie.barrier_slot = None;
+                        zombie.source_entrance = Some(next);
+                    }
+                    destination
                 } else {
                     navigation.alternate(
                         feet,
@@ -2429,7 +2436,9 @@ fn follow_sockets(
                     .with_scale(Vec3::ONE);
             if claw && let Ok((panzer, origin)) = panzers.get(owner) {
                 let tip = match panzer.phase {
-                    crate::panzer::PanzerPhase::Claw { tip, .. } => Some(tip),
+                    crate::panzer::PanzerPhase::Claw { tip, .. }
+                        | crate::panzer::PanzerPhase::ClawCatch { tip, .. }
+                        | crate::panzer::PanzerPhase::ClawReturn { tip } => Some(tip),
                     crate::panzer::PanzerPhase::Pulling(_) => panzer
                         .captured
                         .and_then(|player| transforms.get(player).ok())

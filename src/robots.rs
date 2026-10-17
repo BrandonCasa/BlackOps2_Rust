@@ -193,12 +193,11 @@ pub(crate) struct Foot {
     entered: bool,
     light: Entity,
     fx: Option<Entity>,
-    phase: HatchState,
     clips: [usize; 3],
     impact: Entity,
 }
 #[derive(Component)]
-struct FootTarget(Entity);
+pub struct FootTarget(pub(crate) Entity);
 #[derive(Component)]
 struct FootSocket(Entity);
 // Additional membership lets character movement recognize the existing solid foot clips.
@@ -346,7 +345,7 @@ fn pass(delay: f32, eligible: bool) -> RobotPass {
         age: 0.,
         ready_at: None,
         can_open: true,
-        hatch_age: 1.,
+        hatch_age: f32::MAX,
         intro: false,
     }
 }
@@ -552,7 +551,6 @@ fn ready(
                     entered: false,
                     light,
                     fx: None,
-                    phase: HatchState::Closed,
                     clips: [
                         "ai_zombie_giant_robot_hatch_open",
                         "ai_zombie_giant_robot_hatch_open_idle",
@@ -580,7 +578,7 @@ fn ready(
                 ),
                 FootSocket(socket),
                 Transform::IDENTITY,
-                Visibility::Inherited,
+                Visibility::Hidden,
                 ChildOf(event.entity),
                 DamageEmitter::Robot(format!("robot.{}", body.index)),
                 ColliderDisabled,
@@ -610,8 +608,17 @@ fn ready(
             if let Ok(handle) = surfaces.get(mesh)
                 && let Some(shape) = meshes.get(&handle.0).and_then(Collider::trimesh_from_mesh)
             {
-                commands.entity(mesh).insert((
-                    shape,
+                // The render mesh is skinned: its bind triangles stay apart
+                // while the closed animation brings the two doors together.
+                // Shoot the sole's full authored extent in the foot frame.
+                let bounds = shape.aabb(Vec3::ZERO, Quat::IDENTITY, 0.);
+                let size = (bounds.max - bounds.min) * crate::assets::SOURCE_UNIT_METERS;
+                let center = (bounds.min + bounds.max) * (0.5 * crate::assets::SOURCE_UNIT_METERS);
+                commands.spawn((
+                    SessionEntity,
+                    ChildOf(event.entity),
+                    Transform::from_translation(center),
+                    Collider::cuboid(size.x, size.y, size.z),
                     Sensor,
                     FootTarget(event.entity),
                     EnvironmentOwner::Robot,
@@ -645,7 +652,13 @@ fn follow_sockets(
                 local = pose.to_matrix() * local;
                 cursor = ancestor.parent();
             }
-            Some((entity, Transform::from_matrix(local).with_scale(Vec3::ONE)))
+            // The attached model imports its own Z-up to Y-up root. Cancel
+            // that frame before applying the robot's authored socket frame.
+            Some((
+                entity,
+                Transform::from_matrix(local * Mat4::from_rotation_x(std::f32::consts::FRAC_PI_2))
+                    .with_scale(Vec3::ONE),
+            ))
         })
         .collect();
     for (entity, followed) in followed {
@@ -1202,11 +1215,11 @@ fn foot_presentation(
         &mut AnimationPlayer,
         &mut AnimationGraphHandle,
     )>,
-    mut feet: Query<(Entity, &mut Foot, &GlobalTransform)>,
+    mut feet: Query<(Entity, &mut Foot, &GlobalTransform, &mut Visibility)>,
     targets: Query<(Entity, &FootTarget)>,
     mut lights: Query<&mut Visibility, Without<Foot>>,
 ) {
-    for (entity, mut foot, pose) in &mut feet {
+    for (entity, mut foot, pose, mut visible) in &mut feet {
         let pass = robots.passes[foot.robot];
         let walking = pass.is_some_and(|p| p.delay <= 0.);
         let selected = pass.is_some_and(|p| p.delay <= 0. && p.eligible == Some(foot.side));
@@ -1227,7 +1240,7 @@ fn foot_presentation(
             if owner.0 != entity {
                 continue;
             }
-            if selected && !open {
+            if selected && pass.is_some_and(|pass| pass.openable(foot.side)) {
                 commands.entity(target).insert(ShootableEnvironment);
             } else {
                 commands.entity(target).remove::<ShootableEnvironment>();
@@ -1255,7 +1268,7 @@ fn foot_presentation(
         } else if !open && let Some(fx) = foot.fx.take() {
             commands.entity(fx).try_despawn();
         }
-        let age = pass.map_or(1., |p| p.hatch_age);
+        let age = pass.map_or(f32::MAX, |p| p.hatch_age);
         let opening = &game.content.animations[foot.clips[0]];
         let clip = if open && age < opening.seconds {
             0
@@ -1267,9 +1280,13 @@ fn foot_presentation(
         let animation = &game.content.animations[foot.clips[clip]];
         {
             if let Ok((mut clips, mut player, mut graph)) = animated.get_mut(entity) {
+                if !clips.ready {
+                    *visible = Visibility::Hidden;
+                    continue;
+                }
                 // giant_robot_foot_waittill_sole_shot / close_head_entrance:
                 // SetAnim blends in for 0.2s, ClearAnim blends out for 1s.
-                clips.sample_transition(
+                *visible = if clips.sample_transition(
                     Some(&animation.path),
                     if clip == 1 {
                         age - opening.seconds
@@ -1286,10 +1303,13 @@ fn foot_presentation(
                     &mut player,
                     &mut graph,
                     &mut assets,
-                );
+                ) {
+                    Visibility::Inherited
+                } else {
+                    Visibility::Hidden
+                };
             }
         }
-        foot.phase = phase;
     }
 }
 fn prone(
@@ -1762,6 +1782,21 @@ pub(crate) fn evacuate(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn entrance_requires_a_shot_during_the_selected_foots_opening_window() {
+        let mut pass = pass(0., false);
+        pass.eligible = Some(1);
+        assert_eq!(pass.hatch, HatchState::Closed);
+        assert!(!pass.openable(1));
+        pass.ready_at = Some(2.);
+        pass.age = 1.99;
+        assert!(!pass.openable(1));
+        pass.age = 2.;
+        assert!(pass.openable(1));
+        assert!(!pass.openable(0));
+        pass.hatch = HatchState::Open;
+        assert!(!pass.openable(1));
+    }
     #[test]
     fn robot_system_queries_and_session_reset_are_valid() {
         let mut world = World::new();

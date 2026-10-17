@@ -270,11 +270,10 @@ fn spawn(
                     ))
                     .with_children(|parent| {
                         parent.spawn((
+                            crate::stations::BoxVisual::new(index),
                             WorldAssetRoot(server.load(scene)),
-                            Transform::from_rotation(Quat::from_rotation_x(
-                                -std::f32::consts::FRAC_PI_2,
-                            )),
-                            Visibility::Inherited,
+                            Transform::IDENTITY,
+                            Visibility::Hidden,
                         ));
                     })
                     .id())
@@ -330,9 +329,12 @@ mod tests {
             ImagePlugin::default(),
             AnimationPlugin,
             GltfPlugin::default(),
+            crate::animation::GameAnimationPlugin,
         ))
         .insert_resource(game)
         .init_resource::<crate::stations::Stations>()
+        .init_resource::<crate::powerups::PowerupEffects>()
+        .add_systems(Update, crate::stations::present_boxes)
         .init_resource::<Cheats>()
         .init_resource::<SpawnHistory>();
         app.finish();
@@ -359,6 +361,22 @@ mod tests {
             assert!(
                 std::time::Instant::now() < deadline,
                 "Mystery Box load timed out"
+            );
+            std::thread::yield_now();
+        }
+        // The source bind pose scatters the lid pieces. Wait for the real
+        // closed clip, then verify the pose actually evaluated by Bevy.
+        loop {
+            app.update();
+            let mut pieces = app.world_mut().query::<(&Name, &Transform)>();
+            if pieces.iter(app.world()).any(|(name, pose)| {
+                name.as_str() == "j_lid_piece_1" && (pose.translation.z - 8.438905).abs() < 0.001
+            }) {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "Mystery Box closed pose timed out"
             );
             std::thread::yield_now();
         }

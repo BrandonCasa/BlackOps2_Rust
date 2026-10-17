@@ -458,6 +458,7 @@ fn setup(
             SessionEntity,
             RigidBody::Kinematic,
             CustomPositionIntegration,
+            RotationInterpolation,
             game.tank_collision
                 .as_ref()
                 .expect("Original tank model collision is required")
@@ -591,7 +592,10 @@ fn movement(
     pose.translation += step;
     let forward = delta.with_y(0.).normalize_or_zero();
     if forward.length_squared() > 0. {
-        pose.rotation = Quat::from_rotation_y((-forward.x).atan2(-forward.z));
+        let heading = Quat::from_rotation_y((-forward.x).atan2(-forward.z));
+        pose.rotation = pose
+            .rotation
+            .rotate_towards(heading, 45_f32.to_radians() * dt);
     }
     let mut reserved: std::collections::BTreeSet<_> =
         rescues.iter().map(|r| r.node.clone()).collect();

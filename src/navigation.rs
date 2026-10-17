@@ -115,18 +115,24 @@ impl Ord for Work {
 }
 impl Navigation {
     fn mark_exterior_approaches(&mut self) {
+        // Follow incoming paths: a one-way drop can lead toward a window,
+        // while the window's exit leads into the playable area.
+        let entrances: HashSet<_> = self.entrance_nodes.values().copied().collect();
+        let mut incoming = vec![Vec::new(); self.nodes.len()];
+        for (from, edges) in self.edges.iter().enumerate() {
+            for edge in edges {
+                if !entrances.contains(&from) || matches!(edge.traversal, Traversal::Walk) {
+                    incoming[edge.to].push(from);
+                }
+            }
+        }
         let mut pending = self.entrance_nodes.values().copied().collect::<Vec<_>>();
         while let Some(from) = pending.pop() {
             if self.nodes[from].exterior {
                 continue;
             }
             self.nodes[from].exterior = true;
-            pending.extend(
-                self.edges[from]
-                    .iter()
-                    .filter(|edge| matches!(edge.traversal, Traversal::Walk))
-                    .map(|edge| edge.to),
-            );
+            pending.extend(incoming[from].iter().copied());
         }
     }
 
@@ -317,7 +323,21 @@ impl Navigation {
         else {
             return position;
         };
-        self.route(start, goal, target, access).0
+        let point = self.route(start, goal, target, access).0;
+        self.approach(position, start, point)
+    }
+    fn approach(&self, position: Vec3, start: usize, point: Vec3) -> Vec3 {
+        // Reach the negotiation start before aiming at its landing. Otherwise
+        // ordinary collision movement runs straight into the intervening wall.
+        if self.nodes[start].point.distance_squared(position) > 0.64
+            && self.edges[start].iter().any(|edge| {
+                !matches!(edge.traversal, Traversal::Walk) && self.nodes[edge.to].point == point
+            })
+        {
+            self.nodes[start].point
+        } else {
+            point
+        }
     }
     pub(crate) fn entrance_destination(
         &mut self,
@@ -332,7 +352,11 @@ impl Navigation {
             return position;
         };
         let (point, fallback) = self.route(start, goal, self.nodes[goal].point, access);
-        if fallback { position } else { point }
+        if fallback {
+            position
+        } else {
+            self.approach(position, start, point)
+        }
     }
     pub(crate) fn entrance_traversal(
         &self,
@@ -348,6 +372,13 @@ impl Navigation {
         }
         self.edges[from].iter().find_map(|edge| {
             if matches!(edge.traversal, Traversal::Walk) || !self.allowed(from, edge, access) {
+                return None;
+            }
+            // The source's 128-unit entrance goal radius starts window slot
+            // selection. Drops and vaults still begin at their negotiation node.
+            if edge.animation.as_deref() != Some("zm_mantle_over_40")
+                && position.distance_squared(self.nodes[from].point) > 0.64
+            {
                 return None;
             }
             Some(TraversalStep {
@@ -485,7 +516,7 @@ impl Navigation {
                             .distance_squared(target)
                             .total_cmp(&self.nodes[b.to].point.distance_squared(target))
                     })
-                    .map(|e| self.nodes[e.to].point)
+                    .map(|e| self.approach(position, start, self.nodes[e.to].point))
             })
             .unwrap_or(position)
     }
@@ -524,7 +555,47 @@ impl Navigation {
             .desired_origin
             .or(spawner.desired_origin.map(Vec3::from_array));
         let origin = desired.unwrap_or(spawn.position);
-        let start = self.nearest(spawn.position, access, true)?;
+        let goals = self.entrance_choices(spawn.position, origin, access);
+        let first = goals[0]?;
+        if desired.is_some() {
+            return Some(first.clone());
+        }
+        let mut previous = Vec3::from_array(first.position).distance(spawn.position);
+        let mut count = 1;
+        for goal in goals.iter().skip(1).flatten() {
+            let current = Vec3::from_array(goal.position).distance(spawn.position);
+            if current - previous > 500. * 0.0254 {
+                break;
+            }
+            previous = current;
+            count += 1;
+        }
+        goals[session.random() as usize % count].cloned()
+    }
+
+    pub(crate) fn alternate_entrance(
+        &mut self,
+        position: Vec3,
+        current: &crate::access::SpawnEntranceDefinition,
+        access: &ZoneAccess,
+    ) -> Option<crate::access::SpawnEntranceDefinition> {
+        // _zm_spawner::zombie_assure_node tries the next entrance on a bad path.
+        self.entrance_choices(position, position, access)
+            .into_iter()
+            .flatten()
+            .find(|entrance| entrance.node != current.node)
+            .cloned()
+    }
+
+    fn entrance_choices(
+        &mut self,
+        position: Vec3,
+        origin: Vec3,
+        access: &ZoneAccess,
+    ) -> [Option<&crate::access::SpawnEntranceDefinition>; 3] {
+        let Some(start) = self.nearest(position, access, true) else {
+            return [None; 3];
+        };
         let mut search = std::mem::take(&mut self.search);
         let RouteSearch {
             reachable, pending, ..
@@ -535,10 +606,11 @@ impl Navigation {
         pending.clear();
         pending.push(start);
         while let Some(from) = pending.pop() {
+            let entrance = self.entrance_nodes.values().any(|&node| node == from);
             for edge in &self.edges[from] {
                 // Choosing a window must not cross another window into the
-                // playable area and then select a different entrance.
-                if matches!(edge.traversal, Traversal::Walk)
+                // playable area. Authored jumps on its approach remain usable.
+                if (!entrance || matches!(edge.traversal, Traversal::Walk))
                     && !reachable[edge.to]
                     && self.allowed(from, edge, access)
                 {
@@ -574,21 +646,7 @@ impl Navigation {
             }
         }
         self.search = search;
-        let first = goals[0]?;
-        if desired.is_some() {
-            return Some(first.clone());
-        }
-        let mut previous = Vec3::from_array(first.position).distance(spawn.position);
-        let mut count = 1;
-        for goal in goals.iter().skip(1).flatten() {
-            let current = Vec3::from_array(goal.position).distance(spawn.position);
-            if current - previous > 500. * 0.0254 {
-                break;
-            }
-            previous = current;
-            count += 1;
-        }
-        goals[session.random() as usize % count].cloned()
+        goals
     }
 }
 pub struct NavigationPlugin;
@@ -1394,5 +1452,176 @@ mod tests {
             navigation.entrance_destination(Vec3::ZERO, &entrance, &access),
             Vec3::X * 2.
         );
+    }
+
+    #[test]
+    fn exterior_route_keeps_one_way_drop_before_window_and_approaches_jump_start() {
+        let mut access = ZoneAccess::default();
+        access.reachable.insert(ZoneId("zone.start".into()));
+        let mut nav = Navigation::default();
+        let points = [
+            Vec3::new(-4., 3., 0.),
+            Vec3::Y * 3.,
+            Vec3::X,
+            Vec3::X * 6.,
+            Vec3::X * 7.,
+        ];
+        nav.nodes = points.map(|point| node(point, 1, 0)).to_vec();
+        for node in &mut nav.nodes[..4] {
+            node.zone = ZoneId("zone.locked_player_volume".into());
+        }
+        let edge = |to, traversal, animation: &str| Edge {
+            to,
+            traversal,
+            animation: Some(animation.into()),
+            blockers: Vec::new(),
+            cost: 1.,
+            native: None,
+        };
+        nav.edges = vec![
+            vec![edge(1, Traversal::Walk, "")],
+            vec![edge(2, Traversal::Jump, "zm_jump_down_127")],
+            vec![edge(3, Traversal::Walk, "")],
+            vec![edge(4, Traversal::Climb, "zm_mantle_over_40")],
+            Vec::new(),
+        ];
+        let entrance = crate::access::SpawnEntranceDefinition {
+            node: ContentId("node.window".into()),
+            position: points[3].to_array(),
+        };
+        nav.entrance_nodes.insert(entrance.node.clone(), 3);
+        nav.entrances.push(entrance.clone());
+        nav.mark_exterior_approaches();
+        assert!(nav.nodes[..4].iter().all(|node| node.exterior));
+        assert!(!nav.nodes[4].exterior);
+        assert_eq!(
+            nav.entrance_choices(points[0], points[0], &access)[0]
+                .unwrap()
+                .node,
+            entrance.node
+        );
+
+        // The actor is nearest to the jump start, but still must approach it.
+        let approach = points[1] + Vec3::Z;
+        assert_eq!(
+            nav.entrance_destination(approach, &entrance, &access),
+            points[1]
+        );
+        assert!(nav.traversal(approach, points[2], &access).is_none());
+        // Cached routing must respond to the actor reaching the start.
+        assert_eq!(
+            nav.entrance_destination(points[1], &entrance, &access),
+            points[2]
+        );
+        let step = nav.traversal(points[1], points[2], &access).unwrap();
+        assert_eq!(step.alias, "zm_jump_down_127");
+        assert_eq!(step.end, points[2]);
+        // Pursuit uses the same start-first rule after entering the map.
+        assert_eq!(nav.destination(approach, points[4], &access), points[1]);
+        assert_eq!(
+            nav.alternate(approach, points[4], points[3], &access),
+            points[1]
+        );
+
+        nav.edges[1][0]
+            .blockers
+            .push(ContentId("closed.drop".into()));
+        assert!(nav.entrance_choices(points[0], points[0], &access)[0].is_none());
+    }
+
+    #[test]
+    fn bad_exterior_path_can_switch_windows_without_crossing_one() {
+        let mut access = ZoneAccess::default();
+        access.reachable.insert(ZoneId("zone.start".into()));
+        let mut nav = Navigation::default();
+        nav.nodes = [
+            Vec3::ZERO,
+            Vec3::X * 4.,
+            Vec3::Z * 4.,
+            Vec3::X * 5.,
+            Vec3::Z * 5.,
+        ]
+        .map(|point| node(point, 1, 0))
+        .to_vec();
+        let edge = |to, traversal| Edge {
+            to,
+            traversal,
+            animation: Some("zm_mantle_over_40".into()),
+            blockers: Vec::new(),
+            cost: 1.,
+            native: None,
+        };
+        nav.edges = vec![
+            vec![edge(1, Traversal::Walk), edge(2, Traversal::Walk)],
+            vec![edge(3, Traversal::Climb)],
+            vec![edge(4, Traversal::Climb)],
+            Vec::new(),
+            Vec::new(),
+        ];
+        for index in [1, 2] {
+            let node = ContentId(format!("window.{index}"));
+            nav.entrance_nodes.insert(node.clone(), index);
+            nav.entrances.push(crate::access::SpawnEntranceDefinition {
+                node,
+                position: nav.nodes[index].point.to_array(),
+            });
+        }
+        let current = nav.entrances[0].clone();
+        assert_eq!(
+            nav.alternate_entrance(Vec3::ZERO, &current, &access)
+                .unwrap()
+                .node,
+            nav.entrances[1].node
+        );
+        nav.edges[0].pop();
+        assert!(
+            nav.alternate_entrance(Vec3::ZERO, &current, &access)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn church_drop_waits_for_its_authored_start_instead_of_window_goal_radius() {
+        let game: GameDefinition =
+            serde_json::from_str(include_str!("../gameplay/origins/game.json")).unwrap();
+        let link = game
+            .content
+            .navigation_links
+            .iter()
+            .find(|link| link.source_animation.as_deref() == Some("zm_jump_down_church"))
+            .unwrap();
+        let native = link.negotiation.clone().unwrap();
+        let start = Vec3::from_array(native.start.position);
+        let end = Vec3::from_array(native.end.position);
+        let yaw = native.start.yaw;
+        let mut nav = Navigation::default();
+        nav.nodes = vec![node(start, 17, 0), node(end, 18, 0)];
+        nav.edges = vec![
+            vec![Edge {
+                to: 1,
+                traversal: link.traversal,
+                animation: link.source_animation.clone(),
+                blockers: Vec::new(),
+                cost: native.cost,
+                native: Some(native),
+            }],
+            Vec::new(),
+        ];
+        let entrance = crate::access::SpawnEntranceDefinition {
+            node: link.from.clone(),
+            position: start.to_array(),
+        };
+        nav.entrance_nodes.insert(entrance.node.clone(), 0);
+        let mut access = ZoneAccess::default();
+        access.reachable.insert(ZoneId("zone.start".into()));
+        assert!(
+            nav.entrance_traversal(start + Vec3::X * 2., &entrance, &access)
+                .is_none()
+        );
+        let step = nav.entrance_traversal(start, &entrance, &access).unwrap();
+        assert_eq!(step.start, start);
+        assert_eq!(step.end, end);
+        assert_eq!(step.yaw, yaw);
+        assert_eq!(step.alias, "zm_jump_down_church");
     }
 }

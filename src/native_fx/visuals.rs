@@ -17,8 +17,8 @@ pub(super) fn model(
     let scene = server.load(format!("model_export/{model}_lod0.glb#Scene0"));
     commands.spawn((
         ChildOf(entity),
-        // These direct OAT scenes retain source inches (already Y-up).
-        Transform::from_scale(Vec3::splat(crate::assets::SOURCE_UNIT_METERS)),
+        // The shared model loader owns source-unit normalization.
+        Transform::IDENTITY,
         Visibility::default(),
         WorldAssetRoot(scene),
     ));

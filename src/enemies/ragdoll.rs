@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 const CLIENT_PHYSICS_LAYER: u32 = 128;
-const CLIENT_PHYSICS_INTERVAL: Duration = Duration::from_nanos(33_333_333); // 30 Hz
+const RAGDOLL_SELF_LAYER: u32 = 2048;
 const RAGDOLL_ACTIVE_SECONDS: f32 = 3.;
 pub(super) fn client_physics_filter() -> SpatialQueryFilter {
     SpatialQueryFilter::from_mask(CLIENT_PHYSICS_LAYER)
@@ -15,7 +15,6 @@ pub(super) fn client_physics_filter() -> SpatialQueryFilter {
 #[derive(Resource, Default)]
 struct ClientPhysicsClock {
     previous: Option<Duration>,
-    pending: Duration,
     delta: Duration,
 }
 impl ClientPhysicsClock {
@@ -29,24 +28,14 @@ impl ClientPhysicsClock {
         self.delta = Duration::ZERO;
         if !active {
             self.previous = None;
-            self.pending = Duration::ZERO;
         } else if paused {
             self.previous = elapsed;
-            self.pending = Duration::ZERO;
         } else if let Some(elapsed) = elapsed {
             let previous = self.previous.unwrap_or_default();
             self.previous = Some(elapsed);
-            if elapsed < previous {
-                self.pending = Duration::ZERO;
-            } else {
-                self.pending += (elapsed - previous).min(Duration::from_millis(100).mul_f64(speed));
-                // Keep fractional ticks so 60/120 Hz rendering still yields 30 Hz
-                // physics. Combine overdue ticks into one step; never catch up
-                // with multiple simulations in the same rendered frame.
-                let ticks = (self.pending.as_nanos() / CLIENT_PHYSICS_INTERVAL.as_nanos()) as u32;
-                self.delta = CLIENT_PHYSICS_INTERVAL * ticks;
-                self.pending -= self.delta;
-            }
+            self.delta = elapsed
+                .saturating_sub(previous)
+                .min(Duration::from_millis(100).mul_f64(speed));
         }
         self.delta
     }
@@ -87,10 +76,8 @@ fn client_clock(
     );
     #[cfg(feature = "dev-tools")]
     let delta = if controller.as_ref().is_some_and(|c| c.stepping()) {
-        // An explicit assisted tick includes physics even when it is shorter
-        // than the ordinary 30 Hz client interval. Do not leave catch-up debt.
+        // Assisted ticks supply their own virtual-time advance.
         clock.previous = Some(source.elapsed(&time));
-        clock.pending = Duration::ZERO;
         clock.delta = fixed.timestep();
         clock.delta
     } else {
@@ -231,14 +218,27 @@ impl PhysicalRagdoll {
 
 pub(crate) fn remove_living(world: &mut World, owner: Entity) {
     let mut owned = world.query::<(Entity, &RagdollEntity)>();
-    let entities: Vec<_> = owned.iter(world)
-        .filter_map(|(entity, actor)| (actor.0 == owner).then_some(entity)).collect();
-    for entity in entities { world.despawn(entity); }
+    let entities: Vec<_> = owned
+        .iter(world)
+        .filter_map(|(entity, actor)| (actor.0 == owner).then_some(entity))
+        .collect();
+    for entity in entities {
+        world.despawn(entity);
+    }
     let mut lerps = world.query::<(Entity, &EndJointLerp)>();
-    let joints: Vec<_> = lerps.iter(world)
-        .filter_map(|(entity, lerp)| (lerp.owner == owner).then_some(entity)).collect();
-    for entity in joints { world.entity_mut(entity).remove::<EndJointLerp>(); }
-    world.entity_mut(owner).remove::<(PhysicalRagdoll, ClientRagdollRequested, RagdollSample, DeathBlasts)>();
+    let joints: Vec<_> = lerps
+        .iter(world)
+        .filter_map(|(entity, lerp)| (lerp.owner == owner).then_some(entity))
+        .collect();
+    for entity in joints {
+        world.entity_mut(entity).remove::<EndJointLerp>();
+    }
+    world.entity_mut(owner).remove::<(
+        PhysicalRagdoll,
+        ClientRagdollRequested,
+        RagdollSample,
+        DeathBlasts,
+    )>();
 }
 
 #[derive(Component)]
@@ -308,8 +308,8 @@ pub(super) fn plugin(app: &mut App) {
 }
 
 fn joint_messages(app: &mut App) {
-    // Joint hooks run between physics ticks. Retain their changes until the
-    // 30 Hz solver consumes them, including across pauses and fast rendering.
+    // Joint hooks also run while paused. Retain their changes until the solver
+    // consumes them on the next simulation frame.
     bevy::ecs::message::MessageRegistry::deregister_messages::<JointGraphChange>(app.world_mut());
     app.init_resource::<Messages<JointGraphChange>>()
         .add_systems(
@@ -545,8 +545,7 @@ fn begin(
         if zombie.action != super::EnemyAnimation::Death && living.is_none() {
             continue;
         }
-        let Some(profile) = crate::cheats::physics::profile(&game, zombie, living)
-        else {
+        let Some(profile) = crate::cheats::physics::profile(&game, zombie, living) else {
             continue;
         };
         if !rigs.iter().any(|(_, rig, visibility)| {
@@ -573,8 +572,7 @@ fn begin(
             .collect::<Vec<_>>();
         let now = time.elapsed_secs_f64();
         // Animation remains authoritative until the normal cue or a blast.
-        // Sample every rendered frame so the 30 Hz physics clock cannot
-        // distort the velocity inherited by the full-body handoff.
+        // Sample every rendered frame to preserve the handoff velocity.
         if !requested {
             commands.entity(owner).insert(RagdollSample {
                 poses: snapshot,
@@ -679,10 +677,7 @@ fn begin(
                 self_shape,
                 Transform::IDENTITY,
                 ColliderDensity(0.),
-                CollisionLayers::new(
-                    CLIENT_PHYSICS_LAYER,
-                    crate::assets::RAGDOLL_WORLD_LAYER | CLIENT_PHYSICS_LAYER,
-                ),
+                CollisionLayers::new(RAGDOLL_SELF_LAYER, RAGDOLL_SELF_LAYER),
                 Friction::new(bone.friction),
                 Restitution::ZERO,
                 RagdollCollider {
@@ -771,7 +766,9 @@ fn begin(
                     });
                 }
             }
-            if living.is_some() { continue; }
+            if living.is_some() {
+                continue;
+            }
             // Physics takes ownership of the sampled skeleton. Retire both
             // animation playback and the per-frame bind-pose restoration.
             for &joint in rig.sockets.values() {
@@ -798,10 +795,16 @@ fn begin(
 
 pub(crate) fn apply_pose(
     game: Res<GameDefinition>,
-    actors: Query<(&Zombie, &PhysicalRagdoll, Option<&crate::cheats::physics::LivingRagdoll>)>,
+    actors: Query<(
+        &Zombie,
+        &PhysicalRagdoll,
+        Option<&crate::cheats::physics::LivingRagdoll>,
+    )>,
     rigs: Query<&ActorRig>,
     body_poses: Query<(&Position, &Rotation, Has<Sleeping>)>,
     mut joints: ParamSet<(Query<(&Transform, Option<&ChildOf>)>, Query<&mut Transform>)>,
+    mut world_poses: Local<HashMap<Entity, Mat4>>,
+    mut writes: Local<Vec<(Entity, Transform)>>,
 ) {
     // Imported joints use CoD inches; physical bone poses use Y-up metres.
     let source_frame = Mat4::from_scale_rotation_translation(
@@ -809,7 +812,7 @@ pub(crate) fn apply_pose(
         Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2),
         Vec3::ZERO,
     );
-    let mut writes = Vec::new();
+    writes.clear();
     for rig in &rigs {
         if rig.socket.is_some() || !rig.ready {
             continue;
@@ -825,30 +828,31 @@ pub(crate) fn apply_pose(
         {
             continue;
         }
-        let Some(profile) = crate::cheats::physics::profile(&game, zombie, living)
-        else {
+        let Some(profile) = crate::cheats::physics::profile(&game, zombie, living) else {
             continue;
         };
-        let world_poses = profile
-            .bones
-            .iter()
-            .zip(&ragdoll.bodies)
-            .filter_map(|(bone, body)| {
-                let entity = *rig.sockets.get(&bone.joint)?;
-                let (position, rotation, _) = body_poses.get((*body)?).ok()?;
-                let mirror = if bone.mirror {
-                    Quat::from_rotation_y(std::f32::consts::PI)
-                } else {
-                    Quat::IDENTITY
-                };
-                Some((
-                    entity,
-                    Mat4::from_rotation_translation(rotation.0 * mirror, position.0),
-                ))
-            })
-            .collect::<HashMap<_, _>>();
+        world_poses.clear();
+        world_poses.extend(
+            profile
+                .bones
+                .iter()
+                .zip(&ragdoll.bodies)
+                .filter_map(|(bone, body)| {
+                    let entity = *rig.sockets.get(&bone.joint)?;
+                    let (position, rotation, _) = body_poses.get((*body)?).ok()?;
+                    let mirror = if bone.mirror {
+                        Quat::from_rotation_y(std::f32::consts::PI)
+                    } else {
+                        Quat::IDENTITY
+                    };
+                    Some((
+                        entity,
+                        Mat4::from_rotation_translation(rotation.0 * mirror, position.0),
+                    ))
+                }),
+        );
         let poses = joints.p0();
-        for (&entity, &world) in &world_poses {
+        for (&entity, &world) in &*world_poses {
             let Ok((pose, Some(parent))) = poses.get(entity) else {
                 continue;
             };
@@ -891,7 +895,7 @@ pub(crate) fn apply_pose(
             ));
         }
     }
-    for (entity, pose) in writes {
+    for (entity, pose) in writes.drain(..) {
         if let Ok(mut joint) = joints.p1().get_mut(entity) {
             *joint = pose;
         }
@@ -925,12 +929,15 @@ fn blend_end_joints(
 fn joint_friction(
     game: Res<GameDefinition>,
     clock: Res<ClientPhysicsClock>,
-    actors: Query<(&Zombie, &PhysicalRagdoll, Option<&crate::cheats::physics::LivingRagdoll>)>,
+    actors: Query<(
+        &Zombie,
+        &PhysicalRagdoll,
+        Option<&crate::cheats::physics::LivingRagdoll>,
+    )>,
     mut bodies: Query<(Forces, &ComputedAngularInertia, Has<Sleeping>)>,
 ) {
     for (zombie, ragdoll, living) in &actors {
-        let Some(profile) = crate::cheats::physics::profile(&game, zombie, living)
-        else {
+        let Some(profile) = crate::cheats::physics::profile(&game, zombie, living) else {
             continue;
         };
         let factor = 1. + (ragdoll.seconds / 3.).clamp(0., 1.);
@@ -991,11 +998,16 @@ fn joint_friction(
 fn tick(
     mut commands: Commands,
     clock: Res<ClientPhysicsClock>,
-    mut actors: Query<(&mut PhysicalRagdoll, Has<crate::cheats::physics::LivingRagdoll>)>,
+    mut actors: Query<(
+        &mut PhysicalRagdoll,
+        Has<crate::cheats::physics::LivingRagdoll>,
+    )>,
     mut bodies: Query<(&mut LinearVelocity, &mut AngularVelocity, Has<Sleeping>), With<RigidBody>>,
 ) {
     for (mut ragdoll, living) in &mut actors {
-        if living { continue; }
+        if living {
+            continue;
+        }
         ragdoll.seconds += clock.delta.as_secs_f32();
         if ragdoll
             .bodies
@@ -1067,7 +1079,7 @@ mod tests {
             .id();
         app.world_mut()
             .resource_mut::<Time<Physics>>()
-            .advance_by(CLIENT_PHYSICS_INTERVAL);
+            .advance_by(Duration::from_secs_f64(1. / 120.));
         app.update();
         let old_id = app
             .world()
@@ -1082,8 +1094,7 @@ mod tests {
         );
 
         app.world_mut().despawn(joint);
-        // Rendering continues at 120 Hz while physics waits for its next tick
-        // (or is paused). Joint removals must survive until the solver reads them.
+        // Joint removals during a pause must survive until simulation resumes.
         for _ in 0..12 {
             app.update();
         }
@@ -1099,7 +1110,7 @@ mod tests {
         assert_eq!(old_id, new_id, "Exercise Avian's recycled joint slot");
         app.world_mut()
             .resource_mut::<Time<Physics>>()
-            .advance_by(CLIENT_PHYSICS_INTERVAL);
+            .advance_by(Duration::from_secs_f64(1. / 120.));
         app.update();
         assert!(
             app.world()
@@ -1369,31 +1380,25 @@ mod tests {
     }
 
     #[test]
-    fn native_client_physics_clock_clamps_frames_and_resets_pause_and_scene_boundaries() {
+    fn native_client_physics_clock_steps_every_frame_and_resets_pause_and_scene_boundaries() {
         let mut clock = ClientPhysicsClock::default();
         let at = |milliseconds| Some(Duration::from_millis(milliseconds));
         assert_eq!(clock.advance(None, true, false, 1.), Duration::ZERO);
-        assert_eq!(
-            clock.advance(at(50), true, false, 1.),
-            CLIENT_PHYSICS_INTERVAL
-        );
-        assert_eq!(clock.advance(at(50), true, false, 1.), Duration::ZERO);
-        assert_eq!(clock.advance(at(51), true, false, 1.), Duration::ZERO);
-        assert_eq!(
-            clock.advance(at(451), true, false, 1.),
-            CLIENT_PHYSICS_INTERVAL * 3
-        );
-        assert_eq!(clock.advance(at(449), true, false, 1.), Duration::ZERO);
+        for (elapsed, expected) in [(50, 50), (50, 0), (51, 1), (451, 100), (449, 0)] {
+            assert_eq!(
+                clock.advance(at(elapsed), true, false, 1.),
+                Duration::from_millis(expected)
+            );
+        }
         assert_eq!(clock.advance(at(500), true, true, 1.), Duration::ZERO);
-        assert_eq!(clock.advance(at(516), true, false, 1.), Duration::ZERO);
         assert_eq!(
-            clock.advance(at(534), true, false, 1.),
-            CLIENT_PHYSICS_INTERVAL
+            clock.advance(at(516), true, false, 1.),
+            Duration::from_millis(16)
         );
         assert_eq!(clock.advance(None, false, false, 1.), Duration::ZERO);
         assert_eq!(
             clock.advance(at(50), true, false, 1.),
-            CLIENT_PHYSICS_INTERVAL
+            Duration::from_millis(50)
         );
     }
 
@@ -1421,10 +1426,6 @@ mod tests {
                 app.world().get::<LinearVelocity>(body).unwrap().y < 0.,
                 "The stepped native solver must apply gravity at {speed}x"
             );
-            assert_eq!(
-                app.world().resource::<ClientPhysicsClock>().pending,
-                Duration::ZERO
-            );
         }
     }
 
@@ -1445,10 +1446,10 @@ mod tests {
             }
             assert_eq!(
                 updates,
-                (300 * speed as usize).min(render_hz * 10),
+                render_hz * 10,
                 "render rate: {render_hz}, speed: {speed}"
             );
-            assert_eq!(simulated, CLIENT_PHYSICS_INTERVAL * (300 * speed as u32));
+            assert_eq!(simulated, Duration::from_secs_f64(10. * speed));
         }
     }
 

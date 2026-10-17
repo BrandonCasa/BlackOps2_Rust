@@ -30,8 +30,6 @@ pub struct OwnershipDefinition {
     pub shootable: bool,
 }
 
-
-
 #[derive(Component)]
 pub struct ShootableEnvironment;
 
@@ -44,6 +42,7 @@ pub type ShootableTargets<'w, 's> = Query<
         &'static GlobalTransform,
         &'static EnvironmentOwner,
         Option<&'static super::triggers::TriggerState>,
+        Option<&'static crate::robots::FootTarget>,
     ),
     (
         With<ShootableEnvironment>,
@@ -75,7 +74,7 @@ pub fn cast(
 ) -> Option<(Entity, f32)> {
     let candidate = targets
         .iter()
-        .filter_map(|(e, shape, pose, _, state)| {
+        .filter_map(|(e, shape, pose, _, state, foot)| {
             if state.is_some_and(|state| !state.enabled) {
                 return None;
             }
@@ -89,14 +88,22 @@ pub fn cast(
                     range,
                     true,
                 )
-                .map(|(d, _)| (e, d))
+                .map(|(d, _)| (e, d, foot.map(|foot| foot.0)))
         })
         .min_by(|a, b| a.1.total_cmp(&b.1))?;
-    let blocker = spatial.cast_ray(origin, direction, range, true, &super::solids([shooter]));
+    // The robot's solid movement clip surrounds the animated sole. It must
+    // not absorb a shot aimed at that same foot's damage target.
+    let blocker = spatial.cast_ray(
+        origin,
+        direction,
+        range,
+        true,
+        &super::solids(std::iter::once(shooter).chain(candidate.2)),
+    );
     if blocker.is_some_and(|b| b.distance + 0.01 < candidate.1) {
         None
     } else {
-        Some(candidate)
+        Some((candidate.0, candidate.1))
     }
 }
 
@@ -458,6 +465,64 @@ mod tests {
     }
 
     #[test]
+    fn robot_sole_shots_ignore_their_own_movement_clip_but_not_walls() {
+        use bevy::ecs::system::RunSystemOnce;
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            TransformPlugin,
+            AssetPlugin::default(),
+            PhysicsPlugins::new(Update),
+        ))
+        .init_asset::<Mesh>();
+        let foot = app
+            .world_mut()
+            .spawn((
+                Collider::cuboid(4., 4., 4.),
+                Transform::from_xyz(0., 0., -5.),
+            ))
+            .id();
+        let sole = app
+            .world_mut()
+            .spawn((
+                Collider::cuboid(2., 2., 0.1),
+                Transform::from_xyz(0., 0., -5.),
+                Sensor,
+                ShootableEnvironment,
+                EnvironmentOwner::Robot,
+                crate::robots::FootTarget(foot),
+                CollisionLayers::new(2u32, LayerMask::NONE),
+            ))
+            .id();
+        app.finish();
+        app.cleanup();
+        app.update();
+        let shoot = |targets: ShootableTargets, spatial: SpatialQuery| {
+            cast(
+                &targets,
+                &spatial,
+                Entity::PLACEHOLDER,
+                Vec3::ZERO,
+                Dir3::NEG_Z,
+                10.,
+            )
+        };
+        assert_eq!(
+            app.world_mut()
+                .run_system_once(shoot)
+                .unwrap()
+                .map(|hit| hit.0),
+            Some(sole)
+        );
+        app.world_mut().spawn((
+            Collider::cuboid(2., 2., 0.1),
+            Transform::from_xyz(0., 0., -1.),
+        ));
+        app.update();
+        assert!(app.world_mut().run_system_once(shoot).unwrap().is_none());
+    }
+
+    #[test]
     fn source_damage_sensors_do_not_absorb_the_actor_shot_query() {
         let mut world = World::new();
         let sensor = world
@@ -512,8 +577,17 @@ mod tests {
         let state = trigger("trigger_use", 0);
         let candidate = |excluded: Vec<Entity>| {
             use_candidate(
-                target, &shape, &pose, &state, &spatial, excluded, 0,
-                Vec3::ZERO, Vec3::X, false, 72. * 0.0254,
+                target,
+                &shape,
+                &pose,
+                &state,
+                &spatial,
+                excluded,
+                0,
+                Vec3::ZERO,
+                Vec3::X,
+                false,
+                72. * 0.0254,
             )
         };
         assert!(

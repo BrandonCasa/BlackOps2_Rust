@@ -47,6 +47,13 @@ pub enum PanzerPhase {
         direction: Vec3,
         remaining: f32,
     },
+    ClawCatch {
+        tip: Vec3,
+        remaining: f32,
+    },
+    ClawReturn {
+        tip: Vec3,
+    },
     Pulling(f32),
     HeldBurn,
     Stunned(f32),
@@ -192,7 +199,11 @@ impl Panzer {
         if self.claw_intro_seconds > 0.
             && matches!(
                 self.phase,
-                PanzerPhase::Claw { .. } | PanzerPhase::Pulling(_) | PanzerPhase::ShieldBreak(_)
+                PanzerPhase::Claw { .. }
+                    | PanzerPhase::ClawCatch { .. }
+                    | PanzerPhase::ClawReturn { .. }
+                    | PanzerPhase::Pulling(_)
+                    | PanzerPhase::ShieldBreak(_)
             )
         {
             return ("ai_zombie_mech_grapple_intro_sprint_to_aim_5", false);
@@ -214,9 +225,11 @@ impl Panzer {
             PanzerPhase::Flame => (FLAME_AIM[self.aim], true),
             PanzerPhase::FlameSweep => ("ai_zombie_mech_ft_sweep_up", false),
             PanzerPhase::ClawWindup => ("ai_zombie_mech_grapple_intro_sprint_to_aim_5", false),
-            PanzerPhase::Claw { .. } | PanzerPhase::Pulling(_) | PanzerPhase::ShieldBreak(_) => {
-                (CLAW_AIM[self.aim], true)
-            }
+            PanzerPhase::Claw { .. }
+            | PanzerPhase::ClawCatch { .. }
+            | PanzerPhase::ClawReturn { .. }
+            | PanzerPhase::Pulling(_)
+            | PanzerPhase::ShieldBreak(_) => (CLAW_AIM[self.aim], true),
             PanzerPhase::HeldBurn => ("ai_zombie_mech_ft_burn_player", false),
             PanzerPhase::Stunned(_) => ("ai_zombie_mech_stunned", true),
             PanzerPhase::Pain(kind) => (
@@ -443,7 +456,11 @@ fn claw_hits(
             || !panzers.get(claw.0).is_ok_and(|panzer| {
                 matches!(
                     panzer.phase,
-                    PanzerPhase::Claw { .. } | PanzerPhase::Pulling(_)
+                    PanzerPhase::Claw { .. }
+                        | PanzerPhase::ClawCatch { .. }
+                        | PanzerPhase::ClawReturn { .. }
+                        | PanzerPhase::Pulling(_)
+                        | PanzerPhase::HeldBurn
                 )
             })
         {
@@ -930,7 +947,10 @@ fn behavior(
             &mut Armor,
             &mut Visibility,
         ),
-        (Without<Player>, Without<crate::cheats::physics::LivingRagdoll>),
+        (
+            Without<Player>,
+            Without<crate::cheats::physics::LivingRagdoll>,
+        ),
     >,
     mut players: Query<
         (
@@ -969,6 +989,7 @@ fn behavior(
         >,
         Res<crate::tank::Tank>,
         ResMut<PanzerWaves>,
+        Query<&GlobalTransform>,
     ),
     mut released: MessageWriter<PanzerClawReleased>,
     (mut ignitable, flame_volumes): (
@@ -985,7 +1006,8 @@ fn behavior(
         Query<(&FlameVolume, &Collider, &Transform), (Without<Panzer>, Without<Player>)>,
     ),
 ) {
-    let (animations, requests, rigs, mut rumble, tank_body, tank_state, mut waves) = scripted;
+    let (animations, requests, rigs, mut rumble, tank_body, tank_state, mut waves, sockets) =
+        scripted;
     let tank = tank_body
         .single()
         .ok()
@@ -997,21 +1019,24 @@ fn behavior(
         {
             let explosive = matches!(event.impact.category, DamageCategory::Explosive)
                 || event.impact.source.id().contains("staff_");
-            if panzer.captured.is_some()
-                && (event.impact.region.left_arm()
-                    || explosive
-                        && armor.explosive_damage.saturating_sub(panzer.claw_baseline)
-                            > health.maximum() / 10)
+            let detached = matches!(
+                panzer.phase,
+                PanzerPhase::Claw { .. }
+                    | PanzerPhase::ClawCatch { .. }
+                    | PanzerPhase::ClawReturn { .. }
+                    | PanzerPhase::Pulling(_)
+                    | PanzerPhase::HeldBurn
+            );
+            if detached && event.impact.region.left_arm()
+                || panzer.captured.is_some()
+                    && explosive
+                    && armor.explosive_damage.saturating_sub(panzer.claw_baseline)
+                        > health.maximum() / 10
             {
                 if let Some(owner) = panzer.captured
                     && let Ok((_, _, _, _, _, mut captured, _, _, _, _)) = players.get_mut(owner)
                 {
                     release(&mut panzer, &mut captured);
-                    panzer.firing = false;
-                    panzer.boosting = false;
-                    panzer.phase = PanzerPhase::Pain(PainKind::Head);
-                    panzer.anchor = *pose;
-                    panzer.animation_elapsed = 0.;
                     if event.impact.source.player_attributed() {
                         released.write(PanzerClawReleased {
                             releaser: event.impact.attacker,
@@ -1019,6 +1044,11 @@ fn behavior(
                         });
                     }
                 }
+                panzer.firing = false;
+                panzer.boosting = false;
+                panzer.phase = PanzerPhase::Pain(PainKind::Head);
+                panzer.anchor = *pose;
+                panzer.animation_elapsed = 0.;
             }
             if armor.broken && !panzer.plate_rewarded {
                 panzer.plate_rewarded = true;
@@ -1574,6 +1604,7 @@ fn behavior(
             | PanzerPhase::LiftOff
             | PanzerPhase::Sprint
             | PanzerPhase::TouchDown => {
+                let mut steering = direction;
                 if tank_goal.is_some_and(|goal| {
                     goal.xz().distance(pose.translation.xz()) < 48. * 0.0254
                         && (goal.y - pose.translation.y).abs() < 48. * 0.0254
@@ -1616,6 +1647,7 @@ fn behavior(
                             .unwrap_or(player_pose.translation - Vec3::Y * player.height * 0.5),
                         &access,
                     ) + Vec3::Y * 1.2;
+                    steering = (target - pose.translation).with_y(0.).normalize_or_zero();
                     match panzer.phase {
                         PanzerPhase::Pursuit if distance > 9.144 && !armor.powerplant_destroyed => {
                             panzer.phase = PanzerPhase::LiftOff
@@ -1641,8 +1673,7 @@ fn behavior(
                         let a = Vec3::from_array(motion.translation_at(clip_start));
                         (Vec3::from_array(motion.translation_at(clip_end)) - a).to_array()
                     });
-                    let velocity = (target - pose.translation).with_y(0.).normalize_or_zero()
-                        * (displacement.xz().length() / dt.max(f32::EPSILON));
+                    let velocity = steering * (displacement.xz().length() / dt.max(f32::EPSILON));
                     let result = crate::player::slide_character(
                         &slide,
                         &query,
@@ -1668,8 +1699,8 @@ fn behavior(
                     }
                     pose.translation = result.position;
                 }
-                if direction.length_squared() > 0. {
-                    let desired = Quat::from_rotation_y((-direction.x).atan2(-direction.z));
+                if steering.length_squared() > 0. {
+                    let desired = Quat::from_rotation_y((-steering.x).atan2(-steering.z));
                     pose.rotation = pose
                         .rotation
                         .rotate_towards(desired, 180_f32.to_radians() * dt);
@@ -1727,10 +1758,19 @@ fn behavior(
                     n.event == "muzzleflash" && n.seconds >= clip_start && n.seconds < clip_end
                 }) {
                     panzer.claw_intro_seconds = current_clip.seconds;
+                    let tip = rigs
+                        .iter()
+                        .find_map(|rig| rig.socket(entity, "tag_claw"))
+                        .and_then(|socket| sockets.get(socket).ok())
+                        .expect("Ready Panzer claw socket")
+                        .translation();
+                    let target =
+                        player_pose.translation + Vec3::Y * (36. * 0.0254 - player.height * 0.5);
+                    let travel = target - tip;
                     panzer.phase = PanzerPhase::Claw {
-                        tip: pose.translation + Vec3::Y * 0.4,
-                        direction: delta.normalize_or_zero(),
-                        remaining: distance / 30.48,
+                        tip,
+                        direction: travel.normalize_or_zero(),
+                        remaining: travel.length() / 30.48,
                     };
                     crate::audio::emit(
                         &mut commands,
@@ -1746,7 +1786,9 @@ fn behavior(
                         shield.shield_held = false;
                         shield.owned.remove("tomb_shield_zm");
                     }
-                    panzer.phase = PanzerPhase::Pursuit;
+                    panzer.phase = PanzerPhase::ClawReturn {
+                        tip: player_pose.translation,
+                    };
                 } else {
                     panzer.phase = PanzerPhase::ShieldBreak(remaining - dt);
                 }
@@ -1756,7 +1798,7 @@ fn behavior(
                 direction,
                 remaining,
             } => {
-                let step = direction * 30.48 * dt;
+                let step = direction * 30.48 * dt.min(remaining);
                 let blocker = Dir3::new(step).ok().and_then(|d| {
                     query.cast_shape(
                         &Collider::cuboid(0.762, 1.524, 0.762),
@@ -1793,10 +1835,16 @@ fn behavior(
                         captured.0 = Some(entity);
                         panzer.captured = Some(owner);
                         panzer.claw_baseline = armor.explosive_damage;
-                        panzer.phase = PanzerPhase::Pulling(8.);
+                        panzer.phase = PanzerPhase::ClawCatch {
+                            tip: tip + step,
+                            remaining: 0.5,
+                        };
                     }
                 } else if blocker.is_some() || remaining <= dt {
-                    panzer.phase = PanzerPhase::Pursuit;
+                    panzer.phase = PanzerPhase::ClawCatch {
+                        tip: tip + direction * blocker.map_or(step.length(), |hit| hit.distance),
+                        remaining: 0.5,
+                    };
                 } else {
                     panzer.phase = PanzerPhase::Claw {
                         tip: tip + step,
@@ -1804,6 +1852,34 @@ fn behavior(
                         remaining: remaining - dt,
                     };
                 }
+            }
+            PanzerPhase::ClawCatch { tip, remaining } => {
+                if remaining > dt {
+                    panzer.phase = PanzerPhase::ClawCatch {
+                        tip,
+                        remaining: remaining - dt,
+                    };
+                } else if panzer.captured == Some(owner) {
+                    panzer.phase = PanzerPhase::Pulling(distance / 5.08);
+                } else {
+                    panzer.phase = PanzerPhase::ClawReturn { tip };
+                }
+            }
+            PanzerPhase::ClawReturn { tip } => {
+                let home = rigs
+                    .iter()
+                    .find_map(|rig| rig.socket(entity, "tag_claw"))
+                    .and_then(|socket| sockets.get(socket).ok())
+                    .expect("Ready Panzer claw socket")
+                    .translation();
+                let travel = home - tip;
+                panzer.phase = if travel.length() <= 25.4 * dt {
+                    PanzerPhase::Pursuit
+                } else {
+                    PanzerPhase::ClawReturn {
+                        tip: tip + travel.normalize_or_zero() * 25.4 * dt,
+                    }
+                };
             }
             PanzerPhase::Pulling(remaining) => {
                 if panzer.captured != Some(owner) || captured.0 != Some(entity) || remaining <= dt {
