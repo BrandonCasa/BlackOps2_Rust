@@ -7,7 +7,6 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 const CLIENT_PHYSICS_LAYER: u32 = 128;
-const RAGDOLL_SELF_LAYER: u32 = 2048;
 const RAGDOLL_ACTIVE_SECONDS: f32 = 3.;
 pub(super) fn client_physics_filter() -> SpatialQueryFilter {
     SpatialQueryFilter::from_mask(CLIENT_PHYSICS_LAYER)
@@ -102,9 +101,6 @@ struct RagdollEntity(Entity);
 #[derive(Component)]
 struct RagdollCollider {
     owner: Entity,
-    index: usize,
-    pairs: u16,
-    self_only: bool,
 }
 #[derive(Message, Clone, Copy)]
 pub(crate) struct RagdollExplosion {
@@ -177,24 +173,16 @@ pub(crate) struct RagdollCollisionHooks<'w, 's> {
 impl CollisionHooks for RagdollCollisionHooks<'_, '_> {
     fn filter_pairs(&self, a: Entity, b: Entity, _: &mut Commands) -> bool {
         match (self.parts.get(a).ok(), self.parts.get(b).ok()) {
-            (Some(a), Some(b)) if a.owner == b.owner => {
-                a.self_only && b.self_only && a.pairs & (1 << b.index) != 0
-            }
-            (Some(a), Some(b)) => !a.self_only && !b.self_only,
-            (Some(part), None) => !part.self_only && !self.actors.contains(b),
-            (None, Some(part)) => !part.self_only && !self.actors.contains(a),
+            (Some(a), Some(b)) => a.owner != b.owner,
+            (Some(_), None) => !self.actors.contains(b),
+            (None, Some(_)) => !self.actors.contains(a),
             (None, None) => true,
         }
     }
 }
 pub(super) fn dynamic_piece(owner: Entity) -> impl Bundle {
     (
-        RagdollCollider {
-            owner,
-            index: 0,
-            pairs: 0,
-            self_only: false,
-        },
+        RagdollCollider { owner },
         CollisionLayers::new(
             CLIENT_PHYSICS_LAYER,
             crate::assets::DYNENT_WORLD_LAYER | CLIENT_PHYSICS_LAYER,
@@ -457,15 +445,11 @@ fn explosions(
     }
 }
 
-fn capsule(radius: f32, half_length: f32, scale: f32) -> (Collider, Vec3) {
+fn capsule(radius: f32, half_length: f32) -> (Collider, Vec3) {
     // Every source bone, including the pelvis, extends along its local X axis.
     let center = Vec3::X * half_length;
     (
-        Collider::compound(vec![(
-            center,
-            Quat::from_rotation_z(-std::f32::consts::FRAC_PI_2),
-            Collider::capsule(radius * scale, half_length * 2.),
-        )]),
+        Collider::capsule_endpoints(radius, Vec3::ZERO, center * 2.),
         center,
     )
 }
@@ -609,16 +593,7 @@ fn begin(
                     velocity += blast.impulse(center, 18. / count as f32) / bone.mass;
                 }
             }
-            let pairs = profile.self_pairs.iter().fold(0u16, |mask, pair| {
-                if pair[0] == index {
-                    mask | (1 << pair[1])
-                } else if pair[1] == index {
-                    mask | (1 << pair[0])
-                } else {
-                    mask
-                }
-            });
-            let (shape, center) = capsule(bone.radius, half_length, 1.);
+            let (shape, center) = capsule(bone.radius, half_length);
             let size = Vec3::new(
                 (half_length + bone.radius) * 2.,
                 bone.radius * 2.,
@@ -662,32 +637,10 @@ fn begin(
                         CLIENT_PHYSICS_LAYER,
                         crate::assets::RAGDOLL_WORLD_LAYER | CLIENT_PHYSICS_LAYER,
                     ),
-                    RagdollCollider {
-                        owner,
-                        index,
-                        pairs,
-                        self_only: false,
-                    },
+                    RagdollCollider { owner },
                     ActiveCollisionHooks::FILTER_PAIRS,
                 ))
                 .id();
-            let (self_shape, _) = capsule(bone.radius, half_length, 1.2);
-            commands.spawn((
-                ChildOf(entity),
-                self_shape,
-                Transform::IDENTITY,
-                ColliderDensity(0.),
-                CollisionLayers::new(RAGDOLL_SELF_LAYER, RAGDOLL_SELF_LAYER),
-                Friction::new(bone.friction),
-                Restitution::ZERO,
-                RagdollCollider {
-                    owner,
-                    index,
-                    pairs,
-                    self_only: true,
-                },
-                ActiveCollisionHooks::FILTER_PAIRS,
-            ));
             bodies[index] = Some(entity);
         }
         for joint in &profile.joints {
@@ -1048,6 +1001,63 @@ fn cleanup(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bone_collider_is_a_single_capsule_with_the_original_endpoints() {
+        let (collider, center) = capsule(0.1143, 0.2);
+        let shape = collider.shape().as_capsule().unwrap();
+        assert_eq!(shape.radius, 0.1143);
+        assert_eq!(shape.segment.a, Vec3::ZERO);
+        assert_eq!(shape.segment.b, Vec3::X * 0.4);
+        assert_eq!(center, Vec3::X * 0.2);
+    }
+
+    #[test]
+    fn ragdoll_contacts_exclude_own_bones_but_keep_world_and_other_corpses() {
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            AssetPlugin::default(),
+            bevy::mesh::MeshPlugin,
+            TransformPlugin,
+            PhysicsPlugins::new(PostUpdate).with_collision_hooks::<RagdollCollisionHooks>(),
+        ))
+        .insert_resource(Gravity(Vec3::ZERO))
+        .insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+            Duration::from_secs_f64(1. / 120.),
+        ));
+        app.finish();
+        app.cleanup();
+        let owners = [
+            app.world_mut().spawn_empty().id(),
+            app.world_mut().spawn_empty().id(),
+        ];
+        let parts = [(owners[0], 0.), (owners[0], 0.05), (owners[1], 0.1)].map(|(owner, z)| {
+            app.world_mut()
+                .spawn((
+                    RigidBody::Dynamic,
+                    capsule(0.1, 0.2).0,
+                    Transform::from_xyz(0., 0.05, z),
+                    dynamic_piece(owner),
+                ))
+                .id()
+        });
+        let floor = app
+            .world_mut()
+            .spawn((
+                RigidBody::Static,
+                Collider::cuboid(10., 0.2, 10.),
+                Transform::from_xyz(0., -0.1, 0.),
+                CollisionLayers::new(crate::assets::DYNENT_WORLD_LAYER, CLIENT_PHYSICS_LAYER),
+            ))
+            .id();
+        app.update();
+        app.update();
+        let contacts = app.world().resource::<ContactGraph>();
+        assert!(!contacts.contains(parts[0], parts[1]));
+        assert!(contacts.contains(parts[0], parts[2]));
+        assert!(contacts.contains(parts[0], floor));
+    }
 
     #[test]
     fn joint_cleanup_survives_frames_without_a_client_physics_step() {

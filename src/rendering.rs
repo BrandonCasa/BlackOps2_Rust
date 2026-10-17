@@ -123,11 +123,11 @@ pub(crate) fn setup(
         camera.insert(bevy::anti_alias::dlss::Dlss::<
             bevy::anti_alias::dlss::DlssSuperResolutionFeature,
         > {
-            perf_quality_mode: bevy::anti_alias::dlss::DlssPerfQualityMode::Performance,
+            perf_quality_mode: bevy::anti_alias::dlss::DlssPerfQualityMode::UltraPerformance,
             reset: true,
             ..default()
         });
-        info!("DLSS Super Resolution: Performance");
+        info!("DLSS Super Resolution: Ultra Performance");
     } else {
         warn!("DLSS Super Resolution unavailable; rendering at native resolution");
     }
@@ -138,7 +138,10 @@ pub(crate) fn setup(
         neural_rendering.as_deref(),
         Some(DlssNeuralRenderingStatus::Ready)
     ) {
-        camera.insert(DlssNeuralRendering::default());
+        camera.insert(DlssNeuralRendering {
+            style: 2, // Cinematic (third style).
+            ..default()
+        });
         info!("DLSS Neural Rendering enabled (F11 toggles)");
     }
 }
