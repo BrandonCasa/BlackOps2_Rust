@@ -65,6 +65,9 @@ pub(super) enum Command {
     Capture {
         name: String,
     },
+    NeuralRendering {
+        enabled: bool,
+    },
     Quit,
 }
 

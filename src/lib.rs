@@ -111,6 +111,20 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
     app.insert_resource(bevy::anti_alias::dlss::DlssProjectId(
         bevy::asset::uuid::Uuid::from_u128(0x8e091984_d832_4d03_9f7c_38a3fca674dc),
     ));
+    // The application owns deployment of the optional neural rendering model.
+    let neural_rendering_dll = std::env::var_os("ORIGINS_DLSS_NR_DLL")
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            std::env::current_exe().ok().and_then(|exe| {
+                let dll = exe.parent()?.join("nvngx_dlssnr.dll");
+                dll.is_file().then_some(dll)
+            })
+        });
+    if let Some(library_path) = neural_rendering_dll {
+        app.insert_resource(
+            bevy::anti_alias::dlss::neural_rendering::DlssNeuralRenderingConfig { library_path },
+        );
+    }
     let mut render_settings = bevy::render::settings::WgpuSettings {
         backends: Some(bevy::render::settings::Backends::VULKAN),
         ..default()

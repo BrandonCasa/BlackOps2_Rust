@@ -73,6 +73,34 @@ pub(crate) fn reset_history(world: &mut World) {
     for mut dlss in cameras.iter_mut(world) {
         dlss.reset = true;
     }
+    let mut cameras = world.query_filtered::<&mut bevy::anti_alias::dlss::neural_rendering::DlssNeuralRendering, With<super::GameCamera>>();
+    for mut nr in cameras.iter_mut(world) {
+        nr.reset = true;
+    }
+}
+
+pub(super) fn toggle_neural_rendering(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut cameras: Query<
+        &mut bevy::anti_alias::dlss::neural_rendering::DlssNeuralRendering,
+        With<super::GameCamera>,
+    >,
+) {
+    if !keys.just_pressed(KeyCode::F11) {
+        return;
+    }
+    for mut nr in &mut cameras {
+        nr.intensity = if nr.intensity == 0.0 { 1.0 } else { 0.0 };
+        nr.reset = true;
+        info!(
+            "DLSS Neural Rendering {}",
+            if nr.intensity == 0.0 {
+                "disabled"
+            } else {
+                "enabled"
+            }
+        );
+    }
 }
 
 // The native D32S8 main attachment cannot be copied by Bevy's D32 prepass.

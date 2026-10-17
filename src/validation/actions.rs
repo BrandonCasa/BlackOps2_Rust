@@ -268,6 +268,21 @@ pub(super) fn execute(world: &mut World, request: &Request) -> Result<bool, Stri
             })?;
             Ok(true)
         }
+        Command::NeuralRendering { enabled } => {
+            use bevy::anti_alias::dlss::neural_rendering::DlssNeuralRendering;
+            let mut cameras = world
+                .query_filtered::<&mut DlssNeuralRendering, With<crate::rendering::GameCamera>>();
+            let mut found = false;
+            for mut nr in cameras.iter_mut(world) {
+                nr.intensity = if *enabled { 1.0 } else { 0.0 };
+                nr.reset = true;
+                found = true;
+            }
+            if !found {
+                return Err("Neural Rendering is unavailable on the game camera".into());
+            }
+            Ok(true)
+        }
         Command::Capture { name } => {
             let path = world
                 .resource::<Controller>()

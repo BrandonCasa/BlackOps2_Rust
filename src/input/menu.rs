@@ -1,4 +1,5 @@
 use super::{Action, Binding, ControlSettings, PressMode, settings::SettingsStore};
+mod neural_rendering;
 use crate::GameState;
 use bevy::{
     input::{
@@ -46,6 +47,8 @@ pub(crate) struct ControlMenu {
 }
 #[derive(Component)]
 struct MenuRoot;
+#[derive(Component)]
+struct MenuItems;
 #[derive(Component)]
 struct MenuNotice;
 #[derive(Component)]
@@ -185,6 +188,7 @@ fn label(choice: Choice, settings: &ControlSettings) -> String {
     }
 }
 pub(super) fn install(app: &mut App) {
+    neural_rendering::install(app);
     let font = app
         .world_mut()
         .resource_mut::<Assets<Font>>()
@@ -248,9 +252,15 @@ fn rebuild(
     cameras: Query<Entity, With<crate::rendering::display::GameUiCamera>>,
     mut built: Local<Option<u64>>,
     cheats: Option<Res<crate::cheats::Cheats>>,
+    nr: Query<
+        &bevy::anti_alias::dlss::neural_rendering::DlssNeuralRendering,
+        With<crate::rendering::GameCamera>,
+    >,
 ) {
     if cheats.is_some_and(|c| c.menu_open) {
-        for root in &roots { commands.entity(root).despawn(); }
+        for root in &roots {
+            commands.entity(root).despawn();
+        }
         return;
     }
     if *built == Some(menu.revision) && !roots.is_empty() {
@@ -279,6 +289,8 @@ fn rebuild(
         .with_children(|parent| {
             parent
                 .spawn((
+                    MenuItems,
+                    Visibility::Inherited,
                     Node {
                         position_type: PositionType::Absolute,
                         left: percent(50.),
@@ -365,6 +377,8 @@ fn rebuild(
                     ));
                 });
             parent.spawn((
+                MenuItems,
+                Visibility::Inherited,
                 menu_text(
                     "ENTER  Select       ESC  Back       Arrow Keys  Navigate",
                     22.,
@@ -380,6 +394,9 @@ fn rebuild(
                 },
                 UiTransform::from_translation(Val2::new(units(-530.), px(0.))),
             ));
+            if let Ok(nr) = nr.single() {
+                parent.spawn(neural_rendering::panel(&font, nr));
+            }
         });
 }
 fn activate(
@@ -477,10 +494,16 @@ pub(crate) fn navigate(
     mut frontend: MessageWriter<crate::frontend::FrontendAction>,
     mut audio: ResMut<crate::audio::AudioSettings>,
     cheats: Option<Res<crate::cheats::Cheats>>,
+    nr_panel: Query<&bevy::ui::RelativeCursorPosition, With<neural_rendering::Panel>>,
     #[cfg(feature = "dev-tools")] validator: Option<Res<crate::validation::Controller>>,
 ) {
-    if cheats.is_some_and(|c| c.menu_open) { return; }
+    if cheats.is_some_and(|c| c.menu_open) {
+        return;
+    }
     let pointer_choice = menu.pointer_choice.take();
+    if nr_panel.iter().any(|cursor| cursor.cursor_over()) {
+        return;
+    }
     #[cfg(feature = "dev-tools")]
     if validator.is_some_and(|controller| controller.owns_input()) {
         return;

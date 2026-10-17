@@ -69,7 +69,7 @@ impl Plugin for GameRenderingPlugin {
             culling::filter_visibility
                 .after(bevy::camera::visibility::VisibilitySystems::CheckVisibility),
         )
-        .add_systems(Update, camera_follow)
+        .add_systems(Update, (camera_follow, dlss::toggle_neural_rendering))
         .add_systems(
             PostUpdate,
             (source_camera_constants, world::object_constants)
@@ -91,6 +91,9 @@ impl Plugin for GameRenderingPlugin {
 pub(crate) fn setup(
     mut commands: Commands,
     dlss_supported: Option<Res<bevy::anti_alias::dlss::DlssSuperResolutionSupported>>,
+    neural_rendering: Option<
+        Res<bevy::anti_alias::dlss::neural_rendering::DlssNeuralRenderingStatus>,
+    >,
 ) {
     let mut camera = commands.spawn((
         Camera3d {
@@ -127,6 +130,16 @@ pub(crate) fn setup(
         info!("DLSS Super Resolution: Performance");
     } else {
         warn!("DLSS Super Resolution unavailable; rendering at native resolution");
+    }
+    use bevy::anti_alias::dlss::neural_rendering::{
+        DlssNeuralRendering, DlssNeuralRenderingStatus,
+    };
+    if matches!(
+        neural_rendering.as_deref(),
+        Some(DlssNeuralRenderingStatus::Ready)
+    ) {
+        camera.insert(DlssNeuralRendering::default());
+        info!("DLSS Neural Rendering enabled (F11 toggles)");
     }
 }
 
