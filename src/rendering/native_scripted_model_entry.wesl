@@ -1,3 +1,4 @@
+import package::rendering::native_world::sample_material;
 import package::rendering::native_weapon_model_optic::native_optic_fragment;
 import package::rendering::native_weapon_model_staff::native_staff_fragment;
 import package::rendering::native_character_model::{NativeSourceCharacterConstants,
@@ -257,10 +258,10 @@ fn vertex_four_nofog(input: FourInput) -> FourVaryings { return four_vertex(inpu
 fn vertex_four_mlv(input: FourInput, @location(5) lighting: vec4<f32>) -> FourVaryings { return four_vertex(input, lighting.a, false); }
 fn shade_four(input: FourVaryings, fog: bool) -> vec4<f32> {
     let c = four.source;
-    let layer1 = textureSample(input0, sampler0, input.uv12.xy);
-    let layer2 = textureSample(input1, sampler1, input.uv12.zw);
-    let layer3 = textureSample(input2, sampler2, input.uv34.xy);
-    let layer4 = textureSample(input3, sampler3, input.uv34.zw);
+    let layer1 = sample_material(scene.world.texture_mip_scale, input0, sampler0, input.uv12.xy);
+    let layer2 = sample_material(scene.world.texture_mip_scale, input1, sampler1, input.uv12.zw);
+    let layer3 = sample_material(scene.world.texture_mip_scale, input2, sampler2, input.uv34.xy);
+    let layer4 = sample_material(scene.world.texture_mip_scale, input3, sampler3, input.uv34.zw);
     let gates = vec4<f32>(1.0) - clamp(scripts.vectors[0], vec4<f32>(0.0), vec4<f32>(1.0));
     let alpha3 = gates.z * c[5].x * layer3.a;
     let alpha2 = gates.y * c[4].w * layer2.a;
@@ -329,9 +330,9 @@ fn shade_falloff(input: FalloffVaryings, mode: u32) -> vec4<f32> {
     let basis = native_scripted_parallax_basis(source);
     let c = parallax.source;
     let uv = native_scripted_three_layer_uvs(input.uv, basis.ray, parallax, view.game_time.w);
-    let layer3 = textureSample(input2, sampler2, uv.layer3);
-    let layer2 = textureSample(input1, sampler1, uv.layer2);
-    let layer1 = textureSample(input0, sampler0, uv.layer1);
+    let layer3 = sample_material(scene.world.texture_mip_scale, input2, sampler2, uv.layer3);
+    let layer2 = sample_material(scene.world.texture_mip_scale, input1, sampler1, uv.layer2);
+    let layer1 = sample_material(scene.world.texture_mip_scale, input0, sampler0, uv.layer1);
     let gates = vec3<f32>(1.0) - clamp(scripts.vectors[0].xyz, vec3<f32>(0.0), vec3<f32>(1.0));
     let alpha2 = gates.y * c[4].w * layer2.a;
     let alpha1 = gates.x * c[4].z * layer1.a;
@@ -662,7 +663,7 @@ fn shade_single(input: FourVaryings) -> vec4<f32> {
     let reflection = textureSampleLevel(probe, probe_sampler, direction, fma(-4.0, c[3].y, 4.0));
     let decoded = reflection.rgb * (1.0 / (reflection.a + 9.999999974752427e-07));
     let reflected = (decoded * clamp(fma(0.25, c[3].y, 0.75), 0.0, 1.0)) * c[3].z;
-    let layer = textureSample(input0, sampler0, input.uv12.xy);
+    let layer = sample_material(scene.world.texture_mip_scale, input0, sampler0, input.uv12.xy);
     let emission = (layer.a * layer.rgb) * c[1].w;
     let lit = fma(reflected, input.reflection_correction, emission * emission);
     let alpha = sqrt(((1.0 - clamp(scripts.vectors[0].x, 0.0, 1.0)) * c[1].z) * layer.a);

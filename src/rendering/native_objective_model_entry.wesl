@@ -1,3 +1,4 @@
+import package::rendering::native_world::sample_material;
 // Original objective UNLIT: VS/PS640b2e1. Source shield tint pulses use
 // fractional gameTime.Z and inverse-transpose world/view normals.
 import package::rendering::native_model::{NativeModelScene, NativeModelObject};
@@ -25,7 +26,7 @@ fn shade_objective(input: Varyings) -> vec4<f32> {
     let phase = fma(facing, -0.5, input.uv_time.z) * 6.283180236816406;
     let weight = fma(-sin(phase), 0.5, 0.5);
     let tint = fma(vec3<f32>(weight), material.source[1].rgb - material.source[0].rgb, material.source[0].rgb);
-    let color = textureSample(color_map, color_sampler, input.uv_time.xy);
+    let color = sample_material(scene.world.texture_mip_scale, color_map, color_sampler, input.uv_time.xy);
     let luma = dot(vec3<f32>(0.3330000042915344), color.rgb) + 0.5;
     let tinted = tint * luma;
     let blend = fma(weight, material.source[2].y - material.source[2].x, material.source[2].x);

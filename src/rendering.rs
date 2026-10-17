@@ -281,6 +281,7 @@ fn source_camera_constants(
             sun_position: sun.dir.extend(0.0),
             sun_diffuse: sun.diffuse_color,
             omni_lights: submissions.view(eye_native),
+            texture_mip_scale: 1.0,
         };
         fog.write_scene(
             &world,

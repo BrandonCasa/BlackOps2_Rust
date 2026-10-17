@@ -164,6 +164,8 @@ pub struct NativeWorldScene {
     pub sun_position: Vec4,
     pub sun_diffuse: Vec4,
     pub omni_lights: NativeOmniLights,
+    /// exp2(Bevy's per-view mip bias); one without DLSS.
+    pub texture_mip_scale: f32,
 }
 
 /// Source world-to-eye-relative transform and the surface's probe coefficients.

@@ -1,3 +1,4 @@
+import package::rendering::native_world::sample_material;
 import package::rendering::native_model_variants::native_model_atlas_irradiance;
 import package::rendering::native_model::NativeModelScene;
 import package::rendering::native_scripted_model::{NativeModelScriptedScene,
@@ -13,7 +14,7 @@ fn native_character_hair(input: NativeScriptedVaryings, scene: NativeModelScene,
     color_map: texture_2d<f32>, color_sampler: sampler,
     specular_map: texture_2d<f32>, specular_sampler: sampler,
     atlas: texture_3d<f32>, atlas_sampler: sampler, probe: texture_cube<f32>, probe_sampler: sampler) -> vec4<f32> {
-    let color = textureSample(color_map, color_sampler, input.uv) * input.color;
+    let color = sample_material(scene.world.texture_mip_scale, color_map, color_sampler, input.uv) * input.color;
     var lighting_input = input;
     lighting_input.color.a = 1.0;
     let result = native_model_phong_shade(lighting_input, scene, view, 0.0,
@@ -37,32 +38,32 @@ fn native_character_fritz(input: NativeScriptedVaryings, scene: NativeModelScene
     warp_map: texture_2d<f32>, warp_sampler: sampler,
     sparkle_map: texture_2d<f32>, sparkle_sampler: sampler,
     atlas: texture_3d<f32>, atlas_sampler: sampler, probe: texture_cube<f32>, probe_sampler: sampler) -> vec4<f32> {
-    let normal_sample = textureSample(normal_map, normal_sampler, input.uv).rg;
-    let original = textureSample(color_map, color_sampler, input.uv);
+    let normal_sample = sample_material(scene.world.texture_mip_scale, normal_map, normal_sampler, input.uv).rg;
+    let original = sample_material(scene.world.texture_mip_scale, color_map, color_sampler, input.uv);
     var diffuse = original;
-    var specular = textureSample(specular_map, specular_sampler, input.uv);
+    var specular = sample_material(scene.world.texture_mip_scale, specular_map, specular_sampler, input.uv);
     var glow: vec4<f32>;
     if scripts.vectors[0].x > 0.0 {
-        let warp_sample = textureSample(warp_map, warp_sampler, input.uv * material.source[2].x).rg;
+        let warp_sample = sample_material(scene.world.texture_mip_scale, warp_map, warp_sampler, input.uv * material.source[2].x).rg;
         let warp = fma(warp_sample, vec2<f32>(2.0), vec2<f32>(-1.0));
         let warped_uv = fma(vec2<f32>(material.source[1].w), warp, input.uv);
-        let warped_color = textureSample(color_map, color_sampler, warped_uv);
+        let warped_color = sample_material(scene.world.texture_mip_scale, color_map, color_sampler, warped_uv);
         let luma = dot(warped_color.rgb, vec3<f32>(0.30000001192092896, 0.5899999737739563, 0.10999999940395355));
         let luma_boost = (luma * luma) * material.source[2].y;
         diffuse = vec4<f32>(fma(vec3<f32>(scripts.vectors[0].x), vec3<f32>(luma_boost) - original.rgb, original.rgb), warped_color.a);
-        let glow_sample = textureSample(glow_map, glow_sampler, warped_uv);
+        let glow_sample = sample_material(scene.world.texture_mip_scale, glow_map, glow_sampler, warped_uv);
         let offsets = fract((view.game_time.w * material.source[1].xy) * material.source[1].z);
         let sparkle_uv = fma(vec2<f32>(material.source[1].w), warp,
             fma(input.uv, vec2<f32>(material.source[1].z), offsets));
-        let sparkle = textureSample(sparkle_map, sparkle_sampler, sparkle_uv);
+        let sparkle = sample_material(scene.world.texture_mip_scale, sparkle_map, sparkle_sampler, sparkle_uv);
         let sparkle_amount = ((input.uv.y * input.uv.y) * input.uv.y) * sparkle.a;
         let sparkled = fma(vec3<f32>(sparkle_amount), sparkle.rgb - vec3<f32>(luma_boost), vec3<f32>(luma_boost));
         glow = vec4<f32>(fma(vec3<f32>(scripts.vectors[0].x), sparkled - original.rgb, original.rgb), glow_sample.a);
-        let warped_specular = textureSample(specular_map, specular_sampler, warped_uv);
+        let warped_specular = sample_material(scene.world.texture_mip_scale, specular_map, specular_sampler, warped_uv);
         let specular_luma = dot(warped_specular.rgb, vec3<f32>(0.30000001192092896, 0.5899999737739563, 0.10999999940395355));
         specular = vec4<f32>(fma(vec3<f32>(scripts.vectors[0].x), vec3<f32>(specular_luma) - specular.rgb, specular.rgb), specular.a);
     } else {
-        glow = textureSample(glow_map, glow_sampler, input.uv);
+        glow = sample_material(scene.world.texture_mip_scale, glow_map, glow_sampler, input.uv);
     }
     let colored = diffuse * input.color;
     let emission = ((glow.a * glow.rgb) * (material.source[0].z * scripts.vectors[0].y));
@@ -108,7 +109,7 @@ fn native_character_cornea(input: NativeScriptedVaryings, fill1: vec3<f32>, fill
     atlas: texture_3d<f32>, atlas_sampler: sampler) -> vec4<f32> {
     let geometric = input.normal * inverseSqrt(dot(input.normal, input.normal));
     let bitangent = native_scripted_bitangent(geometric, input.tangent_sign);
-    let slopes = fma(textureSample(normal_map, normal_sampler, input.uv).rg,
+    let slopes = fma(sample_material(scene.world.texture_mip_scale, normal_map, normal_sampler, input.uv).rg,
         vec2<f32>(4.015748023986816), vec2<f32>(-2.0157480239868164));
     let mapped = fma(vec3<f32>(slopes.x), input.tangent_sign.xyz, slopes.y * bitangent);
     let normal_raw = fma(input.normal, vec3<f32>(inverseSqrt(dot(input.normal, input.normal))), mapped);
@@ -116,7 +117,7 @@ fn native_character_cornea(input: NativeScriptedVaryings, fill1: vec3<f32>, fill
     let h1 = native_character_highlight(normal, input.eye_fog.xyz, fill1, material.source[0].w, material.source[1].x) * material.source[1].y;
     let h2 = native_character_highlight(normal, input.eye_fog.xyz, fill2, material.source[2].w, material.source[3].x);
     let highlight = clamp(fma(h2, material.source[3].y, h1) - 0.05000000074505806, 0.0, 1.0);
-    let alpha = sqrt(highlight * textureSample(mask_map, mask_sampler, input.uv).r);
+    let alpha = sqrt(highlight * sample_material(scene.world.texture_mip_scale, mask_map, mask_sampler, input.uv).r);
     let irradiance = native_model_atlas_irradiance(geometric, input.grid_coords_and_vis.xyz, scene, atlas, atlas_sampler) * 32.0;
     let sun = input.grid_coords_and_vis.w * scene.world.sun_diffuse.xyz;
     let lit = fma(vec3<f32>(clamp(dot(scene.world.sun_position.xyz, geometric), 0.0, 1.0)), sun, irradiance);
@@ -134,7 +135,7 @@ fn native_character_skin_cutout(input: NativeScriptedVaryings, scene: NativeMode
     color_map: texture_2d<f32>, color_sampler: sampler,
     specular_map: texture_2d<f32>, specular_sampler: sampler,
     atlas: texture_3d<f32>, atlas_sampler: sampler, probe: texture_cube<f32>, probe_sampler: sampler) -> vec4<f32> {
-    let sample = textureSample(color_map, color_sampler, input.uv);
+    let sample = sample_material(scene.world.texture_mip_scale, color_map, color_sampler, input.uv);
     let vertex = input.color * input.color;
     let color = sample * vertex;
     let result = native_model_phong_shade(input, scene, view, scripts.vectors[0].x,
@@ -154,8 +155,8 @@ fn native_character_emission(input: NativeScriptedVaryings, scene: NativeModelSc
     specular_map: texture_2d<f32>, specular_sampler: sampler,
     emission_map: texture_2d<f32>, emission_sampler: sampler,
     atlas: texture_3d<f32>, atlas_sampler: sampler, probe: texture_cube<f32>, probe_sampler: sampler) -> vec4<f32> {
-    let diffuse = textureSample(color_map, color_sampler, input.uv).rgb * (input.color.rgb * input.color.rgb);
-    let sample = textureSample(emission_map, emission_sampler, input.uv) * input.color;
+    let diffuse = sample_material(scene.world.texture_mip_scale, color_map, color_sampler, input.uv).rgb * (input.color.rgb * input.color.rgb);
+    let sample = sample_material(scene.world.texture_mip_scale, emission_map, emission_sampler, input.uv) * input.color;
     let emission = (sample.a * sample.rgb) * material.source[0].w;
     return native_model_phong_shade(input, scene, view, scripts.vectors[0].x,
         material.source[0].xyz, false, true, diffuse * diffuse, 1.0,
@@ -173,11 +174,11 @@ fn native_character_reveal_emission(input: NativeScriptedVaryings, scene: Native
     emission_map: texture_2d<f32>, emission_sampler: sampler,
     temporal_map: texture_2d<f32>, temporal_sampler: sampler,
     atlas: texture_3d<f32>, atlas_sampler: sampler, probe: texture_cube<f32>, probe_sampler: sampler) -> vec4<f32> {
-    let temporal = textureSample(temporal_map, temporal_sampler, input.uv).r;
+    let temporal = sample_material(scene.world.texture_mip_scale, temporal_map, temporal_sampler, input.uv).r;
     let thresholds = vec2<f32>(scripts.vectors[3].x) + vec2<f32>(0.05999999865889549, -0.029999999329447746);
     let ramps = clamp((vec2<f32>(temporal) - thresholds) * vec2<f32>(-8.333333015441895, 16.66666603088379), vec2<f32>(0.0), vec2<f32>(1.0));
     let curves = (ramps * ramps) * fma(ramps, vec2<f32>(-2.0), vec2<f32>(3.0));
-    let sample = textureSample(color_map, color_sampler, input.uv);
+    let sample = sample_material(scene.world.texture_mip_scale, color_map, color_sampler, input.uv);
     let base = sample * input.color;
     let state1 = base.r * material.source[2].rgb;
     let altered = fma(vec3<f32>(scripts.vectors[3].y), fma(vec3<f32>(base.r), material.source[3].rgb, -state1), state1);
@@ -185,7 +186,7 @@ fn native_character_reveal_emission(input: NativeScriptedVaryings, scene: Native
     let colored = blended.rgb * input.color.rgb;
     let pulse = fma(sin(view.game_time.w * material.source[4].x), 0.5, 0.5);
     let pulse_scale = fma(pulse, material.source[3].w - 1.0, 1.0);
-    let emissive = textureSample(emission_map, emission_sampler, input.uv).rgb;
+    let emissive = sample_material(scene.world.texture_mip_scale, emission_map, emission_sampler, input.uv).rgb;
     let diffuse_emission = (pulse_scale * base.rgb) * emissive * curves.y;
     let edge_color = fma(vec3<f32>(scripts.vectors[3].y), material.source[1].rgb - material.source[0].yzw, material.source[0].yzw);
     let edge = fma(vec3<f32>(curves.y * curves.x), edge_color, diffuse_emission) * material.source[0].x;
@@ -231,13 +232,13 @@ fn native_character_ember(input: NativeScriptedVaryings, flicker: f32,
     offsets = vec4<f32>(offsets.xy * material.source[0].w, offsets.zw * material.source[2].x);
     offsets = fract(offsets);
     let ember_uv = fma(input.uv, vec2<f32>(material.source[2].x), offsets.zw);
-    let ember_sample = textureSample(ember_map, ember_sampler, ember_uv);
+    let ember_sample = sample_material(scene.world.texture_mip_scale, ember_map, ember_sampler, ember_uv);
     let ember = ember_sample.rgb;
     let heat_uv = fma(input.uv, vec2<f32>(material.source[0].w), offsets.xy);
-    let heat = textureSample(heat_map, heat_sampler, heat_uv);
+    let heat = sample_material(scene.world.texture_mip_scale, heat_map, heat_sampler, heat_uv);
     let heated = (heat.rgb * flicker) * 6.0;
-    let base = textureSample(color_map, color_sampler, input.uv).rgb * input.color.rgb;
-    let reveal_sample = textureSample(reveal_map, reveal_sampler, input.uv);
+    let base = sample_material(scene.world.texture_mip_scale, color_map, color_sampler, input.uv).rgb * input.color.rgb;
+    let reveal_sample = sample_material(scene.world.texture_mip_scale, reveal_map, reveal_sampler, input.uv);
     let amount = clamp(reveal_sample.r * input.color.r, 0.0, 1.0);
     let reveal = reveal_sample * input.color;
     let diffuse = fma(vec3<f32>(amount), fma(heated, ember, -base), base) * input.color.rgb;
@@ -258,8 +259,8 @@ fn native_character_glass(input: NativeScriptedVaryings, emission_uv: vec2<f32>,
     color_map: texture_2d<f32>, color_sampler: sampler,
     specular_map: texture_2d<f32>, specular_sampler: sampler,
     atlas: texture_3d<f32>, atlas_sampler: sampler, probe: texture_cube<f32>, probe_sampler: sampler) -> vec4<f32> {
-    let color = textureSample(color_map, color_sampler, input.uv) * input.color;
-    let sample = textureSample(color_map, color_sampler, emission_uv);
+    let color = sample_material(scene.world.texture_mip_scale, color_map, color_sampler, input.uv) * input.color;
+    let sample = sample_material(scene.world.texture_mip_scale, color_map, color_sampler, emission_uv);
     let emission = (sample.a * sample.rgb) * material.source[0].w;
     var lighting_input = input;
     lighting_input.color.a = 1.0;

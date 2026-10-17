@@ -13,7 +13,7 @@ use bevy::{
     prelude::*,
     render::{
         Render, RenderApp, RenderSystems,
-        camera::TemporalJitter,
+        camera::{MipBias, TemporalJitter},
         render_asset::RenderAssets,
         render_resource::*,
         renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery},
@@ -118,6 +118,7 @@ fn jitter_native_scene(
             &MainPassResolutionOverride,
             &ExtractedView,
             &Dlss,
+            &MipBias,
             &mut NativeWorldScene,
             Option<&mut NativeFxFrame>,
             Option<&mut super::native_water::WaterScene>,
@@ -125,7 +126,8 @@ fn jitter_native_scene(
         With<Dlss>,
     >,
 ) {
-    for (jitter, size, view, dlss, mut scene, effects, water) in &mut views {
+    for (jitter, size, view, dlss, mip_bias, mut scene, effects, water) in &mut views {
+        scene.texture_mip_scale = mip_bias.0.exp2();
         let unjittered = *scene;
         let offset = jitter.offset * Vec2::new(2., -2.) / size.0.as_vec2();
         let w = scene.view_projection_rows[3];

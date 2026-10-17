@@ -1,3 +1,4 @@
+import package::rendering::native_world::sample_material;
 import package::rendering::native_world::{
     NativeWorldScene, NativeWorldObject, NativeWorldVertexInput, native_world_vertex,
 };
@@ -124,12 +125,12 @@ fn native_world_three_layer_reveal_fragment(
     lightmap_secondary: texture_2d<f32>, lightmap_sampler: sampler,
     reflection_probe: texture_cube<f32>, reflection_sampler: sampler,
 ) -> vec4<f32> {
-    let layer_normal1 = textureSample(layer_normal_map1, layer_normal_sampler1, input.layer_uvs.xy);
-    let base_normal = textureSample(normal_map, normal_sampler, input.uv_lightmap.xy);
-    let layer_color1 = textureSample(layer_color_map1, layer_color_sampler1, input.layer_uvs.xy);
+    let layer_normal1 = sample_material(scene.texture_mip_scale, layer_normal_map1, layer_normal_sampler1, input.layer_uvs.xy);
+    let base_normal = sample_material(scene.texture_mip_scale, normal_map, normal_sampler, input.uv_lightmap.xy);
+    let layer_color1 = sample_material(scene.texture_mip_scale, layer_color_map1, layer_color_sampler1, input.layer_uvs.xy);
     let weight1 = layer_color1.a * input.blend_color.g;
-    let layer_normal2 = textureSample(layer_normal_map2, layer_normal_sampler2, input.layer_uvs.zw);
-    let layer_color2 = textureSample(layer_color_map2, layer_color_sampler2, input.layer_uvs.zw);
+    let layer_normal2 = sample_material(scene.texture_mip_scale, layer_normal_map2, layer_normal_sampler2, input.layer_uvs.zw);
+    let layer_color2 = sample_material(scene.texture_mip_scale, layer_color_map2, layer_color_sampler2, input.layer_uvs.zw);
     // The reveal helper's equation is identical for cb1[59] and cb1[60].
     // Its compact argument carries this program's actual alphaRevealParms2.
     let weight2 = native_world_layer_reveal_weight(input.blend_color.b, layer_color2.a,
@@ -162,23 +163,23 @@ fn native_world_three_layer_double_reveal_fragment(
     lightmap_secondary: texture_2d<f32>, lightmap_sampler: sampler,
     reflection_probe: texture_cube<f32>, reflection_sampler: sampler,
 ) -> vec4<f32> {
-    let layer_normal1 = textureSample(layer_normal_map1, layer_normal_sampler1, input.layer_uvs.xy);
-    let base_normal = textureSample(normal_map, normal_sampler, input.uv_lightmap.xy);
-    let layer_color1 = textureSample(layer_color_map1, layer_color_sampler1, input.layer_uvs.xy);
+    let layer_normal1 = sample_material(scene.texture_mip_scale, layer_normal_map1, layer_normal_sampler1, input.layer_uvs.xy);
+    let base_normal = sample_material(scene.texture_mip_scale, normal_map, normal_sampler, input.uv_lightmap.xy);
+    let layer_color1 = sample_material(scene.texture_mip_scale, layer_color_map1, layer_color_sampler1, input.layer_uvs.xy);
     let weight1 = native_world_layer_reveal_weight(input.blend_color.g, layer_color1.a,
         NativeWorldRevealMaterial(material.alpha_reveal_parms1));
-    let layer_normal2 = textureSample(layer_normal_map2, layer_normal_sampler2, input.layer_uvs.zw);
-    let layer_color2 = textureSample(layer_color_map2, layer_color_sampler2, input.layer_uvs.zw);
+    let layer_normal2 = sample_material(scene.texture_mip_scale, layer_normal_map2, layer_normal_sampler2, input.layer_uvs.zw);
+    let layer_color2 = sample_material(scene.texture_mip_scale, layer_color_map2, layer_color_sampler2, input.layer_uvs.zw);
     let weight2 = native_world_layer_reveal_weight(input.blend_color.b, layer_color2.a,
         NativeWorldRevealMaterial(material.alpha_reveal_parms2));
     let weights = vec2<f32>(weight1, weight2);
     let normal = native_world_three_layer_normal(input, base_normal.rg,
         layer_normal1.rg, layer_normal2.rg, weights);
-    let layer_specular1 = textureSample(layer_specular_map1, layer_specular_sampler1, input.layer_uvs.xy);
-    let base_color = textureSample(color_map, color_sampler, input.uv_lightmap.xy);
+    let layer_specular1 = sample_material(scene.texture_mip_scale, layer_specular_map1, layer_specular_sampler1, input.layer_uvs.xy);
+    let base_color = sample_material(scene.texture_mip_scale, color_map, color_sampler, input.uv_lightmap.xy);
     let base_specular = vec4<f32>(vec3<f32>(0.20000000298023224), base_color.a);
     let specular1 = fma(vec4<f32>(weight1), layer_specular1 - base_specular, base_specular);
-    let layer_specular2 = textureSample(layer_specular_map2, layer_specular_sampler2, input.layer_uvs.zw);
+    let layer_specular2 = sample_material(scene.texture_mip_scale, layer_specular_map2, layer_specular_sampler2, input.layer_uvs.zw);
     let specular_gloss = fma(vec4<f32>(weight2), layer_specular2 - specular1, specular1);
     let reflected = native_world_plain_specular_reflection(input.eye_to_vertex,
         normal, specular_gloss, reflection_probe, reflection_sampler);
@@ -201,10 +202,10 @@ fn native_world_color_three_layer_specular_fragment(
     lightmap_secondary: texture_2d<f32>, lightmap_sampler: sampler,
     reflection_probe: texture_cube<f32>, reflection_sampler: sampler,
 ) -> vec4<f32> {
-    let base_normal = textureSample(normal_map, normal_sampler, input.uv_lightmap.xy);
-    let layer_color1 = textureSample(layer_color_map1, layer_color_sampler1, input.layer_uvs.xy);
+    let base_normal = sample_material(scene.texture_mip_scale, normal_map, normal_sampler, input.uv_lightmap.xy);
+    let layer_color1 = sample_material(scene.texture_mip_scale, layer_color_map1, layer_color_sampler1, input.layer_uvs.xy);
     let weight1 = layer_color1.a * input.blend_color.g;
-    let layer_normal2 = textureSample(layer_normal_map2, layer_normal_sampler2, input.layer_uvs.zw);
+    let layer_normal2 = sample_material(scene.texture_mip_scale, layer_normal_map2, layer_normal_sampler2, input.layer_uvs.zw);
     let normal = native_world_color_three_normal(input, base_normal.rg, layer_normal2.rg, weight2);
     return native_world_three_layer_reveal_lighting(input, scene, normal, weight1, weight2,
         layer_color1, layer_color2, color_map, color_sampler,
@@ -223,8 +224,8 @@ fn native_world_three_layer_reveal_lighting(
     lightmap_secondary: texture_2d<f32>, lightmap_sampler: sampler,
     reflection_probe: texture_cube<f32>, reflection_sampler: sampler,
 ) -> vec4<f32> {
-    let layer_specular2 = textureSample(layer_specular_map2, layer_specular_sampler2, input.layer_uvs.zw);
-    let base_color = textureSample(color_map, color_sampler, input.uv_lightmap.xy);
+    let layer_specular2 = sample_material(scene.texture_mip_scale, layer_specular_map2, layer_specular_sampler2, input.layer_uvs.zw);
+    let base_color = sample_material(scene.texture_mip_scale, color_map, color_sampler, input.uv_lightmap.xy);
     // Layer1 has no specular input. Original literal RGB is0.2 and gloss is
     // C0.a; neither is blended by weight1 before the reveal into S2.
     let base_specular = vec4<f32>(vec3<f32>(0.20000000298023224), base_color.a);
@@ -259,18 +260,18 @@ fn native_world_color_three_layer_normal_fragment(
     lightmap_secondary: texture_2d<f32>, lightmap_sampler: sampler,
     reflection_probe: texture_cube<f32>, reflection_sampler: sampler,
 ) -> vec4<f32> {
-    let top = textureSample(color_map2, color_sampler2, input.layer_uvs.zw);
+    let top = sample_material(scene.texture_mip_scale, color_map2, color_sampler2, input.layer_uvs.zw);
     let weight2 = top.a * input.blend_color.b;
-    let normal2 = textureSample(normal_map2, normal_sampler2, input.layer_uvs.zw);
-    let normal0 = textureSample(normal_map, normal_sampler, input.uv_lightmap.xy);
+    let normal2 = sample_material(scene.texture_mip_scale, normal_map2, normal_sampler2, input.layer_uvs.zw);
+    let normal0 = sample_material(scene.texture_mip_scale, normal_map, normal_sampler, input.uv_lightmap.xy);
     let normal = native_world_color_three_normal(input, normal0.rg, normal2.rg, weight2);
-    let base = textureSample(color_map, color_sampler, input.uv_lightmap.xy);
+    let base = sample_material(scene.texture_mip_scale, color_map, color_sampler, input.uv_lightmap.xy);
     let lighting_input = native_world_three_layer_lighting_input(input);
     let probe = native_world_layer_probe(lighting_input, normal, base.a, reflection_probe, reflection_sampler);
     let strength = fma(base.a, min(probe.fresnel, base.a * 0.4749999940395355),
         fma(base.a, 0.027499999850988388, 0.014999999664723873));
     let reflected = strength * probe.linear_color;
-    let layer = textureSample(color_map1, color_sampler1, input.layer_uvs.xy);
+    let layer = sample_material(scene.texture_mip_scale, color_map1, color_sampler1, input.layer_uvs.xy);
     let weight1 = layer.a * input.blend_color.g;
     let color1 = fma(vec3<f32>(weight1), layer.rgb - base.rgb, base.rgb);
     let color = fma(vec3<f32>(weight2), top.rgb - color1, color1);
@@ -291,18 +292,18 @@ fn native_world_reveal_overlay_fragment(
     lightmap_secondary: texture_2d<f32>, lightmap_sampler: sampler,
     reflection_probe: texture_cube<f32>, reflection_sampler: sampler,
 ) -> vec4<f32> {
-    let layer_color = textureSample(color_map1, color_sampler1, input.layer_uvs.xy);
+    let layer_color = sample_material(scene.texture_mip_scale, color_map1, color_sampler1, input.layer_uvs.xy);
     let weight = native_world_layer_reveal_weight(input.blend_color.g, layer_color.a, material);
     var lighting_input = native_world_three_layer_lighting_input(input);
     lighting_input.normal_transform = input.normal_transform2;
-    let normal1 = textureSample(normal_map1, normal_sampler1, input.layer_uvs.xy);
-    let normal0 = textureSample(normal_map, normal_sampler, input.uv_lightmap.xy);
+    let normal1 = sample_material(scene.texture_mip_scale, normal_map1, normal_sampler1, input.layer_uvs.xy);
+    let normal0 = sample_material(scene.texture_mip_scale, normal_map, normal_sampler, input.uv_lightmap.xy);
     let normal = native_world_layer_normal(lighting_input, normal0.rg, normal1.rg, weight);
-    let specular1 = textureSample(specular_map1, specular_sampler1, input.layer_uvs.xy);
-    let base = textureSample(color_map, color_sampler, input.uv_lightmap.xy);
+    let specular1 = sample_material(scene.texture_mip_scale, specular_map1, specular_sampler1, input.layer_uvs.xy);
+    let base = sample_material(scene.texture_mip_scale, color_map, color_sampler, input.uv_lightmap.xy);
     let specular0 = vec4<f32>(vec3<f32>(0.20000000298023224), base.a);
     let specular = fma(vec4<f32>(weight), specular1 - specular0, specular0);
-    let overlay = textureSample(color_map2, color_sampler2, input.layer_uvs.zw);
+    let overlay = sample_material(scene.texture_mip_scale, color_map2, color_sampler2, input.layer_uvs.zw);
     let revealed_color = fma(vec3<f32>(weight), layer_color.rgb - base.rgb, base.rgb);
     var gloss = specular.a;
     var color: vec3<f32>;
@@ -339,19 +340,19 @@ fn native_world_layer_add_fragment(
     lightmap_secondary: texture_2d<f32>, lightmap_sampler: sampler,
     reflection_probe: texture_cube<f32>, reflection_sampler: sampler,
 ) -> vec4<f32> {
-    let layer = textureSample(color_map1, color_sampler1, input.layer_uvs.xy);
+    let layer = sample_material(scene.texture_mip_scale, color_map1, color_sampler1, input.layer_uvs.xy);
     let weight = layer.a * input.blend_color.g;
     var source = native_world_three_layer_lighting_input(input);
     source.normal_transform = input.normal_transform2;
-    let normal1 = textureSample(normal_map1, normal_sampler1, input.layer_uvs.xy);
-    let normal0 = textureSample(normal_map, normal_sampler, input.uv_lightmap.xy);
+    let normal1 = sample_material(scene.texture_mip_scale, normal_map1, normal_sampler1, input.layer_uvs.xy);
+    let normal0 = sample_material(scene.texture_mip_scale, normal_map, normal_sampler, input.uv_lightmap.xy);
     let normal = native_world_layer_normal(source, normal0.rg, normal1.rg, weight);
-    let base = textureSample(color_map, color_sampler, input.uv_lightmap.xy);
+    let base = sample_material(scene.texture_mip_scale, color_map, color_sampler, input.uv_lightmap.xy);
     let probe = native_world_layer_probe(source, normal, base.a, reflection_probe, reflection_sampler);
     let strength = fma(base.a, min(probe.fresnel, base.a * 0.4749999940395355),
         fma(base.a, 0.027499999850988388, 0.014999999664723873));
     let blended = fma(vec3<f32>(weight), layer.rgb - base.rgb, base.rgb);
-    let overlay = textureSample(color_map2, color_sampler2, input.layer_uvs.zw);
+    let overlay = sample_material(scene.texture_mip_scale, color_map2, color_sampler2, input.layer_uvs.zw);
     let added = overlay.rgb * input.blend_color.b;
     let color = fma(added, vec3<f32>(overlay.a), blended);
     var result = native_world_layer_lighting(source, scene, normal, color,
@@ -372,14 +373,14 @@ fn native_world_three_normals_fragment(
     lightmap_secondary: texture_2d<f32>, lightmap_sampler: sampler,
     reflection_probe: texture_cube<f32>, reflection_sampler: sampler,
 ) -> vec4<f32> {
-    let layer1 = textureSample(color_map1, color_sampler1, input.layer_uvs.xy);
-    let layer2 = textureSample(color_map2, color_sampler2, input.layer_uvs.zw);
+    let layer1 = sample_material(scene.texture_mip_scale, color_map1, color_sampler1, input.layer_uvs.xy);
+    let layer2 = sample_material(scene.texture_mip_scale, color_map2, color_sampler2, input.layer_uvs.zw);
     let weights = vec2<f32>(layer1.a * input.blend_color.g, layer2.a * input.blend_color.b);
-    let normal0 = textureSample(normal_map, normal_sampler, input.uv_lightmap.xy);
-    let normal1 = textureSample(normal_map1, normal_sampler1, input.layer_uvs.xy);
-    let normal2 = textureSample(normal_map2, normal_sampler2, input.layer_uvs.zw);
+    let normal0 = sample_material(scene.texture_mip_scale, normal_map, normal_sampler, input.uv_lightmap.xy);
+    let normal1 = sample_material(scene.texture_mip_scale, normal_map1, normal_sampler1, input.layer_uvs.xy);
+    let normal2 = sample_material(scene.texture_mip_scale, normal_map2, normal_sampler2, input.layer_uvs.zw);
     let normal = native_world_three_layer_normal(input, normal0.rg, normal1.rg, normal2.rg, weights);
-    let base = textureSample(color_map, color_sampler, input.uv_lightmap.xy);
+    let base = sample_material(scene.texture_mip_scale, color_map, color_sampler, input.uv_lightmap.xy);
     let source = native_world_three_layer_lighting_input(input);
     let probe = native_world_layer_probe(source, normal, base.a, reflection_probe, reflection_sampler);
     let strength = fma(base.a, min(probe.fresnel, base.a * 0.4749999940395355),
@@ -405,20 +406,20 @@ fn native_world_three_layer_retained_specular_fragment(
     lightmap_secondary: texture_2d<f32>, lightmap_sampler: sampler,
     reflection_probe: texture_cube<f32>, reflection_sampler: sampler,
 ) -> vec4<f32> {
-    let layer_normal1 = textureSample(layer_normal_map1, layer_normal_sampler1, input.layer_uvs.xy);
-    let base_normal = textureSample(normal_map, normal_sampler, input.uv_lightmap.xy);
-    let layer_color1 = textureSample(layer_color_map1, layer_color_sampler1, input.layer_uvs.xy);
+    let layer_normal1 = sample_material(scene.texture_mip_scale, layer_normal_map1, layer_normal_sampler1, input.layer_uvs.xy);
+    let base_normal = sample_material(scene.texture_mip_scale, normal_map, normal_sampler, input.uv_lightmap.xy);
+    let layer_color1 = sample_material(scene.texture_mip_scale, layer_color_map1, layer_color_sampler1, input.layer_uvs.xy);
     let weight1 = native_world_layer_reveal_weight(input.blend_color.g, layer_color1.a,
         NativeWorldRevealMaterial(material.alpha_reveal_parms1));
-    let layer_normal2 = textureSample(layer_normal_map2, layer_normal_sampler2, input.layer_uvs.zw);
-    let layer_color2 = textureSample(layer_color_map2, layer_color_sampler2, input.layer_uvs.zw);
+    let layer_normal2 = sample_material(scene.texture_mip_scale, layer_normal_map2, layer_normal_sampler2, input.layer_uvs.zw);
+    let layer_color2 = sample_material(scene.texture_mip_scale, layer_color_map2, layer_color_sampler2, input.layer_uvs.zw);
     let weight2 = native_world_layer_reveal_weight(input.blend_color.b, layer_color2.a,
         NativeWorldRevealMaterial(material.alpha_reveal_parms2));
     let weights = vec2<f32>(weight1, weight2);
     let normal = native_world_three_layer_normal(input, base_normal.rg,
         layer_normal1.rg, layer_normal2.rg, weights);
-    let layer_specular1 = textureSample(layer_specular_map1, layer_specular_sampler1, input.layer_uvs.xy);
-    let base_color = textureSample(color_map, color_sampler, input.uv_lightmap.xy);
+    let layer_specular1 = sample_material(scene.texture_mip_scale, layer_specular_map1, layer_specular_sampler1, input.layer_uvs.xy);
+    let base_color = sample_material(scene.texture_mip_scale, color_map, color_sampler, input.uv_lightmap.xy);
     let base_specular = vec4<f32>(vec3<f32>(0.20000000298023224), base_color.a);
     let specular1 = fma(vec4<f32>(weight1), layer_specular1 - base_specular, base_specular);
     let reflected = native_world_plain_specular_reflection(input.eye_to_vertex,
@@ -439,14 +440,14 @@ fn native_world_color_overlays_fragment(
     lightmap_secondary: texture_2d<f32>, lightmap_sampler: sampler,
     reflection_probe: texture_cube<f32>, reflection_sampler: sampler,
 ) -> vec4<f32> {
-    let normal_sample = textureSample(normal_map, normal_sampler, input.uv_lightmap.xy);
+    let normal_sample = sample_material(scene.texture_mip_scale, normal_map, normal_sampler, input.uv_lightmap.xy);
     let slope = fma(normal_sample.rg, vec2<f32>(4.015748023986816), vec2<f32>(-2.0157480239868164));
     let mapped = fma(vec3<f32>(slope.y), input.bitangent,
         fma(vec3<f32>(slope.x), input.tangent, input.normal_fog.xyz));
     let normal = inverseSqrt(dot(mapped, mapped)) * mapped;
-    let base = textureSample(color_map, color_sampler, input.uv_lightmap.xy);
-    let layer1 = textureSample(color_map1, color_sampler1, input.layer_uvs.xy);
-    let layer2 = textureSample(color_map2, color_sampler2, input.layer_uvs.zw);
+    let base = sample_material(scene.texture_mip_scale, color_map, color_sampler, input.uv_lightmap.xy);
+    let layer1 = sample_material(scene.texture_mip_scale, color_map1, color_sampler1, input.layer_uvs.xy);
+    let layer2 = sample_material(scene.texture_mip_scale, color_map2, color_sampler2, input.layer_uvs.zw);
     var gloss = base.a;
     var color: vec3<f32>;
     var alpha = 1.0;

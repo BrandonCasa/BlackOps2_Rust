@@ -1,3 +1,4 @@
+import package::rendering::native_world::sample_material;
 import package::rendering::native_model::{
     NativeModelScene, NativeModelObject, NativeModelVaryings,
 };
@@ -155,9 +156,9 @@ fn native_model_diffuse_fragment(
     normal_map: texture_2d<f32>, normal_sampler: sampler,
     model_lighting: texture_3d<f32>, model_lighting_sampler: sampler,
 ) -> vec4<f32> {
-    let normal_sample = textureSample(normal_map, normal_sampler, input.uv);
+    let normal_sample = sample_material(scene.world.texture_mip_scale, normal_map, normal_sampler, input.uv);
     let normal = native_model_mapped_normal(input, normal_sample.rg);
-    let color_sample = textureSample(color_map, color_sampler, input.uv);
+    let color_sample = sample_material(scene.world.texture_mip_scale, color_map, color_sampler, input.uv);
     let result = native_model_diffuse_lighting(normal, input.grid_coords_and_vis.xyz,
         input.normal_fog, input.fog_color, color_sample.rgb * input.color.rgb,
         input.grid_correction, scene, model_lighting, model_lighting_sampler);
@@ -174,7 +175,7 @@ fn native_model_geometric_diffuse_fragment(
 ) -> vec4<f32> {
     let normal = inverseSqrt(dot(input.normal_fog.xyz, input.normal_fog.xyz))
         * input.normal_fog.xyz;
-    let color_sample = textureSample(color_map, color_sampler, input.uv);
+    let color_sample = sample_material(scene.world.texture_mip_scale, color_map, color_sampler, input.uv);
     let result = native_model_diffuse_lighting(normal, input.grid_coords_and_vis.xyz,
         input.normal_fog, input.fog_color, color_sample.rgb * input.color.rgb,
         input.grid_correction * select(1.0, input.color.a, vertex_occlusion), scene, model_lighting, model_lighting_sampler);
@@ -195,9 +196,9 @@ fn native_model_alpha_diffuse_fragment(
     normal_map: texture_2d<f32>, normal_sampler: sampler,
     model_lighting: texture_3d<f32>, model_lighting_sampler: sampler,
 ) -> vec4<f32> {
-    let color_sample = textureSample(color_map, color_sampler, input.uv);
+    let color_sample = sample_material(scene.world.texture_mip_scale, color_map, color_sampler, input.uv);
     let colored = color_sample * input.color;
-    let normal_sample = textureSample(normal_map, normal_sampler, input.uv);
+    let normal_sample = sample_material(scene.world.texture_mip_scale, normal_map, normal_sampler, input.uv);
     let normal = native_model_mapped_normal(input, normal_sample.rg);
     let result = native_model_diffuse_lighting(normal, input.grid_coords_and_vis.xyz,
         input.normal_fog, input.fog_color, colored.rgb, vec3<f32>(1.0), scene,
@@ -244,12 +245,12 @@ fn native_model_normal_specular_fragment(
     model_lighting: texture_3d<f32>, model_lighting_sampler: sampler,
     reflection_probe: texture_cube<f32>, reflection_sampler: sampler,
 ) -> vec4<f32> {
-    let normal_sample = textureSample(normal_map, normal_sampler, input.uv);
+    let normal_sample = sample_material(scene.world.texture_mip_scale, normal_map, normal_sampler, input.uv);
     let normal = native_model_mapped_normal(input, normal_sample.rg);
-    let specular = textureSample(specular_map, specular_sampler, input.uv);
+    let specular = sample_material(scene.world.texture_mip_scale, specular_map, specular_sampler, input.uv);
     let reflected = native_world_plain_specular_reflection(input.eye_to_vertex.xyz,
         normal, specular, reflection_probe, reflection_sampler);
-    let color_sample = textureSample(color_map, color_sampler, input.uv);
+    let color_sample = sample_material(scene.world.texture_mip_scale, color_map, color_sampler, input.uv);
     let result = native_model_specular_lighting(input, scene, occlusion, normal,
         reflected, color_sample.rgb * input.color.rgb, model_lighting, model_lighting_sampler);
     return vec4<f32>(result, 1.0);
@@ -270,13 +271,13 @@ fn native_model_blended_specular_fragment(
     model_lighting: texture_3d<f32>, model_lighting_sampler: sampler,
     reflection_probe: texture_cube<f32>, reflection_sampler: sampler,
 ) -> vec4<f32> {
-    let normal_sample = textureSample(normal_map, normal_sampler, input.uv);
+    let normal_sample = sample_material(scene.world.texture_mip_scale, normal_map, normal_sampler, input.uv);
     let normal = native_model_mapped_normal(input, normal_sample.rg);
-    let specular = textureSample(specular_map, specular_sampler, input.uv);
+    let specular = sample_material(scene.world.texture_mip_scale, specular_map, specular_sampler, input.uv);
     let reflected = native_world_plain_specular_reflection(input.eye_to_vertex.xyz,
         normal, specular, reflection_probe, reflection_sampler);
     var reflection = (reflected * occlusion.occlusion_amount.y) * input.reflection_correction;
-    let colored = textureSample(color_map, color_sampler, input.uv) * input.color;
+    let colored = sample_material(scene.world.texture_mip_scale, color_map, color_sampler, input.uv) * input.color;
     if unattenuated_reflection {
         reflection = reflection / colored.a;
     }
@@ -307,11 +308,11 @@ fn native_model_alpha_specular_fragment(
     model_lighting: texture_3d<f32>, model_lighting_sampler: sampler,
     reflection_probe: texture_cube<f32>, reflection_sampler: sampler,
 ) -> vec4<f32> {
-    let color_sample = textureSample(color_map, color_sampler, input.uv);
+    let color_sample = sample_material(scene.world.texture_mip_scale, color_map, color_sampler, input.uv);
     let colored = color_sample * input.color;
-    let normal_sample = textureSample(normal_map, normal_sampler, input.uv);
+    let normal_sample = sample_material(scene.world.texture_mip_scale, normal_map, normal_sampler, input.uv);
     let normal = native_model_mapped_normal(input, normal_sample.rg);
-    let specular = textureSample(specular_map, specular_sampler, input.uv);
+    let specular = sample_material(scene.world.texture_mip_scale, specular_map, specular_sampler, input.uv);
     let reflected = native_world_plain_specular_reflection(input.eye_to_vertex.xyz,
         normal, specular, reflection_probe, reflection_sampler);
     let result = native_model_specular_lighting(input, scene, occlusion, normal,
@@ -332,13 +333,13 @@ fn native_model_vertex_occlusion_fragment(
     model_lighting: texture_3d<f32>, model_lighting_sampler: sampler,
     reflection_probe: texture_cube<f32>, reflection_sampler: sampler,
 ) -> vec4<f32> {
-    let normal_sample = textureSample(normal_map, normal_sampler, input.uv);
+    let normal_sample = sample_material(scene.world.texture_mip_scale, normal_map, normal_sampler, input.uv);
     let normal = native_model_mapped_normal(input, normal_sample.rg);
     let incident = inverseSqrt(dot(input.eye_to_vertex.xyz, input.eye_to_vertex.xyz))
         * input.eye_to_vertex.xyz;
     let direction = fma(normal, vec3<f32>(-2.0 * dot(incident, normal)), incident);
     let fresnel = exp2(clamp(dot(normal, -incident), 0.0, 1.0) * -9.279999732971191);
-    let color_sample = textureSample(color_map, color_sampler, input.uv);
+    let color_sample = sample_material(scene.world.texture_mip_scale, color_map, color_sampler, input.uv);
     let gloss = color_sample.a;
     let probe_sample = textureSampleLevel(reflection_probe, reflection_sampler,
         direction, fma(-4.0, gloss, 4.0));
@@ -384,13 +385,13 @@ fn native_model_geometric_specular_fragment(
     probe: texture_cube<f32>, probe_sampler: sampler,
 ) -> vec4<f32> {
     let normal = inverseSqrt(dot(input.normal_fog.xyz, input.normal_fog.xyz)) * input.normal_fog.xyz;
-    let specular = textureSample(specular_map, specular_sampler, input.uv);
+    let specular = sample_material(scene.world.texture_mip_scale, specular_map, specular_sampler, input.uv);
     let reflected = native_world_plain_specular_reflection(input.eye_to_vertex.xyz,
         normal, specular, probe, probe_sampler);
     let reflection = (reflected * occlusion.occlusion_amount.y) * input.reflection_correction;
     let irradiance = (native_model_atlas_irradiance(normal, input.grid_coords_and_vis.xyz,
         scene, atlas, atlas_sampler) * occlusion.occlusion_amount.z) * input.grid_correction;
-    let colored = textureSample(color_map, color_sampler, input.uv) * input.color;
+    let colored = sample_material(scene.world.texture_mip_scale, color_map, color_sampler, input.uv) * input.color;
     let diffuse = colored.rgb * colored.rgb;
     let lit = fma(irradiance * diffuse, vec3<f32>(32.0), reflection);
     var delta = lit - input.fog_color;
@@ -415,15 +416,15 @@ fn native_model_detail_diffuse_fragment(
     detail_map: texture_2d<f32>, detail_sampler: sampler,
     model_lighting: texture_3d<f32>, model_lighting_sampler: sampler,
 ) -> vec4<f32> {
-    let detail = textureSample(detail_map, detail_sampler, input.uv * detail_scale.xy).rg;
-    let base = textureSample(normal_map, normal_sampler, input.uv).rg;
+    let detail = sample_material(scene.world.texture_mip_scale, detail_map, detail_sampler, input.uv * detail_scale.xy).rg;
+    let base = sample_material(scene.world.texture_mip_scale, normal_map, normal_sampler, input.uv).rg;
     let scale = vec2<f32>(4.015748023986816);
     let bias = vec2<f32>(-2.0157480239868164);
     let slopes = fma(vec2<f32>(detail_scale.z), fma(detail, scale, bias), fma(base, scale, bias));
     let mapped = fma(vec3<f32>(slopes.y), input.bitangent,
         fma(vec3<f32>(slopes.x), input.tangent, input.normal_fog.xyz));
     let normal = mapped * inverseSqrt(dot(mapped, mapped));
-    let color = textureSample(color_map, color_sampler, input.uv).rgb * input.color.rgb;
+    let color = sample_material(scene.world.texture_mip_scale, color_map, color_sampler, input.uv).rgb * input.color.rgb;
     return vec4<f32>(native_model_diffuse_lighting(normal, input.grid_coords_and_vis.xyz,
         input.normal_fog, input.fog_color, color, input.grid_correction, scene,
         model_lighting, model_lighting_sampler), 1.0);

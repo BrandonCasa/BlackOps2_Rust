@@ -1,3 +1,4 @@
+import package::rendering::native_world::sample_material;
 // Original plinth EMISSIVE: pixel parallax, vertex color, floatZ fade, no probe or fog.
 import package::rendering::native_model::{NativeModelScene, NativeModelObject, NativeModelVertexInput};
 import package::rendering::native_scripted_model::{
@@ -49,9 +50,9 @@ fn shade(input: Varyings) -> vec4<f32> {
     let basis = native_scripted_parallax_basis(source);
     let c = material.source;
     let uv = native_scripted_three_layer_uvs(input.uv, basis.ray, material, view.game_time.w);
-    let layer3 = textureSample(layer3_map, layer3_sampler, uv.layer3);
-    let layer2 = textureSample(layer2_map, layer2_sampler, uv.layer2);
-    let layer1 = textureSample(layer1_map, layer1_sampler, uv.layer1);
+    let layer3 = sample_material(scene.world.texture_mip_scale, layer3_map, layer3_sampler, uv.layer3);
+    let layer2 = sample_material(scene.world.texture_mip_scale, layer2_map, layer2_sampler, uv.layer2);
+    let layer1 = sample_material(scene.world.texture_mip_scale, layer1_map, layer1_sampler, uv.layer1);
     let gates = vec3<f32>(1.0) - clamp(scripts.vectors[0].xyz, vec3<f32>(0.0), vec3<f32>(1.0));
     let alpha2 = gates.y * c[4].w * layer2.a;
     let alpha1 = gates.x * c[4].z * layer1.a;
@@ -114,11 +115,11 @@ fn shade_smoke(input: SmokeVaryings) -> vec4<f32> {
     let c = smoke.source;
     let seconds = scene.world.game_time.w;
     let alpha_uv = fma(input.uv, c[0].xy, fract((vec2<f32>(seconds) * c[2].yz) * c[0].xy));
-    let alpha2 = textureSample(layer2_map, layer2_sampler, alpha_uv).r;
+    let alpha2 = sample_material(scene.world.texture_mip_scale, layer2_map, layer2_sampler, alpha_uv).r;
     let mask_uv = fma(input.uv - c[5].zw, c[5].xy, c[5].zw);
-    let mask = textureSample(layer3_map, layer3_sampler, mask_uv).r;
+    let mask = sample_material(scene.world.texture_mip_scale, layer3_map, layer3_sampler, mask_uv).r;
     let color_uv = fma(input.uv, c[1].zw, fract((vec2<f32>(seconds) * c[1].xy) * c[1].zw));
-    let alpha = textureSample(layer1_map, layer1_sampler, color_uv).r;
+    let alpha = sample_material(scene.world.texture_mip_scale, layer1_map, layer1_sampler, color_uv).r;
     let color = textureSample(smoke_color, smoke_color_sampler, color_uv).rgb;
     let minus_uv = fma(input.uv, c[4].xy, fract((vec2<f32>(seconds) * c[4].zw) * c[4].xy));
     let alpha_minus = textureSample(smoke_alpha_minus, smoke_alpha_minus_sampler, minus_uv).r;

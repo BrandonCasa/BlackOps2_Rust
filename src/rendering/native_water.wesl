@@ -1,3 +1,4 @@
+import package::rendering::native_world::sample_material;
 import package::rendering::native_world::{NativeWorldScene, NativeWorldObject};
 
 // Original wpc_cod7water_we876z2f, cameraRegion litOpaque, sortKey16.
@@ -209,12 +210,12 @@ fn native_water_surface(
     float_z: texture_2d<f32>, float_z_sampler: sampler,
     refract_map: texture_2d<f32>, refract_sampler: sampler,
 ) -> NativeWaterSurface {
-    let low0 = textureSample(normal00, normal_sampler00, input.normal_uv0.xy);
-    let low1 = textureSample(normal00, normal_sampler00, input.normal_uv0.zw);
+    let low0 = sample_material(scene.world.texture_mip_scale, normal00, normal_sampler00, input.normal_uv0.xy);
+    let low1 = sample_material(scene.world.texture_mip_scale, normal00, normal_sampler00, input.normal_uv0.zw);
     let low = fma(vec4<f32>(low0.rg, low1.rg), vec4<f32>(material.normal_scale.x),
         vec4<f32>(material.normal_scale.y));
-    let high0 = textureSample(normal01, normal_sampler01, input.normal_uv1.xy);
-    let high1 = textureSample(normal01, normal_sampler01, input.normal_uv1.zw);
+    let high0 = sample_material(scene.world.texture_mip_scale, normal01, normal_sampler01, input.normal_uv1.xy);
+    let high1 = sample_material(scene.world.texture_mip_scale, normal01, normal_sampler01, input.normal_uv1.zw);
     let high = fma(vec4<f32>(high0.rg, high1.rg), vec4<f32>(material.normal_scale.z),
         vec4<f32>(material.normal_scale.w));
     let combined = low + high;

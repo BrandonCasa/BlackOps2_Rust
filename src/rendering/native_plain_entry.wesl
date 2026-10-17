@@ -1,3 +1,4 @@
+import package::rendering::native_world::sample_material;
 import package::rendering::native_world_layers::{NativeWorldRevealMaterial, native_world_layer_reveal_weight};
 import package::rendering::native_world::{
     NativeWorldScene, NativeWorldObject, NativeWorldVertexInput,
@@ -108,7 +109,7 @@ fn vertex_geometric_specular(input: GeometricVertexInput) -> GeometricSpecularVa
 }
 
 fn shade_diffuse(input: DiffuseVaryings, cutout: bool, blended: bool) -> vec4<f32> {
-    let color = textureSample(color_map, color_sampler, input.uv_lightmap.xy);
+    let color = sample_material(scene.texture_mip_scale, color_map, color_sampler, input.uv_lightmap.xy);
     if cutout && fma(color.a, input.color.a, -0.501960813999176) < 0.0 { discard; }
     var source: NativeWorldVaryings;
     source.clip_position = input.clip_position;
@@ -126,7 +127,7 @@ fn shade_diffuse(input: DiffuseVaryings, cutout: bool, blended: bool) -> vec4<f3
 }
 
 fn shade_diffuse_reveal(input: DiffuseVaryings) -> vec4<f32> {
-    let color = textureSample(color_map, color_sampler, input.uv_lightmap.xy);
+    let color = sample_material(scene.texture_mip_scale, color_map, color_sampler, input.uv_lightmap.xy);
     var source: NativeWorldVaryings;
     source.clip_position = input.clip_position;
     source.color = input.color;
@@ -143,7 +144,7 @@ fn shade_diffuse_reveal(input: DiffuseVaryings) -> vec4<f32> {
 }
 
 fn shade_specular(input: SpecularVaryings, cutout: bool, blended: bool) -> vec4<f32> {
-    let color = textureSample(color_map, color_sampler, input.uv_lightmap.xy);
+    let color = sample_material(scene.texture_mip_scale, color_map, color_sampler, input.uv_lightmap.xy);
     if cutout && fma(color.a, input.color.a, -0.501960813999176) < 0.0 { discard; }
     let source = NativeWorldVaryings(input.clip_position, input.color,
         input.uv_lightmap, input.normal_fog, input.fog_color, input.bitangent,
@@ -157,7 +158,7 @@ fn shade_specular(input: SpecularVaryings, cutout: bool, blended: bool) -> vec4<
 }
 
 fn shade_specular_reveal(input: SpecularVaryings) -> vec4<f32> {
-    let color = textureSample(color_map, color_sampler, input.uv_lightmap.xy);
+    let color = sample_material(scene.texture_mip_scale, color_map, color_sampler, input.uv_lightmap.xy);
     let source = NativeWorldVaryings(input.clip_position, input.color,
         input.uv_lightmap, input.normal_fog, input.fog_color, input.bitangent,
         input.tangent, input.eye_to_vertex, input.reflection_correction);
@@ -240,7 +241,7 @@ fn vertex_geometric_diffuse(input: GeometricVertexInput) -> GeometricSpecularVar
 // PS 2d3e6f96: C0/s0, lightmap13/s13, cb0[20].x only.
 // SHA256 14d6e09b190d41a4696a698c8a16b74b22dc995f63d4dd8b7aca76f9b8f37596.
 fn shade_geometric_diffuse(input: GeometricSpecularVaryings, blended: bool) -> vec4<f32> {
-    let color = textureSample(color_map, color_sampler, input.uv_lightmap.xy);
+    let color = sample_material(scene.texture_mip_scale, color_map, color_sampler, input.uv_lightmap.xy);
     if !blended && fma(color.a, input.color.a, -0.501960813999176) < 0.0 { discard; }
     let normal = inverseSqrt(dot(input.normal_fog.xyz, input.normal_fog.xyz)) * input.normal_fog.xyz;
     let lm_uv = input.uv_lightmap.zw;

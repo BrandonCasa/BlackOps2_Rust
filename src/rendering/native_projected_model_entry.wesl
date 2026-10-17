@@ -1,3 +1,4 @@
+import package::rendering::native_world::sample_material;
 // Original projected decal VS/PS6532f59b: a depth-projected volume,
 // local Y/Z texture projection, local X edge alpha and source grid atlas light.
 import package::rendering::native_fx::NativeFxFrame;
@@ -33,7 +34,7 @@ fn shade_projected(input: Varyings) -> vec4<f32> {
     // world/view transform directly; constant plane interpolation is unnecessary.
     let local = vec3<f32>(dot(view_position, matrices.inverse_world_view[0]), dot(view_position, matrices.inverse_world_view[1]), dot(view_position, matrices.inverse_world_view[2]));
     let uv = fma(local, vec3<f32>(0.5), vec3<f32>(0.5));
-    let color = textureSample(color_map, color_sampler, uv.yz);
+    let color = sample_material(frame.scene.texture_mip_scale, color_map, color_sampler, uv.yz);
     let raw_normal = vec3<f32>(object.world_rows[0].x, object.world_rows[1].x, object.world_rows[2].x);
     let normal = raw_normal * inverseSqrt(dot(raw_normal, raw_normal));
     // 004189a0 computes1.5/atlas extent; derive it from the one owning texture.

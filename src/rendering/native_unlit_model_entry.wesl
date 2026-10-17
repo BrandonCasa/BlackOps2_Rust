@@ -1,3 +1,4 @@
+import package::rendering::native_world::sample_material;
 // Original model VS4876d431, replace PS49c3292c and multiply PS from
 // mc_unlit_multiply_97923qz1; decal blend VS/PS5c3f6d9c.
 // See model-layered-unlit-source.json for the non-decal shader hashes.
@@ -42,7 +43,7 @@ fn vertex_no_fog(input: Input) -> Varyings {
 // Exact PS62b62074 uses tinted source color and green-weighted luma;
 // neither an HDR exposure read nor a color-space square/square-root exists.
 fn shade_decal_add(input: Varyings) -> vec4<f32> {
-    let color = textureSample(color_map, color_sampler, input.uv_fog.xy) * input.color;
+    let color = sample_material(scene.world.texture_mip_scale, color_map, color_sampler, input.uv_fog.xy) * input.color;
     let luma = dot(color.rbg, vec3<f32>(0.25, 0.25, 0.5));
     let alpha = (color.a * luma) * input.uv_fog.z;
     return vec4<f32>(alpha * color.rgb, alpha);
@@ -52,7 +53,7 @@ fn fragment_decal_add(input: Varyings) -> @location(0) vec4<f32> { return shade_
 @fragment
 fn fragment_decal_add_srgb(input: Varyings) -> @location(0) vec4<f32> { return attachment_srgb(shade_decal_add(input)); }
 fn shade_replace(input: Varyings) -> vec4<f32> {
-    let color = textureSample(color_map, color_sampler, input.uv_fog.xy) * input.color;
+    let color = sample_material(scene.world.texture_mip_scale, color_map, color_sampler, input.uv_fog.xy) * input.color;
     let delta = fma(color.rgb * color.rgb, vec3<f32>(material.scale_rgb.x), -input.fog_color);
     let fogged = fma(vec3<f32>(input.uv_fog.z), delta, input.fog_color);
     return vec4<f32>(sqrt(fogged * scene.world.hdr_control0.x), color.a);
@@ -60,7 +61,7 @@ fn shade_replace(input: Varyings) -> vec4<f32> {
 // PS4ea12045 retains straight alpha. RGB receives that alpha before the
 // source square-root encoding, after the ordinary unlit fog interpolation.
 fn shade_blend(input: Varyings) -> vec4<f32> {
-    let color = textureSample(color_map, color_sampler, input.uv_fog.xy) * input.color;
+    let color = sample_material(scene.world.texture_mip_scale, color_map, color_sampler, input.uv_fog.xy) * input.color;
     let delta = fma(color.rgb * color.rgb, vec3<f32>(material.scale_rgb.x), -input.fog_color);
     let fogged = fma(vec3<f32>(input.uv_fog.z), delta, input.fog_color);
     let covered = color.a * fogged;
@@ -70,19 +71,19 @@ fn shade_blend(input: Varyings) -> vec4<f32> {
 // PS4b1d2e0b uses fog transmission only; fog color and alpha never add to
 // or attenuate its emissive RGB. Original alpha blending preserves dest A.
 fn shade_add(input: Varyings) -> vec4<f32> {
-    let color = textureSample(color_map, color_sampler, input.uv_fog.xy) * input.color;
+    let color = sample_material(scene.world.texture_mip_scale, color_map, color_sampler, input.uv_fog.xy) * input.color;
     let lit = (color.rgb * color.rgb) * material.scale_rgb.x;
     let transmitted = lit * input.uv_fog.z;
     return vec4<f32>(sqrt(transmitted * scene.world.hdr_control0.x), color.a);
 }
 fn shade_multiply(input: Varyings) -> vec4<f32> {
-    let color = textureSample(color_map, color_sampler, input.uv_fog.xy) * input.color;
+    let color = sample_material(scene.world.texture_mip_scale, color_map, color_sampler, input.uv_fog.xy) * input.color;
     let delta = fma(color.rgb, color.rgb, vec3<f32>(-1.0));
     return vec4<f32>(fma(vec3<f32>(input.uv_fog.z), delta, vec3<f32>(1.0)), color.a);
 }
 // PS5c3f6d9c: texture/vertex alpha and fog fade toward the multiply identity.
 fn shade_decal_multiply(input: Varyings) -> vec4<f32> {
-    let sample = textureSample(color_map, color_sampler, input.uv_fog.xy);
+    let sample = sample_material(scene.world.texture_mip_scale, color_map, color_sampler, input.uv_fog.xy);
     let delta = fma(sample.rgb, input.color.rgb, vec3<f32>(-1.0));
     let opacity = (sample.a * input.color.a) * input.uv_fog.z;
     return vec4<f32>(fma(vec3<f32>(opacity), delta, vec3<f32>(1.0)), opacity);
@@ -117,7 +118,7 @@ fn fragment_decal_multiply_srgb(input: Varyings) -> @location(0) vec4<f32> { ret
 // Source viewmodel-unlit VS89d1b67c ignores vertex color. Its four PS variants
 // emit the square directly: no HDR factor, gamma-two encode, or fog omission.
 fn shade_viewmodel(input: Varyings, premultiply: bool, alpha_mode: u32) -> vec4<f32> {
-    let texel = textureSample(color_map, color_sampler, input.uv_fog.xy);
+    let texel = sample_material(scene.world.texture_mip_scale, color_map, color_sampler, input.uv_fog.xy);
     var emission = texel.rgb * material.scale_rgb.x;
     if premultiply { emission *= texel.a; }
     let fogged = fma(vec3<f32>(input.uv_fog.z), fma(emission, emission, -input.fog_color), input.fog_color);

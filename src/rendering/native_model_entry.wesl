@@ -1,3 +1,4 @@
+import package::rendering::native_world::sample_material;
 import package::rendering::native_source_lit_model::{native_source_lit_finish, native_source_lit_lighting};
 import package::rendering::native_world::{NativeWorldObject, native_world_unpack_direction};
 import package::rendering::native_scripted_model::NativeModelScriptedScene;
@@ -288,16 +289,16 @@ fn vertex_geometric_mlv(input: GeometricVertexInput, @location(5) vertex_light: 
 }
 
 fn shade_blended_diffuse(input: Varyings) -> vec4<f32> {
-    let normal_sample = textureSample(normal_map, normal_sampler, input.uv);
+    let normal_sample = sample_material(scene.world.texture_mip_scale, normal_map, normal_sampler, input.uv);
     let normal = native_model_mapped_normal(source(input), normal_sample.rg);
-    let colored = textureSample(color_map, color_sampler, input.uv) * input.color;
+    let colored = sample_material(scene.world.texture_mip_scale, color_map, color_sampler, input.uv) * input.color;
     return native_model_blended_diffuse(normal, input.grid_coords_and_vis.xyz,
         input.grid_correction, input.normal_fog, input.fog_color, colored,
         scene, model_lighting, model_lighting_sampler);
 }
 fn shade_blended_geometric(input: GeometricVaryings) -> vec4<f32> {
     let normal = inverseSqrt(dot(input.normal_fog.xyz, input.normal_fog.xyz)) * input.normal_fog.xyz;
-    let colored = textureSample(color_map, color_sampler, input.uv) * input.color;
+    let colored = sample_material(scene.world.texture_mip_scale, color_map, color_sampler, input.uv) * input.color;
     return native_model_blended_diffuse(normal, input.grid_coords_and_vis.xyz,
         input.grid_correction, input.normal_fog, input.fog_color, colored,
         scene, model_lighting, model_lighting_sampler);
@@ -348,9 +349,9 @@ struct NativeModelReveal { reveal: vec4<f32> }
 @group(2) @binding(15) var occlusion_sampler: sampler;
 // Source PS66c64d74: vertex alpha selects a nonlinear reveal interval.
 fn shade_reveal(input: Varyings) -> vec4<f32> {
-    let normal = native_model_mapped_normal(source(input), textureSample(normal_map, normal_sampler, input.uv).rg);
+    let normal = native_model_mapped_normal(source(input), sample_material(scene.world.texture_mip_scale, normal_map, normal_sampler, input.uv).rg);
     let irradiance = native_model_atlas_irradiance(normal, input.grid_coords_and_vis.xyz, scene, model_lighting, model_lighting_sampler);
-    let sample = textureSample(color_map, color_sampler, input.uv);
+    let sample = sample_material(scene.world.texture_mip_scale, color_map, color_sampler, input.uv);
     let colored = sample.rgb * input.color.rgb;
     let diffuse = colored * colored;
     let adjusted = fma(input.color.a, 0.9980000257492065, 0.0010000000474974513);
@@ -368,13 +369,13 @@ fn shade_reveal(input: Varyings) -> vec4<f32> {
 }
 // Source PS29115a54: occlusion texture G weights reflection, B weights atlas.
 fn shade_mapped_occlusion(input: Varyings) -> vec4<f32> {
-    let normal = native_model_mapped_normal(source(input), textureSample(normal_map, normal_sampler, input.uv).rg);
-    let specular = textureSample(specular_map, specular_sampler, input.uv);
+    let normal = native_model_mapped_normal(source(input), sample_material(scene.world.texture_mip_scale, normal_map, normal_sampler, input.uv).rg);
+    let specular = sample_material(scene.world.texture_mip_scale, specular_map, specular_sampler, input.uv);
     let reflected = native_world_plain_specular_reflection(input.eye_to_vertex.xyz, normal, specular, reflection_probe, reflection_sampler);
-    let occ = textureSample(occlusion_map, occlusion_sampler, input.uv);
+    let occ = sample_material(scene.world.texture_mip_scale, occlusion_map, occlusion_sampler, input.uv);
     let reflection = (reflected * occ.g) * input.reflection_correction;
     let irradiance = native_model_atlas_irradiance(normal, input.grid_coords_and_vis.xyz, scene, model_lighting, model_lighting_sampler) * occ.b;
-    let colored = textureSample(color_map, color_sampler, input.uv) * input.color;
+    let colored = sample_material(scene.world.texture_mip_scale, color_map, color_sampler, input.uv) * input.color;
     let diffuse = colored.rgb * colored.rgb;
     let lit = fma(irradiance * diffuse, vec3<f32>(32.0), reflection);
     let fog = colored.a * input.fog_color;
@@ -426,7 +427,7 @@ fn vertex_canopy(input: GeometricVertexInput) -> CanopyVaryings {
 }
 // PSccc7fb2e uses colorTint, not vertex RGB, and no atlas texture or reflection.
 fn shade_canopy(input: CanopyVaryings, quasi: bool) -> vec4<f32> {
-    let sample = textureSample(color_map, color_sampler, input.uv_fog.xy);
+    let sample = sample_material(scene.world.texture_mip_scale, color_map, color_sampler, input.uv_fog.xy);
     let alpha = select(sample.a, clamp(sample.a + sample.a, 0.0, 1.0), quasi);
     if (!quasi && sample.a - 0.501960813999176 < 0.0) || (quasi && !(alpha > 0.0)) { discard; }
     let color = sample.rgb * canopy.tint.rgb;
@@ -467,15 +468,15 @@ fn vertex_flag(input: VertexInput) -> Varyings {
         result.reflection_correction, result.grid_correction);
 }
 fn shade_flag_detail(input: Varyings) -> vec4<f32> {
-    let colored = textureSample(color_map, color_sampler, input.uv) * input.color;
-    let detail_sample = textureSample(detail_map, detail_sampler, input.uv * detail.detail_scale.xy).rg;
-    let base_sample = textureSample(normal_map, normal_sampler, input.uv).rg;
+    let colored = sample_material(scene.world.texture_mip_scale, color_map, color_sampler, input.uv) * input.color;
+    let detail_sample = sample_material(scene.world.texture_mip_scale, detail_map, detail_sampler, input.uv * detail.detail_scale.xy).rg;
+    let base_sample = sample_material(scene.world.texture_mip_scale, normal_map, normal_sampler, input.uv).rg;
     let detail_slopes = fma(detail_sample, vec2<f32>(4.015748023986816), vec2<f32>(-2.0157480239868164));
     let base_slopes = fma(base_sample, vec2<f32>(4.015748023986816), vec2<f32>(-2.0157480239868164));
     let slopes = fma(vec2<f32>(detail.detail_scale.z), detail_slopes, base_slopes);
     let mapped = fma(vec3<f32>(slopes.y), input.bitangent, fma(vec3<f32>(slopes.x), input.tangent, input.normal_fog.xyz));
     let normal = mapped * inverseSqrt(dot(mapped, mapped));
-    let specular = textureSample(specular_map, specular_sampler, input.uv);
+    let specular = sample_material(scene.world.texture_mip_scale, specular_map, specular_sampler, input.uv);
     let reflected = native_world_plain_specular_reflection(input.eye_to_vertex.xyz, normal, specular, reflection_probe, reflection_sampler);
     let result = native_model_specular_lighting(source(input), scene, occlusion, normal,
         reflected, colored.rgb, model_lighting, model_lighting_sampler);
@@ -523,17 +524,17 @@ fn vertex_scrolling(input: VertexInput) -> Varyings {
 // SHA256 848b089a23c14d6690923ac2fbd4f15eadbe27facf6531f4ff1a72bb956b6fa4.
 fn weapon_detail_lighting(input: Varyings) -> vec3<f32> {
     let detail_uv = fma(input.uv - vec2<f32>(0.5), vec2<f32>(weapon_detail.z), weapon_detail.xy) + vec2<f32>(0.5);
-    let detail_sample = textureSample(detail_map, detail_sampler, detail_uv);
-    let occ = textureSample(occlusion_map, occlusion_sampler, input.uv);
+    let detail_sample = sample_material(scene.world.texture_mip_scale, detail_map, detail_sampler, detail_uv);
+    let occ = sample_material(scene.world.texture_mip_scale, occlusion_map, occlusion_sampler, input.uv);
     let detail_color = clamp(detail_sample.rgb + vec3<f32>(occ.b) - vec3<f32>(0.5), vec3<f32>(0.0), vec3<f32>(1.0));
-    let color = textureSample(color_map, color_sampler, input.uv);
+    let color = sample_material(scene.world.texture_mip_scale, color_map, color_sampler, input.uv);
     let masked_color = fma(vec3<f32>(color.a), color.rgb - detail_color, detail_color);
     let colored = fma(vec3<f32>(weapon_detail.w), masked_color - color.rgb, color.rgb) * input.color.rgb;
     let diffuse = colored * colored;
-    let normal = native_model_mapped_normal(source(input), textureSample(normal_map, normal_sampler, input.uv).rg);
+    let normal = native_model_mapped_normal(source(input), sample_material(scene.world.texture_mip_scale, normal_map, normal_sampler, input.uv).rg);
     let irradiance = native_model_atlas_irradiance(normal, input.grid_coords_and_vis.xyz, scene, model_lighting, model_lighting_sampler);
     let diffuse_lit = diffuse * (occ.r * irradiance);
-    let specular = textureSample(specular_map, specular_sampler, input.uv);
+    let specular = sample_material(scene.world.texture_mip_scale, specular_map, specular_sampler, input.uv);
     let detail_specular = clamp(vec3<f32>(detail_sample.a - 0.5) + specular.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
     let masked_specular = fma(vec3<f32>(color.a), specular.rgb - detail_specular, detail_specular);
     let specular_gamma = fma(vec3<f32>(weapon_detail.w), masked_specular - specular.rgb, specular.rgb);
@@ -566,10 +567,10 @@ fn source_lit_lighting(input: Varyings, normal: vec3<f32>, diffuse: vec3<f32>, s
         model_lighting, model_lighting_sampler, reflection_probe, reflection_sampler);
 }
 fn shade_source_hero(input: Varyings, cutout: bool, blend: bool) -> vec4<f32> {
-    let color_sample = textureSample(color_map, color_sampler, input.uv);
+    let color_sample = sample_material(scene.world.texture_mip_scale, color_map, color_sampler, input.uv);
     let color = color_sample * input.color;
-    let normal = native_model_mapped_normal(source(input), textureSample(normal_map, normal_sampler, input.uv).rg);
-    let specular = textureSample(specular_map, specular_sampler, input.uv);
+    let normal = native_model_mapped_normal(source(input), sample_material(scene.world.texture_mip_scale, normal_map, normal_sampler, input.uv).rg);
+    let specular = sample_material(scene.world.texture_mip_scale, specular_map, specular_sampler, input.uv);
     let lit = source_lit_lighting(input, normal, color.rgb, specular, occlusion.occlusion_amount);
     let result = native_source_lit_finish(source(input), scene, view, lit, color.a, true, blend);
     if cutout && fma(color_sample.a, input.color.a, -0.501960813999176) < 0.0 { discard; }
@@ -580,9 +581,9 @@ fn shade_source_geometric_hero(input: GeometricVaryings) -> vec4<f32> {
     let data = NativeModelVaryings(input.clip_position, input.color, input.uv, input.normal_fog,
         input.fog_color, vec3<f32>(0.0), vec3<f32>(0.0), input.eye_to_vertex,
         input.grid_coords_and_vis, input.reflection_correction, input.grid_correction);
-    let color = textureSample(color_map, color_sampler, input.uv) * input.color;
+    let color = sample_material(scene.world.texture_mip_scale, color_map, color_sampler, input.uv) * input.color;
     let normal = input.normal_fog.xyz * inverseSqrt(dot(input.normal_fog.xyz, input.normal_fog.xyz));
-    let specular = textureSample(specular_map, specular_sampler, input.uv);
+    let specular = sample_material(scene.world.texture_mip_scale, specular_map, specular_sampler, input.uv);
     let lit = native_source_lit_lighting(data, scene, normal, color.rgb, specular, occlusion.occlusion_amount,
         model_lighting, model_lighting_sampler, reflection_probe, reflection_sampler);
     let result = native_source_lit_finish(data, scene, view, lit, color.a, true, true);
@@ -593,16 +594,16 @@ fn shade_source_geometric_hero(input: GeometricVaryings) -> vec4<f32> {
 // occlusionAmount.X supplies atlas diffuse (ordinary explicit specular uses Z).
 fn shade_source_color_detail(input: Varyings) -> vec4<f32> {
     let uv = fma(input.uv - vec2<f32>(0.5), vec2<f32>(weapon_detail.z), weapon_detail.xy) + vec2<f32>(0.5);
-    let detail_sample = textureSample(detail_map, detail_sampler, uv) + vec4<f32>(0.5, 0.5, 0.5, -0.5);
+    let detail_sample = sample_material(scene.world.texture_mip_scale, detail_map, detail_sampler, uv) + vec4<f32>(0.5, 0.5, 0.5, -0.5);
     let detail_rgb = clamp(detail_sample.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
-    let color = textureSample(color_map, color_sampler, input.uv);
+    let color = sample_material(scene.world.texture_mip_scale, color_map, color_sampler, input.uv);
     let mask_color = fma(vec3<f32>(color.a), color.rgb - detail_rgb, detail_rgb);
     let diffuse = fma(vec3<f32>(weapon_detail.w), mask_color - color.rgb, color.rgb) * input.color.rgb;
-    let specular = textureSample(specular_map, specular_sampler, input.uv);
+    let specular = sample_material(scene.world.texture_mip_scale, specular_map, specular_sampler, input.uv);
     let detail_specular = clamp(vec3<f32>(detail_sample.a) + specular.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
     let mask_specular = fma(vec3<f32>(color.a), specular.rgb - detail_specular, detail_specular);
     let reflectance = fma(vec3<f32>(weapon_detail.w), mask_specular - specular.rgb, specular.rgb);
-    let normal = native_model_mapped_normal(source(input), textureSample(normal_map, normal_sampler, input.uv).rg);
+    let normal = native_model_mapped_normal(source(input), sample_material(scene.world.texture_mip_scale, normal_map, normal_sampler, input.uv).rg);
     let amounts = occlusion.occlusion_amount;
     let lit = source_lit_lighting(input, normal, diffuse, vec4<f32>(reflectance, specular.a), amounts.xyxw);
     return native_source_lit_finish(source(input), scene, view, lit, 1.0, false, false);
@@ -610,17 +611,17 @@ fn shade_source_color_detail(input: Varyings) -> vec4<f32> {
 // PS07750f94: original detail normal comes from t2/s3, specular t3/s2.
 // Resource names retain that mapping even though these bind-group slots differ.
 fn shade_source_normal_detail(input: Varyings, cutout: bool) -> vec4<f32> {
-    let detail_sample = textureSample(detail_map, detail_sampler, input.uv * weapon_detail.xy).rg;
-    let normal_sample = textureSample(normal_map, normal_sampler, input.uv).rg;
+    let detail_sample = sample_material(scene.world.texture_mip_scale, detail_map, detail_sampler, input.uv * weapon_detail.xy).rg;
+    let normal_sample = sample_material(scene.world.texture_mip_scale, normal_map, normal_sampler, input.uv).rg;
     let scale = vec2<f32>(4.015748023986816);
     let bias = vec2<f32>(-2.0157480239868164);
     let slopes = fma(vec2<f32>(weapon_detail.z), fma(detail_sample, scale, bias), fma(normal_sample, scale, bias));
     let mapped = fma(vec3<f32>(slopes.y), input.bitangent,
         fma(vec3<f32>(slopes.x), input.tangent, input.normal_fog.xyz));
     let normal = mapped * inverseSqrt(dot(mapped, mapped));
-    let color_sample = textureSample(color_map, color_sampler, input.uv);
+    let color_sample = sample_material(scene.world.texture_mip_scale, color_map, color_sampler, input.uv);
     let color = color_sample * input.color;
-    let specular = textureSample(specular_map, specular_sampler, input.uv);
+    let specular = sample_material(scene.world.texture_mip_scale, specular_map, specular_sampler, input.uv);
     let lit = source_lit_lighting(input, normal, color.rgb, specular, occlusion.occlusion_amount);
     let result = native_source_lit_finish(source(input), scene, view, lit, 1.0, false, false);
     if cutout && fma(color_sample.a, input.color.a, -0.501960813999176) < 0.0 { discard; }

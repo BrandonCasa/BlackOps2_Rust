@@ -1,3 +1,4 @@
+import package::rendering::native_world::sample_material;
 import package::rendering::native_model::{
     NativeModelScene, NativeModelObject, NativeModelVertexInput, native_model_vertex_lighting,
 };
@@ -49,7 +50,7 @@ fn native_model_flicker_fragment(
 ) -> vec4<f32> {
     let geometric = input.normal * inverseSqrt(dot(input.normal, input.normal));
     let bitangent = native_scripted_bitangent(geometric, input.tangent_sign);
-    let normal_sample = textureSample(normal_map, normal_sampler, input.uv);
+    let normal_sample = sample_material(scene.world.texture_mip_scale, normal_map, normal_sampler, input.uv);
     let slopes = fma(normal_sample.rg, vec2<f32>(4.015748023986816), vec2<f32>(-2.0157480239868164));
     let mapped = fma(vec3<f32>(slopes.y), bitangent,
         fma(vec3<f32>(slopes.x), input.tangent_sign.xyz, geometric));
@@ -59,7 +60,7 @@ fn native_model_flicker_fragment(
     let half_raw = fma(-input.eye_fog.xyz, vec3<f32>(eye_length), view.sun_position.xyz);
     let reflection_direction = fma(normal, vec3<f32>(-2.0 * dot(incident, normal)), incident);
     let fresnel = exp2(clamp(dot(normal, -incident), 0.0, 1.0) * -9.279999732971191);
-    let diffuse_sample = textureSample(diffuse_map, diffuse_sampler, input.uv);
+    let diffuse_sample = sample_material(scene.world.texture_mip_scale, diffuse_map, diffuse_sampler, input.uv);
     let gloss = diffuse_sample.a;
     let probe_sample = textureSampleLevel(reflection_probe, reflection_sampler,
         reflection_direction, fma(gloss, -4.0, 4.0));
@@ -86,10 +87,10 @@ fn native_model_flicker_fragment(
     let colored = diffuse_sample.rgb * input.color.rgb;
     lit = fma(colored * colored, fma(vec3<f32>(ndotsun), sun, irradiance), lit);
     let flicker_uv = vec2<f32>(material.map_column.x, view.game_time.w * material.controls.y);
-    let flicker_sample = textureSample(flicker_map, flicker_sampler, flicker_uv).r;
+    let flicker_sample = sample_material(scene.world.texture_mip_scale, flicker_map, flicker_sampler, flicker_uv).r;
     let flicker = fma(flicker_sample, material.controls.w - material.controls.z, material.controls.z);
     let emission_scale = (flicker * clamp(1.0 - scripts.vectors[1].x, 0.0, 1.0)) * material.controls.x;
-    let emission = textureSample(emissive_map, emissive_sampler, input.uv);
+    let emission = sample_material(scene.world.texture_mip_scale, emissive_map, emissive_sampler, input.uv);
     let gamma_emission = emission_scale * (emission.a * emission.rgb);
     lit = fma(gamma_emission, gamma_emission, lit);
     let fogged = fma(vec3<f32>(input.eye_fog.w), lit - input.fog_color, input.fog_color);
@@ -227,20 +228,20 @@ fn native_model_crystal_fragment(
     let basis = native_scripted_parallax_basis(input);
     let c = material.source;
     let uv = native_scripted_three_layer_uvs(input.uv, basis.ray, material, view.game_time.w);
-    let layer3 = textureSample(layer3_map, layer3_sampler, uv.layer3);
-    let layer2 = textureSample(layer2_map, layer2_sampler, uv.layer2);
+    let layer3 = sample_material(scene.world.texture_mip_scale, layer3_map, layer3_sampler, uv.layer3);
+    let layer2 = sample_material(scene.world.texture_mip_scale, layer2_map, layer2_sampler, uv.layer2);
     let layer2_delta = fma(-layer3.rgb, vec3<f32>(layer3.a), layer2.rgb);
     let layer3_color = layer3.a * layer3.rgb;
     let alpha = (vec2<f32>(1.0) - clamp(scripts.vectors[0].yx, vec2<f32>(0.0), vec2<f32>(1.0)))
         * c[4].wz;
     let combined2 = fma(vec3<f32>(alpha.x * layer2.a), layer2_delta, layer3_color);
-    let layer1 = textureSample(layer1_map, layer1_sampler, uv.layer1);
+    let layer1 = sample_material(scene.world.texture_mip_scale, layer1_map, layer1_sampler, uv.layer1);
     let composed = fma(vec3<f32>(alpha.y * layer1.a), layer1.rgb - combined2, combined2);
     let colored = composed * input.color.rgb;
     let amount = fma(scripts.vectors[0].x, -c[9].z, c[9].z);
     let gamma_emission = amount * colored;
     let emission = gamma_emission * gamma_emission;
-    let sample = textureSample(normal_map, normal_sampler, input.uv * c[10].xy);
+    let sample = sample_material(scene.world.texture_mip_scale, normal_map, normal_sampler, input.uv * c[10].xy);
     let slope = fma(sample.rg, vec2<f32>(4.015748023986816),
         vec2<f32>(-2.0157480239868164)) * c[10].z;
     let mapped = fma(vec3<f32>(slope.y), basis.bitangent,
@@ -270,14 +271,14 @@ fn native_model_phong_emissive_fragment(
     let half_vector = inverseSqrt(dot(half_raw, half_raw)) * half_raw;
     let geometric = inverseSqrt(dot(input.normal, input.normal)) * input.normal;
     let bitangent = native_scripted_bitangent(geometric, input.tangent_sign);
-    let normal_sample = textureSample(normal_map, normal_sampler, input.uv);
+    let normal_sample = sample_material(scene.world.texture_mip_scale, normal_map, normal_sampler, input.uv);
     let slopes = fma(normal_sample.rg, vec2<f32>(4.015748023986816), vec2<f32>(-2.0157480239868164));
     let mapped = fma(vec3<f32>(slopes.y), bitangent,
         fma(vec3<f32>(slopes.x), input.tangent_sign.xyz, geometric));
     let normal = inverseSqrt(dot(mapped, mapped)) * mapped;
     let ndoth = clamp(dot(normal, half_vector), 0.0, 1.0);
     let hdotsun = clamp(dot(half_vector, view.sun_position.xyz), 0.0, 1.0);
-    let specular_sample = textureSample(specular_map, specular_sampler, input.uv);
+    let specular_sample = sample_material(scene.world.texture_mip_scale, specular_map, specular_sampler, input.uv);
     let gloss = specular_sample.a * material.gloss_push.x;
     let exponent = exp2(gloss * 13.0);
     let lobe = exp2(log2(ndoth) * exponent) * fma(exponent, 0.125, 0.25);
@@ -304,14 +305,14 @@ fn native_model_phong_emissive_fragment(
     let reflected = clamp(fma(specular, vec3<f32>(coefficients.w - response_a), vec3<f32>(response_a)),
         vec3<f32>(0.0), vec3<f32>(1.0)) * probe * material.controls.x;
     var lit = fma(reflected, input.reflection_correction, direct_specular);
-    let color_sample = textureSample(color_map, color_sampler, input.uv);
+    let color_sample = sample_material(scene.world.texture_mip_scale, color_map, color_sampler, input.uv);
     let colored = color_sample.rgb * input.color.rgb;
     let diffuse = colored * colored;
     let irradiance = native_model_atlas_irradiance(normal, input.grid_coords_and_vis.xyz,
         scene, model_lighting, model_lighting_sampler) * input.grid_correction * 32.0;
     let diffuse_light = fma(vec3<f32>(clamp(dot(view.sun_position.xyz, normal), 0.0, 1.0)), sun, irradiance);
     lit = fma(diffuse, diffuse_light, lit);
-    let glow = textureSample(glow_map, glow_sampler, input.uv) * glow_multiplier;
+    let glow = sample_material(scene.world.texture_mip_scale, glow_map, glow_sampler, input.uv) * glow_multiplier;
     let gamma_emission = (glow.a * glow.rgb) * material.controls.z;
     lit = fma(gamma_emission, gamma_emission, lit);
     let fogged = fma(vec3<f32>(input.eye_fog.w), lit - input.fog_color, input.fog_color);
@@ -397,7 +398,7 @@ fn native_model_phong_fragment(
     model_lighting: texture_3d<f32>, model_lighting_sampler: sampler,
     reflection_probe: texture_cube<f32>, reflection_sampler: sampler,
 ) -> vec4<f32> {
-    let color_sample = textureSample(color_map, color_sampler, input.uv);
+    let color_sample = sample_material(scene.world.texture_mip_scale, color_map, color_sampler, input.uv);
     let vertex_color = select(input.color.rgb * input.color.rgb, input.color.rgb, transparent);
     let colored = color_sample.rgb * vertex_color;
     return native_model_phong_shade(input, scene, view, specular_suppression, controls,
@@ -418,8 +419,8 @@ fn native_model_phong_shade(
 ) -> vec4<f32> {
     return native_model_phong_shade_samples(input, scene, view, specular_suppression,
         controls, transparent, hero, diffuse, raw_alpha, emission,
-        textureSample(normal_map, normal_sampler, input.uv).rg,
-        textureSample(specular_map, specular_sampler, input.uv),
+        sample_material(scene.world.texture_mip_scale, normal_map, normal_sampler, input.uv).rg,
+        sample_material(scene.world.texture_mip_scale, specular_map, specular_sampler, input.uv),
         model_lighting, model_lighting_sampler, reflection_probe, reflection_sampler);
 }
 
@@ -503,12 +504,12 @@ fn native_model_cloth_reveal_fragment(
     model_lighting: texture_3d<f32>, model_lighting_sampler: sampler,
     reflection_probe: texture_cube<f32>, reflection_sampler: sampler,
 ) -> vec4<f32> {
-    let temporal = textureSample(temporal_map, temporal_sampler, input.uv).r;
+    let temporal = sample_material(scene.world.texture_mip_scale, temporal_map, temporal_sampler, input.uv).r;
     let thresholds = vec2<f32>(scripts.vectors[3].x) + vec2<f32>(0.05999999865889549, -0.029999999329447746);
     let ramps = clamp((vec2<f32>(temporal) - thresholds)
         * vec2<f32>(-8.333333015441895, 16.66666603088379), vec2<f32>(0.0), vec2<f32>(1.0));
     let curves = (ramps * ramps) * fma(ramps, vec2<f32>(-2.0), vec2<f32>(3.0));
-    let sample = textureSample(color_map, color_sampler, input.uv);
+    let sample = sample_material(scene.world.texture_mip_scale, color_map, color_sampler, input.uv);
     let base = sample * input.color;
     let state1 = base.r * material.source[2].rgb;
     let altered = fma(vec3<f32>(scripts.vectors[3].y),
@@ -543,7 +544,7 @@ fn native_model_emissive_multi_fragment(
     model_lighting: texture_3d<f32>, model_lighting_sampler: sampler,
     reflection_probe: texture_cube<f32>, reflection_sampler: sampler,
 ) -> vec4<f32> {
-    let color_sample = textureSample(color_map, color_sampler, input.uv);
+    let color_sample = sample_material(scene.world.texture_mip_scale, color_map, color_sampler, input.uv);
     // Original fused ge128 comparison; output alpha remains the raw product.
     if alpha_test && fma(color_sample.a, input.color.a, -0.501960813999176) < 0.0 { discard; }
     let incident = inverseSqrt(dot(input.eye_fog.xyz, input.eye_fog.xyz)) * input.eye_fog.xyz;
@@ -552,14 +553,14 @@ fn native_model_emissive_multi_fragment(
     let half_vector = inverseSqrt(dot(half_raw, half_raw)) * half_raw;
     let geometric = inverseSqrt(dot(input.normal, input.normal)) * input.normal;
     let bitangent = native_scripted_bitangent(geometric, input.tangent_sign);
-    let normal_sample = textureSample(normal_map, normal_sampler, input.uv);
+    let normal_sample = sample_material(scene.world.texture_mip_scale, normal_map, normal_sampler, input.uv);
     let slopes = fma(normal_sample.rg, vec2<f32>(4.015748023986816), vec2<f32>(-2.0157480239868164));
     let mapped = fma(vec3<f32>(slopes.y), bitangent,
         fma(vec3<f32>(slopes.x), input.tangent_sign.xyz, geometric));
     let normal = inverseSqrt(dot(mapped, mapped)) * mapped;
     let ndoth = clamp(dot(normal, half_vector), 0.0, 1.0);
     let hdotsun = clamp(dot(half_vector, view.sun_position.xyz), 0.0, 1.0);
-    let specular_sample = textureSample(specular_map, specular_sampler, input.uv);
+    let specular_sample = sample_material(scene.world.texture_mip_scale, specular_map, specular_sampler, input.uv);
     let gloss = specular_sample.r;
     let exponent = exp2(gloss * 13.0);
     let lobe = exp2(log2(ndoth) * exponent) * fma(exponent, 0.125, 0.25);
@@ -591,7 +592,7 @@ fn native_model_emissive_multi_fragment(
         scene, model_lighting, model_lighting_sampler) * 32.0;
     let diffuse_light = fma(vec3<f32>(clamp(dot(view.sun_position.xyz, normal), 0.0, 1.0)), sun, irradiance);
     lit = fma(diffuse, diffuse_light, lit);
-    let glow = textureSample(glow_map, glow_sampler, input.uv);
+    let glow = sample_material(scene.world.texture_mip_scale, glow_map, glow_sampler, input.uv);
     let emission_scale = select(0.0, 1.0, scripts.vectors[0].z >= material.controls.w) * material.controls.z;
     let gamma_emission = emission_scale * (glow.a * glow.rgb);
     lit = fma(gamma_emission, gamma_emission, lit);
@@ -618,7 +619,7 @@ fn native_model_player_icon_fragment(
 ) -> vec4<f32> {
     let geometric = input.normal * inverseSqrt(dot(input.normal, input.normal));
     let bitangent = native_scripted_bitangent(geometric, input.tangent_sign);
-    let normal_sample = textureSample(normal_map, normal_sampler, input.uv * controls.z);
+    let normal_sample = sample_material(scene.world.texture_mip_scale, normal_map, normal_sampler, input.uv * controls.z);
     let slopes = fma(normal_sample.rg, vec2<f32>(4.015748023986816), vec2<f32>(-2.0157480239868164));
     let mapped = fma(vec3<f32>(slopes.y), bitangent,
         fma(vec3<f32>(slopes.x), input.tangent_sign.xyz, geometric));
@@ -631,7 +632,7 @@ fn native_model_player_icon_fragment(
     let response = fma(min(fresnel, 0.4749999940395355), 1.0416667461395264, 0.0026042000390589237);
     let probe_sample = textureSampleLevel(reflection_probe, reflection_sampler, reflection_direction, 0.0);
     let probe = (1.0 / (probe_sample.a + 9.999999974752427e-07)) * probe_sample.rgb;
-    let specular_sample = textureSample(specular_map, specular_sampler, input.uv).rgb;
+    let specular_sample = sample_material(scene.world.texture_mip_scale, specular_map, specular_sampler, input.uv).rgb;
     let specular = specular_sample * specular_sample;
     let fresnel_color = fma(-specular_sample, specular_sample, vec3<f32>(1.0));
     let reflected = (probe * min(fma(specular, vec3<f32>(1.0 - response), vec3<f32>(response)),
@@ -650,7 +651,7 @@ fn native_model_player_icon_fragment(
     let irradiance = native_model_atlas_irradiance(normal, input.grid_coords_and_vis.xyz,
         scene, model_lighting, model_lighting_sampler) * 32.0;
     let diffuse_light = fma(vec3<f32>(ndotsun), sun, irradiance);
-    let color = textureSample(color_map, color_sampler, input.uv) * input.color;
+    let color = sample_material(scene.world.texture_mip_scale, color_map, color_sampler, input.uv) * input.color;
     let lit = fma(color.rgb * color.rgb, diffuse_light, lit_specular);
     let hero_input = vec4<f32>(lit, 1.0);
     let hero = vec3<f32>(dot(hero_input, view.hero_lighting[0]),
@@ -681,9 +682,9 @@ fn native_model_clan_tag_fragment(
     let row = floor(glyph / c.w + 0.0010000000474974513);
     let column = fma(-row, c.w, glyph);
     let uv = vec2<f32>(fma(column, a.x, (local_x * a.x) * 4.0), fma(row, a.y, input.uv.y * a.y));
-    let detail_sample = textureSample(detail_map, detail_sampler, uv * c.y);
-    let dx = dpdx(input.uv) * (a.x * a.z);
-    let dy = (dpdy(input.uv) * a.w) * a.y;
+    let detail_sample = sample_material(scene.world.texture_mip_scale, detail_map, detail_sampler, uv * c.y);
+    let dx = dpdx(input.uv) * ((a.x * a.z) * scene.world.texture_mip_scale);
+    let dy = ((dpdy(input.uv) * a.w) * a.y) * scene.world.texture_mip_scale;
     let normal_sample = textureSampleGrad(normal_map, normal_sampler, uv, dx, dy);
     let color = textureSampleGrad(color_map, color_sampler, uv, dx, dy) * input.color;
     let base_slope = fma(normal_sample.rg, vec2<f32>(4.015748023986816), vec2<f32>(-2.0157480239868164));
