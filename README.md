@@ -105,6 +105,20 @@ Read [AGENTS.md](AGENTS.md) before contributing. Profiling features:
 - **Build errors:** check SDK paths and the VS developer shell; initialize submodules for missing Bevy paths.
 - **Missing assets:** inspect export reports. Rebuilding Rust does not regenerate extracted content.
 
+## Development approach
+
+The gameplay implementation follows a **clean-room rewrite** approach: original
+Rust engineering, assisted by AI, aimed at reproducing functional behavior in a
+new Bevy/Avian runtime. The project supports compatibility with locally supplied
+game data; original game assets remain separate and retain their own rights.
+
+The project's position is grounded in the distinction between independently
+implemented functionality and protected expression recognized by
+[17 U.S.C. §102(b)](https://uscode.house.gov/us/usc/119-118/t17/s102/), and, where
+applicable, the interoperability provisions of
+[§1201(f)](https://uscode.house.gov/us/usc/119-118/t17/s1201/).
+Application of these principles depends on the relevant facts and statutory conditions.
+
 ## License
 
 Copyright (c) 2026 BrandonCasa and contributors. Original project code is licensed
