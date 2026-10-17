@@ -1,6 +1,6 @@
 **/target/
 /build/
-/dist/
+**/dist/
 /release/
 *.exe
 *.dll
