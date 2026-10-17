@@ -1,3 +1,4 @@
+import package::rendering::native_world::sample_material;
 import package::rendering::native_world::{
     NativeWorldScene, NativeWorldObject, NativeWorldVertexInput, native_world_vertex,
 };
@@ -90,13 +91,13 @@ fn native_world_color_multiply_fragment(
     lightmap_secondary: texture_2d<f32>, lightmap_sampler: sampler,
     reflection_probe: texture_cube<f32>, reflection_sampler: sampler,
 ) -> vec4<f32> {
-    let normal_sample = textureSample(normal_map, normal_sampler, input.uv_lightmap.xy);
+    let normal_sample = sample_material(scene.texture_mip_scale, normal_map, normal_sampler, input.uv_lightmap.xy);
     let normal = native_world_color_layer_normal(input, normal_sample.rg);
-    let layer = textureSample(layer_color_map, layer_color_sampler, input.blend_uv.zw);
+    let layer = sample_material(scene.texture_mip_scale, layer_color_map, layer_color_sampler, input.blend_uv.zw);
     let modulation = fma(vec3<f32>(input.blend_uv.y), layer.rgb - vec3<f32>(1.0), vec3<f32>(1.0));
     // PS254af097 modifies both color and gloss. Layer alpha is never read.
     let gloss_scale = dot(modulation, vec3<f32>(0.30000001192092896, 0.6000000238418579, 0.10000000149011612));
-    let base = textureSample(color_map, color_sampler, input.uv_lightmap.xy);
+    let base = sample_material(scene.texture_mip_scale, color_map, color_sampler, input.uv_lightmap.xy);
     let color_gamma = modulation * base.rgb;
     let gloss = gloss_scale * base.a;
     let lighting_input = native_world_color_layer_lighting_input(input);
@@ -116,15 +117,15 @@ fn native_world_color_blend_fragment(
     lightmap_secondary: texture_2d<f32>, lightmap_sampler: sampler,
     reflection_probe: texture_cube<f32>, reflection_sampler: sampler,
 ) -> vec4<f32> {
-    let normal_sample = textureSample(normal_map, normal_sampler, input.uv_lightmap.xy);
+    let normal_sample = sample_material(scene.texture_mip_scale, normal_map, normal_sampler, input.uv_lightmap.xy);
     let normal = native_world_color_layer_normal(input, normal_sample.rg);
-    let base = textureSample(color_map, color_sampler, input.uv_lightmap.xy);
+    let base = sample_material(scene.texture_mip_scale, color_map, color_sampler, input.uv_lightmap.xy);
     let gloss = base.a;
     let lighting_input = native_world_color_layer_lighting_input(input);
     let probe = native_world_layer_probe(lighting_input, normal, gloss, reflection_probe, reflection_sampler);
     let strength = fma(gloss, min(probe.fresnel, gloss * 0.4749999940395355),
         fma(gloss, 0.027499999850988388, 0.014999999664723873));
-    let layer = textureSample(layer_color_map, layer_color_sampler, input.blend_uv.zw);
+    let layer = sample_material(scene.texture_mip_scale, layer_color_map, layer_color_sampler, input.blend_uv.zw);
     // PS9f70e132: alpha blend authored colors before their square transfer;
     // the base gloss and base normal remain unchanged by that blend.
     let weight = layer.a * input.blend_uv.y;
@@ -142,15 +143,15 @@ fn native_world_color_add_fragment(
     lightmap_secondary: texture_2d<f32>, lightmap_sampler: sampler,
     reflection_probe: texture_cube<f32>, reflection_sampler: sampler,
 ) -> vec4<f32> {
-    let normal_sample = textureSample(normal_map, normal_sampler, input.uv_lightmap.xy);
+    let normal_sample = sample_material(scene.texture_mip_scale, normal_map, normal_sampler, input.uv_lightmap.xy);
     let normal = native_world_color_layer_normal(input, normal_sample.rg);
-    let base = textureSample(color_map, color_sampler, input.uv_lightmap.xy);
+    let base = sample_material(scene.texture_mip_scale, color_map, color_sampler, input.uv_lightmap.xy);
     let gloss = base.a;
     let lighting_input = native_world_color_layer_lighting_input(input);
     let probe = native_world_layer_probe(lighting_input, normal, gloss, reflection_probe, reflection_sampler);
     let strength = fma(gloss, min(probe.fresnel, gloss * 0.4749999940395355),
         fma(gloss, 0.027499999850988388, 0.014999999664723873));
-    let layer = textureSample(layer_color_map, layer_color_sampler, input.blend_uv.zw);
+    let layer = sample_material(scene.texture_mip_scale, layer_color_map, layer_color_sampler, input.blend_uv.zw);
     // PSb50e886e multiplies layer RGB by G first, then applies layer alpha in
     // the add. Preserve that sequence and the original saturated alpha write.
     let scaled_layer = layer.rgb * input.blend_uv.y;

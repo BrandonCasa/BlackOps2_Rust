@@ -1,3 +1,4 @@
+import package::rendering::native_world::sample_material;
 // wpc_sw4_3d_unlit_1layer_8691j77q, LIT VS20d9eb7d / PSc5daea2d.
 // Original DXBC disassembly: target/reports/wallbuy-{vs,ps}.asm.
 import package::rendering::native_world::{NativeWorldScene, NativeWorldObject,
@@ -84,7 +85,7 @@ fn native_wallbuy_fragment(
     script_vector0: vec4<f32>,
     layer_map: texture_2d<f32>, layer_sampler: sampler,
 ) -> vec4<f32> {
-    let sample = textureSample(layer_map, layer_sampler, input.uv);
+    let sample = sample_material(scene.texture_mip_scale, layer_map, layer_sampler, input.uv);
     let color = (sample.a * sample.rgb) * material.scroll_alpha_hdr.w;
     let delta = fma(color, color, -input.fog_color);
     let fogged = fma(vec3<f32>(input.fog_transmittance), delta, input.fog_color);

@@ -1,3 +1,4 @@
+import package::rendering::native_world::sample_material;
 import package::rendering::native_world::{
     NativeWorldScene, NativeWorldObject, NativeWorldVertexInput, NativeWorldVaryings,
     native_world_unpack_direction, native_omni_diffuse,
@@ -153,7 +154,7 @@ fn native_world_diffuse_fragment(
     blended: bool,
     opacity: f32,
 ) -> vec4<f32> {
-    let normal_sample = textureSample(normal_map, normal_sampler, input.uv_lightmap.xy);
+    let normal_sample = sample_material(scene.texture_mip_scale, normal_map, normal_sampler, input.uv_lightmap.xy);
     let normal = native_world_plain_mapped_normal(input, normal_sample.rg);
     let lm_uv = input.uv_lightmap.zw;
     let other_uv = fma(lm_uv.xyxy, vec4<f32>(1.0, 0.3333333432674408, 1.0, 0.3333333432674408),
@@ -265,9 +266,9 @@ fn native_world_normal_specular_fragment(
     blended: bool,
     opacity: f32,
 ) -> vec4<f32> {
-    let normal_sample = textureSample(normal_map, normal_sampler, input.uv_lightmap.xy);
+    let normal_sample = sample_material(scene.texture_mip_scale, normal_map, normal_sampler, input.uv_lightmap.xy);
     let normal = native_world_plain_mapped_normal(input, normal_sample.rg);
-    let specular = textureSample(specular_map, specular_sampler, input.uv_lightmap.xy);
+    let specular = sample_material(scene.texture_mip_scale, specular_map, specular_sampler, input.uv_lightmap.xy);
     let reflected = native_world_plain_specular_reflection(input.eye_to_vertex, normal,
         specular, reflection_probe, reflection_sampler);
     return native_world_plain_specular_lighting(input, scene, normal, reflected,
@@ -288,10 +289,10 @@ fn native_world_geometric_specular_fragment(
     blended: bool,
 ) -> vec4<f32> {
     let normal = inverseSqrt(dot(input.normal_fog.xyz, input.normal_fog.xyz)) * input.normal_fog.xyz;
-    let specular = textureSample(specular_map, specular_sampler, input.uv_lightmap.xy);
+    let specular = sample_material(scene.texture_mip_scale, specular_map, specular_sampler, input.uv_lightmap.xy);
     let reflected = native_world_plain_specular_reflection(input.eye_to_vertex, normal,
         specular, reflection_probe, reflection_sampler);
-    let color = textureSample(color_map, color_sampler, input.uv_lightmap.xy);
+    let color = sample_material(scene.texture_mip_scale, color_map, color_sampler, input.uv_lightmap.xy);
     return native_world_plain_specular_lighting(input, scene, normal, reflected,
         color, lightmap_secondary, lightmap_sampler, blended, color.a * input.color.a);
 }
@@ -308,7 +309,7 @@ fn native_world_geometric_gloss_fragment(
     let normal = inverseSqrt(dot(input.normal_fog.xyz, input.normal_fog.xyz)) * input.normal_fog.xyz;
     let direction = fma(normal, vec3<f32>(-2.0 * dot(incident, normal)), incident);
     let fresnel = exp2(clamp(dot(normal, -incident), 0.0, 1.0) * -9.279999732971191);
-    let color = textureSample(color_map, color_sampler, input.uv_lightmap.xy);
+    let color = sample_material(scene.texture_mip_scale, color_map, color_sampler, input.uv_lightmap.xy);
     let gloss = color.a;
     let probe_sample = textureSampleLevel(reflection_probe, reflection_sampler, direction, fma(-4.0, gloss, 4.0));
     let probe = (1.0 / (probe_sample.a + 9.999999974752427e-07)) * probe_sample.rgb;

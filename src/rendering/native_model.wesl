@@ -1,3 +1,4 @@
+import package::rendering::native_world::sample_material;
 import package::rendering::native_world::{
     NativeWorldScene, NativeWorldObject, NativeWorldVertexInput,
     native_world_vertex, native_world_vertex_with_basis, native_world_unpack_direction,
@@ -125,7 +126,7 @@ fn native_model_fragment(
     model_lighting: texture_3d<f32>, model_lighting_sampler: sampler,
     reflection_probe: texture_cube<f32>, reflection_sampler: sampler,
 ) -> vec4<f32> {
-    let normal_sample = textureSample(normal_map, normal_sampler, input.uv);
+    let normal_sample = sample_material(scene.world.texture_mip_scale, normal_map, normal_sampler, input.uv);
     let slopes = fma(normal_sample.rg, vec2<f32>(4.015748023986816), vec2<f32>(-2.0157480239868164));
     let mapped_normal = fma(vec3<f32>(slopes.y), input.bitangent,
         fma(vec3<f32>(slopes.x), input.tangent, input.normal_fog.xyz));
@@ -133,7 +134,7 @@ fn native_model_fragment(
     let incident = inverseSqrt(dot(input.eye_to_vertex.xyz, input.eye_to_vertex.xyz)) * input.eye_to_vertex.xyz;
     let reflection_direction = fma(normal, vec3<f32>(-2.0 * dot(incident, normal)), incident);
     let fresnel = exp2(clamp(dot(normal, -incident), 0.0, 1.0) * -9.279999732971191);
-    let color_sample = textureSample(color_map, color_sampler, input.uv);
+    let color_sample = sample_material(scene.world.texture_mip_scale, color_map, color_sampler, input.uv);
     let gloss = color_sample.a;
     let probe_sample = textureSampleLevel(reflection_probe, reflection_sampler,
         reflection_direction, fma(-4.0, gloss, 4.0));

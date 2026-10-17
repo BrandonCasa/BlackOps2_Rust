@@ -69,7 +69,7 @@ impl Plugin for GameRenderingPlugin {
             culling::filter_visibility
                 .after(bevy::camera::visibility::VisibilitySystems::CheckVisibility),
         )
-        .add_systems(Update, camera_follow)
+        .add_systems(Update, (camera_follow, dlss::toggle_neural_rendering))
         .add_systems(
             PostUpdate,
             (source_camera_constants, world::object_constants)
@@ -91,6 +91,9 @@ impl Plugin for GameRenderingPlugin {
 pub(crate) fn setup(
     mut commands: Commands,
     dlss_supported: Option<Res<bevy::anti_alias::dlss::DlssSuperResolutionSupported>>,
+    neural_rendering: Option<
+        Res<bevy::anti_alias::dlss::neural_rendering::DlssNeuralRenderingStatus>,
+    >,
 ) {
     let mut camera = commands.spawn((
         Camera3d {
@@ -120,13 +123,26 @@ pub(crate) fn setup(
         camera.insert(bevy::anti_alias::dlss::Dlss::<
             bevy::anti_alias::dlss::DlssSuperResolutionFeature,
         > {
-            perf_quality_mode: bevy::anti_alias::dlss::DlssPerfQualityMode::Performance,
+            perf_quality_mode: bevy::anti_alias::dlss::DlssPerfQualityMode::UltraPerformance,
             reset: true,
             ..default()
         });
-        info!("DLSS Super Resolution: Performance");
+        info!("DLSS Super Resolution: Ultra Performance");
     } else {
         warn!("DLSS Super Resolution unavailable; rendering at native resolution");
+    }
+    use bevy::anti_alias::dlss::neural_rendering::{
+        DlssNeuralRendering, DlssNeuralRenderingStatus,
+    };
+    if matches!(
+        neural_rendering.as_deref(),
+        Some(DlssNeuralRenderingStatus::Ready)
+    ) {
+        camera.insert(DlssNeuralRendering {
+            style: 2, // Cinematic (third style).
+            ..default()
+        });
+        info!("DLSS Neural Rendering enabled (F11 toggles)");
     }
 }
 
@@ -265,6 +281,7 @@ fn source_camera_constants(
             sun_position: sun.dir.extend(0.0),
             sun_diffuse: sun.diffuse_color,
             omni_lights: submissions.view(eye_native),
+            texture_mip_scale: 1.0,
         };
         fog.write_scene(
             &world,

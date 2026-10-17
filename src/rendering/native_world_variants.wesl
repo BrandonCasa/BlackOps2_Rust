@@ -1,3 +1,4 @@
+import package::rendering::native_world::sample_material;
 import package::rendering::native_world::{NativeWorldScene, NativeWorldObject, NativeWorldVertexInput};
 import package::rendering::native_world_layers::{
     NativeWorldLayerVaryings, NativeWorldRevealMaterial, native_world_layer_normal,
@@ -46,15 +47,15 @@ fn native_world_base_specular_layer_fragment(
     lightmap_secondary: texture_2d<f32>, lightmap_sampler: sampler,
     reflection_probe: texture_cube<f32>, reflection_sampler: sampler,
 ) -> vec4<f32> {
-    let layer_normal = textureSample(layer_normal_map, layer_normal_sampler, input.blend_uv.zw);
-    let base_normal = textureSample(normal_map, normal_sampler, input.uv_lightmap.xy);
-    let layer_color = textureSample(layer_color_map, layer_color_sampler, input.blend_uv.zw);
+    let layer_normal = sample_material(scene.texture_mip_scale, layer_normal_map, layer_normal_sampler, input.blend_uv.zw);
+    let base_normal = sample_material(scene.texture_mip_scale, normal_map, normal_sampler, input.uv_lightmap.xy);
+    let layer_color = sample_material(scene.texture_mip_scale, layer_color_map, layer_color_sampler, input.blend_uv.zw);
     let weight = layer_color.a * input.blend_uv.y;
     let normal = native_world_layer_normal(input, base_normal.rg, layer_normal.rg, weight);
-    let specular = textureSample(specular_map, specular_sampler, input.uv_lightmap.xy);
+    let specular = sample_material(scene.texture_mip_scale, specular_map, specular_sampler, input.uv_lightmap.xy);
     let reflected = native_world_plain_specular_reflection(input.eye_to_vertex, normal,
         specular, reflection_probe, reflection_sampler);
-    let base_color = textureSample(color_map, color_sampler, input.uv_lightmap.xy);
+    let base_color = sample_material(scene.texture_mip_scale, color_map, color_sampler, input.uv_lightmap.xy);
     let color_gamma = fma(vec3<f32>(weight), layer_color.rgb - base_color.rgb, base_color.rgb);
     return native_world_layer_lighting(input, scene, normal, color_gamma, reflected,
         lightmap_secondary, lightmap_sampler);
@@ -73,17 +74,17 @@ fn native_world_base_specular_reveal_layer_fragment(
     lightmap_secondary: texture_2d<f32>, lightmap_sampler: sampler,
     reflection_probe: texture_cube<f32>, reflection_sampler: sampler,
 ) -> vec4<f32> {
-    let layer_normal = textureSample(layer_normal_map, layer_normal_sampler, input.blend_uv.zw);
-    let base_normal = textureSample(normal_map, normal_sampler, input.uv_lightmap.xy);
-    let layer_color = textureSample(layer_color_map, layer_color_sampler, input.blend_uv.zw);
+    let layer_normal = sample_material(scene.texture_mip_scale, layer_normal_map, layer_normal_sampler, input.blend_uv.zw);
+    let base_normal = sample_material(scene.texture_mip_scale, normal_map, normal_sampler, input.uv_lightmap.xy);
+    let layer_color = sample_material(scene.texture_mip_scale, layer_color_map, layer_color_sampler, input.blend_uv.zw);
     let weight = native_world_layer_reveal_weight(input.blend_uv.y, layer_color.a, material);
     let normal = native_world_layer_normal(input, base_normal.rg, layer_normal.rg, weight);
-    let layer_specular = textureSample(layer_specular_map, layer_specular_sampler, input.blend_uv.zw);
-    let base_specular = textureSample(specular_map, specular_sampler, input.uv_lightmap.xy);
+    let layer_specular = sample_material(scene.texture_mip_scale, layer_specular_map, layer_specular_sampler, input.blend_uv.zw);
+    let base_specular = sample_material(scene.texture_mip_scale, specular_map, specular_sampler, input.uv_lightmap.xy);
     let specular = fma(vec4<f32>(weight), layer_specular - base_specular, base_specular);
     let reflected = native_world_plain_specular_reflection(input.eye_to_vertex, normal,
         specular, reflection_probe, reflection_sampler);
-    let base_color = textureSample(color_map, color_sampler, input.uv_lightmap.xy);
+    let base_color = sample_material(scene.texture_mip_scale, color_map, color_sampler, input.uv_lightmap.xy);
     let color_gamma = fma(vec3<f32>(weight), layer_color.rgb - base_color.rgb, base_color.rgb);
     return native_world_layer_lighting(input, scene, normal, color_gamma, reflected,
         lightmap_secondary, lightmap_sampler);
@@ -106,22 +107,22 @@ fn native_world_base_specular_three_layer_reveal_fragment(
     lightmap_secondary: texture_2d<f32>, lightmap_sampler: sampler,
     reflection_probe: texture_cube<f32>, reflection_sampler: sampler,
 ) -> vec4<f32> {
-    let normal1 = textureSample(layer_normal_map1, layer_normal_sampler1, input.layer_uvs.xy);
-    let normal0 = textureSample(normal_map, normal_sampler, input.uv_lightmap.xy);
-    let color1 = textureSample(layer_color_map1, layer_color_sampler1, input.layer_uvs.xy);
+    let normal1 = sample_material(scene.texture_mip_scale, layer_normal_map1, layer_normal_sampler1, input.layer_uvs.xy);
+    let normal0 = sample_material(scene.texture_mip_scale, normal_map, normal_sampler, input.uv_lightmap.xy);
+    let color1 = sample_material(scene.texture_mip_scale, layer_color_map1, layer_color_sampler1, input.layer_uvs.xy);
     let weight1 = color1.a * input.blend_color.g;
-    let normal2 = textureSample(layer_normal_map2, layer_normal_sampler2, input.layer_uvs.zw);
-    let color2 = textureSample(layer_color_map2, layer_color_sampler2, input.layer_uvs.zw);
+    let normal2 = sample_material(scene.texture_mip_scale, layer_normal_map2, layer_normal_sampler2, input.layer_uvs.zw);
+    let color2 = sample_material(scene.texture_mip_scale, layer_color_map2, layer_color_sampler2, input.layer_uvs.zw);
     let weight2 = native_world_layer_reveal_weight(input.blend_color.b, color2.a,
         NativeWorldRevealMaterial(material.alpha_reveal_parms2));
     let normal = native_world_three_layer_normal(input, normal0.rg, normal1.rg,
         normal2.rg, vec2<f32>(weight1, weight2));
-    let specular2 = textureSample(layer_specular_map2, layer_specular_sampler2, input.layer_uvs.zw);
-    let specular0 = textureSample(specular_map, specular_sampler, input.uv_lightmap.xy);
+    let specular2 = sample_material(scene.texture_mip_scale, layer_specular_map2, layer_specular_sampler2, input.layer_uvs.zw);
+    let specular0 = sample_material(scene.texture_mip_scale, specular_map, specular_sampler, input.uv_lightmap.xy);
     let specular = fma(vec4<f32>(weight2), specular2 - specular0, specular0);
     let reflected = native_world_plain_specular_reflection(input.eye_to_vertex, normal,
         specular, reflection_probe, reflection_sampler);
-    let color0 = textureSample(color_map, color_sampler, input.uv_lightmap.xy);
+    let color0 = sample_material(scene.texture_mip_scale, color_map, color_sampler, input.uv_lightmap.xy);
     let blended1 = fma(vec3<f32>(weight1), color1.rgb - color0.rgb, color0.rgb);
     let color_gamma = fma(vec3<f32>(weight2), color2.rgb - blended1, blended1);
     return native_world_layer_lighting(native_world_three_layer_lighting_input(input),
@@ -146,25 +147,25 @@ fn native_world_base_specular_three_layer_double_reveal_fragment(
     lightmap_secondary: texture_2d<f32>, lightmap_sampler: sampler,
     reflection_probe: texture_cube<f32>, reflection_sampler: sampler,
 ) -> vec4<f32> {
-    let normal1 = textureSample(layer_normal_map1, layer_normal_sampler1, input.layer_uvs.xy);
-    let normal0 = textureSample(normal_map, normal_sampler, input.uv_lightmap.xy);
-    let color1 = textureSample(layer_color_map1, layer_color_sampler1, input.layer_uvs.xy);
+    let normal1 = sample_material(scene.texture_mip_scale, layer_normal_map1, layer_normal_sampler1, input.layer_uvs.xy);
+    let normal0 = sample_material(scene.texture_mip_scale, normal_map, normal_sampler, input.uv_lightmap.xy);
+    let color1 = sample_material(scene.texture_mip_scale, layer_color_map1, layer_color_sampler1, input.layer_uvs.xy);
     let weight1 = native_world_layer_reveal_weight(input.blend_color.g, color1.a,
         NativeWorldRevealMaterial(material.alpha_reveal_parms1));
-    let normal2 = textureSample(layer_normal_map2, layer_normal_sampler2, input.layer_uvs.zw);
-    let color2 = textureSample(layer_color_map2, layer_color_sampler2, input.layer_uvs.zw);
+    let normal2 = sample_material(scene.texture_mip_scale, layer_normal_map2, layer_normal_sampler2, input.layer_uvs.zw);
+    let color2 = sample_material(scene.texture_mip_scale, layer_color_map2, layer_color_sampler2, input.layer_uvs.zw);
     let weight2 = native_world_layer_reveal_weight(input.blend_color.b, color2.a,
         NativeWorldRevealMaterial(material.alpha_reveal_parms2));
     let normal = native_world_three_layer_normal(input, normal0.rg, normal1.rg,
         normal2.rg, vec2<f32>(weight1, weight2));
-    let specular1 = textureSample(layer_specular_map1, layer_specular_sampler1, input.layer_uvs.xy);
-    let specular0 = textureSample(specular_map, specular_sampler, input.uv_lightmap.xy);
+    let specular1 = sample_material(scene.texture_mip_scale, layer_specular_map1, layer_specular_sampler1, input.layer_uvs.xy);
+    let specular0 = sample_material(scene.texture_mip_scale, specular_map, specular_sampler, input.uv_lightmap.xy);
     let blended_specular1 = fma(vec4<f32>(weight1), specular1 - specular0, specular0);
-    let specular2 = textureSample(layer_specular_map2, layer_specular_sampler2, input.layer_uvs.zw);
+    let specular2 = sample_material(scene.texture_mip_scale, layer_specular_map2, layer_specular_sampler2, input.layer_uvs.zw);
     let specular = fma(vec4<f32>(weight2), specular2 - blended_specular1, blended_specular1);
     let reflected = native_world_plain_specular_reflection(input.eye_to_vertex, normal,
         specular, reflection_probe, reflection_sampler);
-    let color0 = textureSample(color_map, color_sampler, input.uv_lightmap.xy);
+    let color0 = sample_material(scene.texture_mip_scale, color_map, color_sampler, input.uv_lightmap.xy);
     let blended1 = fma(vec3<f32>(weight1), color1.rgb - color0.rgb, color0.rgb);
     let color_gamma = fma(vec3<f32>(weight2), color2.rgb - blended1, blended1);
     return native_world_layer_lighting(native_world_three_layer_lighting_input(input),
@@ -187,17 +188,17 @@ fn native_world_no_base_gloss_reveal_layer_fragment(
     lightmap_secondary: texture_2d<f32>, lightmap_sampler: sampler,
     reflection_probe: texture_cube<f32>, reflection_sampler: sampler,
 ) -> vec4<f32> {
-    let layer_normal = textureSample(layer_normal_map, layer_normal_sampler, input.blend_uv.zw);
-    let base_normal = textureSample(normal_map, normal_sampler, input.uv_lightmap.xy);
-    let layer_color = textureSample(layer_color_map, layer_color_sampler, input.blend_uv.zw);
+    let layer_normal = sample_material(scene.texture_mip_scale, layer_normal_map, layer_normal_sampler, input.blend_uv.zw);
+    let base_normal = sample_material(scene.texture_mip_scale, normal_map, normal_sampler, input.uv_lightmap.xy);
+    let layer_color = sample_material(scene.texture_mip_scale, layer_color_map, layer_color_sampler, input.blend_uv.zw);
     let weight = native_world_layer_reveal_weight(input.blend_uv.y, layer_color.a, material);
     let normal = native_world_layer_normal(input, base_normal.rg, layer_normal.rg, weight);
-    let layer_specular = textureSample(layer_specular_map, layer_specular_sampler, input.blend_uv.zw);
+    let layer_specular = sample_material(scene.texture_mip_scale, layer_specular_map, layer_specular_sampler, input.blend_uv.zw);
     let base_specular = vec4<f32>(vec3<f32>(0.20000000298023224), 0.0);
     let specular = fma(vec4<f32>(weight), layer_specular - base_specular, base_specular);
     let reflected = native_world_plain_specular_reflection(input.eye_to_vertex, normal,
         specular, reflection_probe, reflection_sampler);
-    let base_color = textureSample(color_map, color_sampler, input.uv_lightmap.xy);
+    let base_color = sample_material(scene.texture_mip_scale, color_map, color_sampler, input.uv_lightmap.xy);
     let color_gamma = fma(vec3<f32>(weight), layer_color.rgb - base_color.rgb, base_color.rgb);
     return native_world_layer_lighting(input, scene, normal, color_gamma, reflected,
         lightmap_secondary, lightmap_sampler);
@@ -280,12 +281,12 @@ fn native_world_diffuse_layer_fragment(
     layer_normal_map: texture_2d<f32>, layer_normal_sampler: sampler,
     lightmap_secondary: texture_2d<f32>, lightmap_sampler: sampler,
 ) -> vec4<f32> {
-    let layer_normal = textureSample(layer_normal_map, layer_normal_sampler, input.blend_uv.zw);
-    let base_normal = textureSample(normal_map, normal_sampler, input.uv_lightmap.xy);
-    let layer_color = textureSample(layer_color_map, layer_color_sampler, input.blend_uv.zw);
+    let layer_normal = sample_material(scene.texture_mip_scale, layer_normal_map, layer_normal_sampler, input.blend_uv.zw);
+    let base_normal = sample_material(scene.texture_mip_scale, normal_map, normal_sampler, input.uv_lightmap.xy);
+    let layer_color = sample_material(scene.texture_mip_scale, layer_color_map, layer_color_sampler, input.blend_uv.zw);
     let weight = layer_color.a * input.blend_uv.y;
     let normal = native_world_diffuse_layer_normal(input, base_normal.rg, layer_normal.rg, weight);
-    let base_color = textureSample(color_map, color_sampler, input.uv_lightmap.xy);
+    let base_color = sample_material(scene.texture_mip_scale, color_map, color_sampler, input.uv_lightmap.xy);
     let color_gamma = fma(vec3<f32>(weight), layer_color.rgb - base_color.rgb, base_color.rgb);
     return native_world_diffuse_layer_lighting(input, scene, normal, color_gamma,
         lightmap_secondary, lightmap_sampler);
@@ -302,12 +303,12 @@ fn native_world_diffuse_reveal_layer_fragment(
     layer_normal_map: texture_2d<f32>, layer_normal_sampler: sampler,
     lightmap_secondary: texture_2d<f32>, lightmap_sampler: sampler,
 ) -> vec4<f32> {
-    let layer_color = textureSample(layer_color_map, layer_color_sampler, input.blend_uv.zw);
+    let layer_color = sample_material(scene.texture_mip_scale, layer_color_map, layer_color_sampler, input.blend_uv.zw);
     let weight = native_world_layer_reveal_weight(input.blend_uv.y, layer_color.a, material);
-    let layer_normal = textureSample(layer_normal_map, layer_normal_sampler, input.blend_uv.zw);
-    let base_normal = textureSample(normal_map, normal_sampler, input.uv_lightmap.xy);
+    let layer_normal = sample_material(scene.texture_mip_scale, layer_normal_map, layer_normal_sampler, input.blend_uv.zw);
+    let base_normal = sample_material(scene.texture_mip_scale, normal_map, normal_sampler, input.uv_lightmap.xy);
     let normal = native_world_diffuse_layer_normal(input, base_normal.rg, layer_normal.rg, weight);
-    let base_color = textureSample(color_map, color_sampler, input.uv_lightmap.xy);
+    let base_color = sample_material(scene.texture_mip_scale, color_map, color_sampler, input.uv_lightmap.xy);
     let color_gamma = fma(vec3<f32>(weight), layer_color.rgb - base_color.rgb, base_color.rgb);
     return native_world_diffuse_layer_lighting(input, scene, normal, color_gamma,
         lightmap_secondary, lightmap_sampler);
@@ -352,12 +353,12 @@ fn native_world_geometric_layer_fragment(
     reflection_probe: texture_cube<f32>, reflection_sampler: sampler,
 ) -> vec4<f32> {
     let normal = inverseSqrt(dot(input.normal_fog.xyz, input.normal_fog.xyz)) * input.normal_fog.xyz;
-    let specular = textureSample(specular_map, specular_sampler, input.uv_lightmap.xy);
+    let specular = sample_material(scene.texture_mip_scale, specular_map, specular_sampler, input.uv_lightmap.xy);
     let reflected = native_world_plain_specular_reflection(input.eye_to_vertex, normal,
         specular, reflection_probe, reflection_sampler);
-    let layer_color = textureSample(layer_color_map, layer_color_sampler, input.blend_uv.zw);
+    let layer_color = sample_material(scene.texture_mip_scale, layer_color_map, layer_color_sampler, input.blend_uv.zw);
     let weight = layer_color.a * input.blend_uv.y;
-    let base_color = textureSample(color_map, color_sampler, input.uv_lightmap.xy);
+    let base_color = sample_material(scene.texture_mip_scale, color_map, color_sampler, input.uv_lightmap.xy);
     let color_gamma = fma(vec3<f32>(weight), layer_color.rgb - base_color.rgb, base_color.rgb);
     // The shared lighting tail reads none of the tangent/Q fields. Zero words
     // below are unused struct padding, and introduce no vertex/texture inputs.

@@ -1,3 +1,4 @@
+import package::rendering::native_world::sample_material;
 // Original COD7 tile blend model LIT programs. Source hashes and disassemblies:
 // target/reports/model-tile-blend-source.json. MC and MLV retain their distinct
 // original per-vertex lighting inputs; specular R is gloss and GBA is reflectance.
@@ -89,14 +90,14 @@ struct TileSurface {
     ao: f32,
 }
 fn tile_surface(input: Varyings) -> TileSurface {
-    let macro_sample = textureSample(macro_mix, macro_mix_sampler, input.uv);
+    let macro_sample = sample_material(scene.world.texture_mip_scale, macro_mix, macro_mix_sampler, input.uv);
     let weight = macro_sample.g * macro_sample.g;
     let ao = clamp(fma(macro_sample.r, macro_sample.r, material.heights_ao.z), 0.0, 1.0);
     let normal_scale = vec2<f32>(4.015748023986816);
     let normal_bias = vec2<f32>(-2.0157480239868164);
-    let macro_slope = fma(textureSample(macro_normal, macro_normal_sampler, input.uv).xy, normal_scale, normal_bias);
-    let slope1 = fma(textureSample(micro_normal1, micro_normal1_sampler, input.micro_uv.xy).xy, normal_scale, normal_bias);
-    let slope2 = fma(textureSample(micro_normal2, micro_normal2_sampler, input.micro_uv.zw).xy, normal_scale, normal_bias);
+    let macro_slope = fma(sample_material(scene.world.texture_mip_scale, macro_normal, macro_normal_sampler, input.uv).xy, normal_scale, normal_bias);
+    let slope1 = fma(sample_material(scene.world.texture_mip_scale, micro_normal1, micro_normal1_sampler, input.micro_uv.xy).xy, normal_scale, normal_bias);
+    let slope2 = fma(sample_material(scene.world.texture_mip_scale, micro_normal2, micro_normal2_sampler, input.micro_uv.zw).xy, normal_scale, normal_bias);
     let weight1 = fma(-macro_sample.g, macro_sample.g, 1.0) * material.heights_ao.x;
     let slope = fma(vec2<f32>(material.heights_ao.y), macro_slope,
         fma(vec2<f32>(weight1), slope1, slope2 * (weight * material.heights_ao.w)));
@@ -105,8 +106,8 @@ fn tile_surface(input: Varyings) -> TileSurface {
     let displaced = fma(vec3<f32>(slope.y), bitangent,
         fma(vec3<f32>(slope.x), input.tangent_sign.xyz, geometric));
     let normal = displaced * inverseSqrt(dot(displaced, displaced));
-    let color1 = textureSample(micro_color1, micro_color1_sampler, input.micro_uv.xy).rgb;
-    let color2 = textureSample(micro_color2, micro_color2_sampler, input.micro_uv.zw).rgb;
+    let color1 = sample_material(scene.world.texture_mip_scale, micro_color1, micro_color1_sampler, input.micro_uv.xy).rgb;
+    let color2 = sample_material(scene.world.texture_mip_scale, micro_color2, micro_color2_sampler, input.micro_uv.zw).rgb;
     let colored = fma(vec3<f32>(weight), color2 - color1, color1) * input.color.rgb;
     return TileSurface(normal, colored * colored, weight, ao);
 }
@@ -119,8 +120,8 @@ fn tile_diffuse_light(input: Varyings, surface: TileSurface) -> vec3<f32> {
     return fma(vec3<f32>(ndotl), sun, ambient);
 }
 fn tile_specular(input: Varyings, surface: TileSurface) -> vec3<f32> {
-    let sample1 = textureSample(micro_specular1, micro_specular1_sampler, input.micro_uv.xy);
-    let sample2 = textureSample(micro_specular2, micro_specular2_sampler, input.micro_uv.zw);
+    let sample1 = sample_material(scene.world.texture_mip_scale, micro_specular1, micro_specular1_sampler, input.micro_uv.xy);
+    let sample2 = sample_material(scene.world.texture_mip_scale, micro_specular2, micro_specular2_sampler, input.micro_uv.zw);
     let specular = fma(vec4<f32>(surface.layer_weight), sample2 - sample1, sample1);
     let gloss = specular.r;
     let reflectance = specular.gba * specular.gba;

@@ -1,3 +1,4 @@
+import package::rendering::native_world::sample_material;
 import package::rendering::native_world::{
     NativeWorldScene, NativeWorldObject, NativeWorldVertexInput,
 };
@@ -83,7 +84,7 @@ fn shade_reveal(input: Varyings) -> vec4<f32> {
 }
 
 fn shade_reveal_specular(input: Varyings) -> vec4<f32> {
-    let color = textureSample(layer_color_map, layer_color_sampler, input.blend_uv.zw);
+    let color = sample_material(scene.texture_mip_scale, layer_color_map, layer_color_sampler, input.blend_uv.zw);
     let weight = native_world_layer_reveal_weight(input.blend_uv.y, color.a, reveal);
     return native_world_specular_layer_fragment(source_varyings(input), scene, color, weight,
         color_map, color_sampler, normal_map, normal_sampler,
@@ -94,7 +95,7 @@ fn shade_reveal_specular(input: Varyings) -> vec4<f32> {
 
 // Original PS aa3a8509 uses C1.a * primaryG without alpha-reveal constants.
 fn shade_specular(input: Varyings) -> vec4<f32> {
-    let color = textureSample(layer_color_map, layer_color_sampler, input.blend_uv.zw);
+    let color = sample_material(scene.texture_mip_scale, layer_color_map, layer_color_sampler, input.blend_uv.zw);
     return native_world_specular_layer_fragment(source_varyings(input), scene,
         color, color.a * input.blend_uv.y,
         color_map, color_sampler, normal_map, normal_sampler,

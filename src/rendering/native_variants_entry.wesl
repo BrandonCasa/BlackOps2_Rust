@@ -1,3 +1,4 @@
+import package::rendering::native_world::sample_material;
 import package::rendering::native_world::{
     NativeWorldScene, NativeWorldObject, NativeWorldVertexInput,
 };
@@ -378,7 +379,7 @@ fn vertex_diffuse_double_color(input: DiffuseDoubleColorInput) -> DiffuseColorVa
     return diffuse_color_vertex(source, input.layer_uvs);
 }
 fn diffuse_color_lighting(input: DiffuseColorVaryings, color: vec3<f32>) -> vec4<f32> {
-    let sampled_normal = textureSample(normal_map, normal_sampler, input.uv_lightmap.xy);
+    let sampled_normal = sample_material(scene.texture_mip_scale, normal_map, normal_sampler, input.uv_lightmap.xy);
     let slope = fma(sampled_normal.rg, vec2<f32>(4.015748023986816), vec2<f32>(-2.0157480239868164));
     let mapped = fma(vec3<f32>(slope.y), input.bitangent,
         fma(vec3<f32>(slope.x), input.tangent, input.normal_fog.xyz));
@@ -391,9 +392,9 @@ fn diffuse_color_lighting(input: DiffuseColorVaryings, color: vec3<f32>) -> vec4
 // PS7982c7aa: C0.rgb * lerp(1, C1.rgb, vertex.g), with diffuse light only.
 // Neither color alpha participates; no probe, normalMap1, or reveal constants.
 fn diffuse_multiply_color(input: DiffuseColorVaryings) -> vec3<f32> {
-    let layer = textureSample(color_map1, color_sampler1, input.layer_uvs.xy);
+    let layer = sample_material(scene.texture_mip_scale, color_map1, color_sampler1, input.layer_uvs.xy);
     let multiplier = fma(vec3<f32>(input.weights.x), layer.rgb - vec3<f32>(1.0), vec3<f32>(1.0));
-    let base = textureSample(color_map, color_sampler, input.uv_lightmap.xy);
+    let base = sample_material(scene.texture_mip_scale, color_map, color_sampler, input.uv_lightmap.xy);
     return multiplier * base.rgb;
 }
 fn shade_diffuse_multiply(input: DiffuseColorVaryings) -> vec4<f32> {
@@ -402,7 +403,7 @@ fn shade_diffuse_multiply(input: DiffuseColorVaryings) -> vec4<f32> {
 // PS61a9e8fe applies the second multiplier using vertex.b before squaring RGB.
 fn shade_diffuse_double_multiply(input: DiffuseColorVaryings) -> vec4<f32> {
     let color = diffuse_multiply_color(input);
-    let layer = textureSample(color_map2, color_sampler2, input.layer_uvs.zw);
+    let layer = sample_material(scene.texture_mip_scale, color_map2, color_sampler2, input.layer_uvs.zw);
     let multiplier = fma(vec3<f32>(input.weights.y), layer.rgb - vec3<f32>(1.0), vec3<f32>(1.0));
     return diffuse_color_lighting(input, color * multiplier);
 }
@@ -444,14 +445,14 @@ fn shade_color_three(input: ThreeLayerVaryings, layer_color2: vec4<f32>, weight2
         lightmap_secondary, lightmap_sampler, reflection_probe, reflection_sampler);
 }
 fn shade_color_three_reveal(input: ThreeLayerVaryings) -> vec4<f32> {
-    let layer = textureSample(color_map2, color_sampler2, input.layer_uvs.zw);
+    let layer = sample_material(scene.texture_mip_scale, color_map2, color_sampler2, input.layer_uvs.zw);
     let weight = native_world_layer_reveal_weight(input.blend_color.b, layer.a,
         NativeWorldRevealMaterial(reveal2.alpha_reveal_parms2));
     return shade_color_three(input, layer, weight);
 }
 // PSa3337049 uses ordinary C2.a * vertex.b and binds no reveal uniform.
 fn shade_color_three_specular(input: ThreeLayerVaryings) -> vec4<f32> {
-    let layer = textureSample(color_map2, color_sampler2, input.layer_uvs.zw);
+    let layer = sample_material(scene.texture_mip_scale, color_map2, color_sampler2, input.layer_uvs.zw);
     return shade_color_three(input, layer, layer.a * input.blend_color.b);
 }
 @fragment
@@ -507,21 +508,21 @@ fn shade_diffuse_layer_multiply(input: ThreeLayerVaryings, layer: vec4<f32>, wei
     let source = NativeWorldDiffuseLayerVaryings(input.clip_position, input.uv_lightmap,
         input.normal_fog, input.fog_color, input.bitangent, input.tangent,
         vec4<f32>(input.blend_color.rg, input.layer_uvs.xy), input.normal_transform2);
-    let base_normal = textureSample(normal_map, normal_sampler, input.uv_lightmap.xy);
-    let layer_normal = textureSample(normal_map1, normal_sampler1, input.layer_uvs.xy);
+    let base_normal = sample_material(scene.texture_mip_scale, normal_map, normal_sampler, input.uv_lightmap.xy);
+    let layer_normal = sample_material(scene.texture_mip_scale, normal_map1, normal_sampler1, input.layer_uvs.xy);
     let normal = native_world_diffuse_layer_normal(source, base_normal.rg, layer_normal.rg, weight);
-    let base = textureSample(color_map, color_sampler, input.uv_lightmap.xy);
+    let base = sample_material(scene.texture_mip_scale, color_map, color_sampler, input.uv_lightmap.xy);
     let color = fma(vec3<f32>(weight), layer.rgb - base.rgb, base.rgb);
-    let overlay = textureSample(color_map2, color_sampler2, input.layer_uvs.zw);
+    let overlay = sample_material(scene.texture_mip_scale, color_map2, color_sampler2, input.layer_uvs.zw);
     let multiplier = fma(vec3<f32>(input.blend_color.b), overlay.rgb - vec3<f32>(1.0), vec3<f32>(1.0));
     return native_world_diffuse_layer_lighting(source, scene, normal, color * multiplier, lightmap_secondary, lightmap_sampler);
 }
 fn diffuse_layer_multiply(input: ThreeLayerVaryings) -> vec4<f32> {
-    let layer = textureSample(color_map1, color_sampler1, input.layer_uvs.xy);
+    let layer = sample_material(scene.texture_mip_scale, color_map1, color_sampler1, input.layer_uvs.xy);
     return shade_diffuse_layer_multiply(input, layer, layer.a * input.blend_color.g);
 }
 fn diffuse_reveal_multiply(input: ThreeLayerVaryings) -> vec4<f32> {
-    let layer = textureSample(color_map1, color_sampler1, input.layer_uvs.xy);
+    let layer = sample_material(scene.texture_mip_scale, color_map1, color_sampler1, input.layer_uvs.xy);
     let weight = native_world_layer_reveal_weight(input.blend_color.g, layer.a, reveal);
     return shade_diffuse_layer_multiply(input, layer, weight);
 }
@@ -640,7 +641,7 @@ fn shade_four_layer(input: FourLayerVaryings) -> vec4<f32> {
         input.uv_lightmap, input.normal_fog, input.fog_color, input.bitangent,
         input.tangent, input.eye_to_vertex, input.layer_uvs, input.normal_transform1,
         input.normal_transform2, input.reflection_correction);
-    let layer3 = textureSample(color_map3, color_sampler3, input.uv3_weight.xy);
+    let layer3 = sample_material(scene.texture_mip_scale, color_map3, color_sampler3, input.uv3_weight.xy);
     let multiplier = fma(vec3<f32>(input.uv3_weight.z), layer3.rgb - vec3<f32>(1.0), vec3<f32>(1.0));
     let gloss_scale = dot(multiplier, vec3<f32>(0.30000001192092896, 0.6000000238418579, 0.10000000149011612));
     return native_world_reveal_overlay_fragment(source, scene, reveal, true, vec4<f32>(multiplier, gloss_scale),

@@ -33,6 +33,14 @@ struct NativeWorldScene {
     sun_position: vec4<f32>,   // original cb0[18]
     sun_diffuse: vec4<f32>,    // original cb0[19]
     omni_lights: NativeOmniLights,
+    texture_mip_scale: f32,
+}
+
+// Apply Bevy's DLSS mip bias to surface textures. Scaling both
+// gradients preserves anisotropic filtering and the authored sampler state.
+fn sample_material(mip_scale: f32, image: texture_2d<f32>, image_sampler: sampler,
+    uv: vec2<f32>) -> vec4<f32> {
+    return textureSampleGrad(image, image_sampler, uv, dpdx(uv) * mip_scale, dpdy(uv) * mip_scale);
 }
 
 // pimp_shader_lmap_37a44012: combined_glight branch. Preserve the native
@@ -195,7 +203,7 @@ fn native_world_fragment(
     reflection_probe: texture_cube<f32>,
     reflection_sampler: sampler,
 ) -> vec4<f32> {
-    let normal_sample = textureSample(normal_map, normal_sampler, input.uv_lightmap.xy);
+    let normal_sample = sample_material(scene.texture_mip_scale, normal_map, normal_sampler, input.uv_lightmap.xy);
     let slopes = fma(normal_sample.xy, vec2<f32>(4.015748023986816), vec2<f32>(-2.0157480239868164));
     let mapped_normal = fma(vec3<f32>(slopes.y), input.bitangent,
         fma(vec3<f32>(slopes.x), input.tangent, input.normal_fog.xyz));
@@ -203,7 +211,7 @@ fn native_world_fragment(
     let incident = inverseSqrt(dot(input.eye_to_vertex, input.eye_to_vertex)) * input.eye_to_vertex;
     let reflection_direction = fma(normal, vec3<f32>(-2.0 * dot(incident, normal)), incident);
     let fresnel = exp2(clamp(dot(normal, -incident), 0.0, 1.0) * -9.279999732971191);
-    let color_sample = textureSample(color_map, color_sampler, input.uv_lightmap.xy);
+    let color_sample = sample_material(scene.texture_mip_scale, color_map, color_sampler, input.uv_lightmap.xy);
     let gloss = color_sample.a;
     let probe_sample = textureSampleLevel(reflection_probe, reflection_sampler, reflection_direction, fma(-4.0, gloss, 4.0));
     let probe = probe_sample.rgb / (probe_sample.a + 9.999999974752427e-07);

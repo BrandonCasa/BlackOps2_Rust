@@ -1,3 +1,4 @@
+import package::rendering::native_world::sample_material;
 // wpc_sw4_3d_burning_embers_nuketown_74j6971w, LIT:
 // VS9e139b80 / PSfbd23a5a. Original disassembly is in ember-{vs,ps}.asm.
 import package::rendering::native_world::{NativeWorldScene, NativeWorldObject,
@@ -57,7 +58,7 @@ fn native_ember_fragment(input: NativeEmberVaryings, scene: NativeWorldScene,
     let geometric_normal = inverseSqrt(dot(input.normal, input.normal)) * input.normal;
     let bitangent = fma(geometric_normal.yzx, input.tangent_sign.zxy,
         -(geometric_normal.zxy * input.tangent_sign.yzx)) * input.tangent_sign.w;
-    let normal_sample = textureSample(normal_map, normal_sampler, input.uv_lightmap.xy);
+    let normal_sample = sample_material(scene.texture_mip_scale, normal_map, normal_sampler, input.uv_lightmap.xy);
     let slopes = fma(normal_sample.rg, vec2<f32>(4.015748023986816), vec2<f32>(-2.0157480239868164));
     let mapped = fma(vec3<f32>(slopes.y), bitangent,
         fma(vec3<f32>(slopes.x), input.tangent_sign.xyz, geometric_normal));
@@ -68,7 +69,7 @@ fn native_ember_fragment(input: NativeEmberVaryings, scene: NativeWorldScene,
     let reflection_direction = fma(normal, vec3<f32>(-2.0 * dot(incident, normal)), incident);
     let reflection_sample = textureSampleLevel(probe, probe_sampler, reflection_direction, 4.0);
     let reflected = (1.0 / (reflection_sample.a + 9.999999974752427e-07)) * reflection_sample.rgb;
-    let control = textureSample(super_map, super_sampler, input.uv_lightmap.xy);
+    let control = sample_material(scene.texture_mip_scale, super_map, super_sampler, input.uv_lightmap.xy);
     let gloss_squared = control.b * control.b;
     let reflection_strength = clamp(fma(gloss_squared, 0.765625, -0.015625), 0.0, 1.0);
     let ambient_uv = input.uv_lightmap.zw * vec2<f32>(1.0, 0.3333333432674408);
@@ -96,10 +97,10 @@ fn native_ember_fragment(input: NativeEmberVaryings, scene: NativeWorldScene,
     let specular = fma(reflection, vec3<f32>(0.20000000298023224), sunlight * specular_strength);
     let offset = fract((scene.game_time.w * material.scale_direction_max.yz) * material.scale_direction_max.x);
     let ember_uv = fma(input.uv_lightmap.xy, vec2<f32>(material.scale_direction_max.x), offset);
-    var ember = textureSample(ember_map, ember_sampler, ember_uv);
+    var ember = sample_material(scene.texture_mip_scale, ember_map, ember_sampler, ember_uv);
     ember *= vec4<f32>(vec3<f32>(input.fog_flicker.w), 1.0);
     ember *= vec4<f32>(vec3<f32>(control.r), input.fog_flicker.w);
-    let diffuse = textureSample(diffuse_map, diffuse_sampler, input.uv_lightmap.xy);
+    let diffuse = sample_material(scene.texture_mip_scale, diffuse_map, diffuse_sampler, input.uv_lightmap.xy);
     let delta = fma(ember, vec4<f32>(6.0, 6.0, 6.0, control.r), -diffuse);
     let composed = fma(vec4<f32>(control.g), delta, diffuse) * input.color;
     let lit = composed.a * fma(composed.rgb * composed.rgb, diffuse_light, specular);

@@ -1,3 +1,4 @@
+import package::rendering::native_world::sample_material;
 import package::rendering::native_world::{NativeWorldScene, NativeWorldObject};
 import package::rendering::native_world::{NativeWorldVertexInput, native_world_vertex};
 import package::rendering::native_world_lava::{NativeLavaConstants, NativeLavaVaryings, native_lava_fragment};
@@ -118,21 +119,21 @@ fn vertex_no_fog(input: Input) -> Varyings {
 
 // PS4b1d2e0b: source gamma color squared, scaleRGB.x, fog, HDR, sqrt.
 fn shade_add(input: Varyings) -> vec4<f32> {
-    let color = textureSample(color_map, color_sampler, input.uv_fog.xy) * input.color;
+    let color = sample_material(scene.texture_mip_scale, color_map, color_sampler, input.uv_fog.xy) * input.color;
     let scaled = (color.rgb * color.rgb) * material.scale_rgb.x;
     return vec4<f32>(sqrt((scaled * input.uv_fog.z) * scene.hdr_control0.x), color.a);
 }
 
 // PS62b62074 weights green twice as much as red/blue, without HDR transfer.
 fn shade_decal_add(input: Varyings) -> vec4<f32> {
-    let color = textureSample(color_map, color_sampler, input.uv_fog.xy) * input.color;
+    let color = sample_material(scene.texture_mip_scale, color_map, color_sampler, input.uv_fog.xy) * input.color;
     let opacity = (color.a * dot(color.rbg, vec3<f32>(0.25, 0.25, 0.5))) * input.uv_fog.z;
     return vec4<f32>(opacity * color.rgb, opacity);
 }
 
 // PS5c3f6d9c fades toward the multiplicative identity in fog.
 fn shade_decal_multiply(input: Varyings) -> vec4<f32> {
-    let sample = textureSample(color_map, color_sampler, input.uv_fog.xy);
+    let sample = sample_material(scene.texture_mip_scale, color_map, color_sampler, input.uv_fog.xy);
     let delta = fma(sample.rgb, input.color.rgb, vec3<f32>(-1.0));
     let opacity = (sample.a * input.color.a) * input.uv_fog.z;
     return vec4<f32>(fma(vec3<f32>(opacity), delta, vec3<f32>(1.0)), opacity);
@@ -159,7 +160,7 @@ fn fragment_decal_multiply_srgb(input: Varyings) -> @location(0) vec4<f32> { ret
 
 // PS49c3292c: opaque unlit includes the source sun-dependent fog color.
 fn shade_replace(input: Varyings) -> vec4<f32> {
-    let color = textureSample(color_map, color_sampler, input.uv_fog.xy) * input.color;
+    let color = sample_material(scene.texture_mip_scale, color_map, color_sampler, input.uv_fog.xy) * input.color;
     let delta = fma(color.rgb * color.rgb, vec3<f32>(material.scale_rgb.x), -input.fog_color);
     let fogged = fma(vec3<f32>(input.uv_fog.z), delta, input.fog_color);
     return vec4<f32>(sqrt(fogged * scene.hdr_control0.x), color.a);

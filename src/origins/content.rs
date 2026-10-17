@@ -425,7 +425,6 @@ pub struct EnemyRagdoll {
     pub bones: Vec<RagdollBone>,
     pub joints: Vec<RagdollJoint>,
     pub baselerp: Vec<RagdollBaseLerp>,
-    pub self_pairs: Vec<[usize; 2]>,
 }
 
 #[derive(Clone, Deserialize)]

@@ -131,8 +131,6 @@ impl PhysicsTuning {
         let mut velocity = velocity;
         let mut wish = wish;
         if let Some(normal) = ground_normal {
-            velocity = ground_velocity(velocity, normal);
-            wish = ground_velocity(wish, normal);
             let speed = velocity.xz().length();
             let friction = if slick {
                 speed * 1.5
@@ -144,6 +142,9 @@ impl PhysicsTuning {
             } else {
                 velocity * ((speed - friction * dt).max(0.) / speed)
             };
+            // Native PM_WalkMove (008c64b0): friction, slope wish, acceleration.
+            // The caller projects the resulting velocity after acceleration.
+            wish = ground_velocity(wish, normal);
         }
         let speed = wish.length();
         if speed > 0. {
