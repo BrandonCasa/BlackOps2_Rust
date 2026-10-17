@@ -101,13 +101,6 @@ impl Category {
             Self::Spawns => "Tool Gun spawns",
         }
     }
-    fn description(self) -> &'static str {
-        match self {
-            Self::Cheats => "Change player abilities and control the world.",
-            Self::Weapons => "Click a weapon to equip it with full ammunition.",
-            Self::Spawns => "Choose an object, close the menu, then use the Tool Gun to place it.",
-        }
-    }
 }
 
 pub(super) fn install(app: &mut App) {
@@ -634,11 +627,7 @@ fn rebuild(
         )).with_children(|panel| {
             panel.spawn(Node { align_items: AlignItems::Center, justify_content: JustifyContent::SpaceBetween, flex_shrink: 0., ..default() })
                 .with_children(|header| {
-                    header.spawn(Node { flex_direction: FlexDirection::Column, row_gap: units(3.), ..default() })
-                        .with_children(|title| {
-                            title.spawn(text("ORIGINS  /  SANDBOX", 27.));
-                            title.spawn(text("Game paused", 13.)).insert(TextColor(Color::srgb(0.50, 0.72, 0.72)));
-                        });
+                    header.spawn(text("ORIGINS  /  SANDBOX", 27.));
                     header.spawn(button("Close", Click::Close, 0)).insert(Node { width: units(125.), height: units(40.), ..button_node() });
                 });
             panel.spawn(Node { flex_grow: 1., min_height: px(0.), column_gap: units(18.), ..default() })
@@ -648,16 +637,11 @@ fn rebuild(
                         for (index, category) in [Category::Cheats, Category::Weapons, Category::Spawns].into_iter().enumerate() {
                             sidebar.spawn(button(category.title(), Click::Category(category), index as i32 + 1));
                         }
-                        sidebar.spawn((text("Ctrl+1 / 2 / 3: switch section", 12.), Node { margin: UiRect::top(units(8.)), ..default() }));
-                        sidebar.spawn(text("F2  Tool Gun\nF3  Physics Gun\nF4  Normal weapon", 14.));
-                        sidebar.spawn((text("Tab / Shift+Tab: focus\nArrows: browse list\nEnter / Space: activate\nCtrl+F: search\nEsc / F1: close", 12.),
-                            Node { margin: UiRect::top(units(18.)), ..default() }));
                     });
                     body.spawn(Node { flex_grow: 1., min_width: px(0.), flex_direction: FlexDirection::Column,
                         row_gap: units(8.), ..default() }).with_children(|content| {
                         content.spawn(text(menu.category.title(), 22.));
-                        content.spawn(text(menu.category.description(), 13.));
-                        content.spawn(text("Search this list   /   Ctrl+F", 12.));
+                        content.spawn(text("Search", 12.));
                         content.spawn((Search, TextInput, EditableText { allow_newlines: false, ..default() },
                             TextLayout::no_wrap(), TextCursorStyle::default(), TabIndex(4),
                             TextFont::from_font_size(FontSize::Vh(16. / 7.2)), TextColor(Color::srgb(0.92, 0.95, 0.96)),
@@ -667,7 +651,7 @@ fn rebuild(
                             BackgroundColor(Color::srgb(0.045, 0.06, 0.075)),
                         ));
                         content.spawn((ResultCount, text(format!("{} items", rows.len()), 12.)));
-                        content.spawn((NoResults, text("No matching items. Try another name.", 16.),
+                        content.spawn((NoResults, text("No matches", 16.),
                             Node { display: Display::None, padding: UiRect::all(units(16.)), ..default() }));
                         content.spawn(Node { display: Display::Grid, flex_grow: 1., min_height: px(0.),
                             grid_template_columns: vec![RepeatedGridTrack::flex(1, 1.), RepeatedGridTrack::auto(1)],
@@ -692,7 +676,7 @@ fn rebuild(
                             });
                     });
                 });
-            panel.spawn((Notice, text("", 13.), Node { flex_shrink: 0., min_height: units(20.), ..default() }));
+            panel.spawn((Notice, text("", 13.), Node { display: Display::None, flex_shrink: 0., ..default() }));
         });
     });
 }
@@ -755,10 +739,8 @@ fn filter(
         return;
     }
     let query = search.value().to_string().trim().to_lowercase();
-    let mut total = 0;
     let mut visible = 0;
     for (row, mut node, mut tab) in &mut rows {
-        total += 1;
         let matches = row.search.contains(&query);
         visible += usize::from(matches);
         let display = if matches {
@@ -772,7 +754,7 @@ fn filter(
         tab.0 = if matches { 10 + row.index as i32 } else { -1 };
     }
     for mut text in &mut counts {
-        text.0 = format!("{visible} of {total} items");
+        text.0 = format!("{visible} items");
     }
     for mut node in &mut empty {
         node.display = if visible == 0 {
@@ -786,7 +768,7 @@ fn filter(
 fn refresh(
     cheats: Res<Cheats>,
     mut badges: Query<(Ref<Badge>, &mut Text, &mut TextColor)>,
-    mut notices: Query<(Ref<Notice>, &mut Text), Without<Badge>>,
+    mut notices: Query<(Ref<Notice>, &mut Text, &mut Node), Without<Badge>>,
 ) {
     for (badge, mut text, mut color) in &mut badges {
         if !cheats.is_changed() && !badge.is_added() {
@@ -814,20 +796,17 @@ fn refresh(
             Color::srgb(0.55, 0.69, 0.72)
         };
     }
-    for (notice, mut text) in &mut notices {
+    for (notice, mut text, mut node) in &mut notices {
         if !cheats.is_changed() && !notice.is_added() {
             continue;
         }
-        let value = if cheats.notice.is_empty() {
-            format!(
-                "Tool Gun selection: {}   /   Close the menu to return to the game.",
-                cheats.spawn.label()
-            )
+        node.display = if cheats.notice.is_empty() {
+            Display::None
         } else {
-            cheats.notice.clone()
+            Display::Flex
         };
-        if text.0 != value {
-            text.0 = value;
+        if text.0 != cheats.notice {
+            text.0.clone_from(&cheats.notice);
         }
     }
 }
