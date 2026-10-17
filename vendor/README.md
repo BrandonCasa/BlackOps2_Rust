@@ -1,9 +1,11 @@
-Bevy is a Git submodule of BrandonCasa/bevy's `release-0.20.0` branch. Origins records
-its own commit exposing dlss_wgpu's current-color bias texture to the SR node.
-Only `bevy_anti_alias` is overridden; other Bevy crates remain registry dependencies.
+Bevy is a Git submodule of BrandonCasa/bevy. Use the commit recorded by Origins,
+which includes native rendering support, DLSS current-color bias, and optional
+Neural Rendering. Cargo patches the Bevy crates to this checkout so the game,
+Avian, and renderer share the same engine and ECS types.
 
-Initialize with `git submodule update --init vendor/bevy`, then build normally
-with `cargo build --features dev-tools`.
+Initialize with `git submodule update --init --recursive`, then follow the
+[root setup and build instructions](../README.md). Development builds use
+`cargo build --features dev-tools --locked`; release builds omit `dev-tools`.
 
 Commit and push dependency changes in `vendor/bevy`, then commit its new revision
 in the game repository.
